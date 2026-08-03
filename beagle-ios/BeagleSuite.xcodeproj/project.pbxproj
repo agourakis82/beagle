@@ -67,6 +67,36 @@
 		BA11A000000000000000000D /* st-adormecido.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000C /* st-adormecido.png */; };
 		BA11A000000000000000000F /* st-atento.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000E /* st-atento.mp4 */; };
 		BA11A0000000000000000011 /* st-atento.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11A0000000000000000010 /* st-atento.png */; };
+		BA11B0000000000000000001 /* lp-acolhendo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000002 /* lp-acolhendo.mp4 */; };
+		BA11B0000000000000000003 /* lp-acolhendo.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000004 /* lp-acolhendo.png */; };
+		BA11B0000000000000000005 /* lp-adormecendo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000006 /* lp-adormecendo.mp4 */; };
+		BA11B0000000000000000007 /* lp-adormecendo.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000008 /* lp-adormecendo.png */; };
+		BA11B0000000000000000009 /* lp-buscando.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000000A /* lp-buscando.mp4 */; };
+		BA11B000000000000000000B /* lp-buscando.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000000C /* lp-buscando.png */; };
+		BA11B000000000000000000D /* lp-celebrando.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000000E /* lp-celebrando.mp4 */; };
+		BA11B000000000000000000F /* lp-celebrando.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000010 /* lp-celebrando.png */; };
+		BA11B0000000000000000011 /* lp-despertar.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000012 /* lp-despertar.mp4 */; };
+		BA11B0000000000000000013 /* lp-despertar.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000014 /* lp-despertar.png */; };
+		BA11B0000000000000000015 /* lp-escutando-longo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000016 /* lp-escutando-longo.mp4 */; };
+		BA11B0000000000000000017 /* lp-escutando-longo.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000018 /* lp-escutando-longo.png */; };
+		BA11B0000000000000000019 /* lp-firme.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000001A /* lp-firme.mp4 */; };
+		BA11B000000000000000001B /* lp-firme.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000001C /* lp-firme.png */; };
+		BA11B000000000000000001D /* lp-madrugada.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000001E /* lp-madrugada.mp4 */; };
+		BA11B000000000000000001F /* lp-madrugada.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000020 /* lp-madrugada.png */; };
+		BA11B0000000000000000021 /* lp-manha.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000022 /* lp-manha.mp4 */; };
+		BA11B0000000000000000023 /* lp-manha.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000024 /* lp-manha.png */; };
+		BA11B0000000000000000025 /* lp-olhar.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000026 /* lp-olhar.mp4 */; };
+		BA11B0000000000000000027 /* lp-olhar.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000028 /* lp-olhar.png */; };
+		BA11B0000000000000000029 /* lp-preocupado.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000002A /* lp-preocupado.mp4 */; };
+		BA11B000000000000000002B /* lp-preocupado.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000002C /* lp-preocupado.png */; };
+		BA11B000000000000000002D /* lp-reconhecendo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000002E /* lp-reconhecendo.mp4 */; };
+		BA11B000000000000000002F /* lp-reconhecendo.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000030 /* lp-reconhecendo.png */; };
+		BA11B0000000000000000031 /* lp-silencio.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000032 /* lp-silencio.mp4 */; };
+		BA11B0000000000000000033 /* lp-silencio.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000034 /* lp-silencio.png */; };
+		BA11B0000000000000000035 /* lp-sintetizando.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000036 /* lp-sintetizando.mp4 */; };
+		BA11B0000000000000000037 /* lp-sintetizando.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B0000000000000000038 /* lp-sintetizando.png */; };
+		BA11B0000000000000000039 /* lp-tempestade.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000003A /* lp-tempestade.mp4 */; };
+		BA11B000000000000000003B /* lp-tempestade.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11B000000000000000003C /* lp-tempestade.png */; };
 		BA11A0000000000000000013 /* st-ouvindo.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11A0000000000000000012 /* st-ouvindo.mp4 */; };
 		BA11A0000000000000000015 /* st-ouvindo.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11A0000000000000000014 /* st-ouvindo.png */; };
 		BA11A0000000000000000017 /* st-pensando.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11A0000000000000000016 /* st-pensando.mp4 */; };
@@ -196,6 +226,36 @@
 		BA11A000000000000000000C /* st-adormecido.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = st-adormecido.png; sourceTree = "<group>"; };
 		BA11A000000000000000000E /* st-atento.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = st-atento.mp4; sourceTree = "<group>"; };
 		BA11A0000000000000000010 /* st-atento.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = st-atento.png; sourceTree = "<group>"; };
+		BA11B0000000000000000002 /* lp-acolhendo.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-acolhendo.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000004 /* lp-acolhendo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-acolhendo.png; sourceTree = "<group>"; };
+		BA11B0000000000000000006 /* lp-adormecendo.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-adormecendo.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000008 /* lp-adormecendo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-adormecendo.png; sourceTree = "<group>"; };
+		BA11B000000000000000000A /* lp-buscando.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-buscando.mp4; sourceTree = "<group>"; };
+		BA11B000000000000000000C /* lp-buscando.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-buscando.png; sourceTree = "<group>"; };
+		BA11B000000000000000000E /* lp-celebrando.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-celebrando.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000010 /* lp-celebrando.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-celebrando.png; sourceTree = "<group>"; };
+		BA11B0000000000000000012 /* lp-despertar.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-despertar.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000014 /* lp-despertar.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-despertar.png; sourceTree = "<group>"; };
+		BA11B0000000000000000016 /* lp-escutando-longo.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-escutando-longo.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000018 /* lp-escutando-longo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-escutando-longo.png; sourceTree = "<group>"; };
+		BA11B000000000000000001A /* lp-firme.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-firme.mp4; sourceTree = "<group>"; };
+		BA11B000000000000000001C /* lp-firme.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-firme.png; sourceTree = "<group>"; };
+		BA11B000000000000000001E /* lp-madrugada.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-madrugada.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000020 /* lp-madrugada.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-madrugada.png; sourceTree = "<group>"; };
+		BA11B0000000000000000022 /* lp-manha.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-manha.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000024 /* lp-manha.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-manha.png; sourceTree = "<group>"; };
+		BA11B0000000000000000026 /* lp-olhar.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-olhar.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000028 /* lp-olhar.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-olhar.png; sourceTree = "<group>"; };
+		BA11B000000000000000002A /* lp-preocupado.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-preocupado.mp4; sourceTree = "<group>"; };
+		BA11B000000000000000002C /* lp-preocupado.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-preocupado.png; sourceTree = "<group>"; };
+		BA11B000000000000000002E /* lp-reconhecendo.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-reconhecendo.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000030 /* lp-reconhecendo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-reconhecendo.png; sourceTree = "<group>"; };
+		BA11B0000000000000000032 /* lp-silencio.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-silencio.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000034 /* lp-silencio.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-silencio.png; sourceTree = "<group>"; };
+		BA11B0000000000000000036 /* lp-sintetizando.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-sintetizando.mp4; sourceTree = "<group>"; };
+		BA11B0000000000000000038 /* lp-sintetizando.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-sintetizando.png; sourceTree = "<group>"; };
+		BA11B000000000000000003A /* lp-tempestade.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = lp-tempestade.mp4; sourceTree = "<group>"; };
+		BA11B000000000000000003C /* lp-tempestade.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = lp-tempestade.png; sourceTree = "<group>"; };
 		BA11A0000000000000000012 /* st-ouvindo.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = st-ouvindo.mp4; sourceTree = "<group>"; };
 		BA11A0000000000000000014 /* st-ouvindo.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = st-ouvindo.png; sourceTree = "<group>"; };
 		BA11A0000000000000000016 /* st-pensando.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = st-pensando.mp4; sourceTree = "<group>"; };
@@ -292,6 +352,36 @@
 				BA11A000000000000000000C /* st-adormecido.png */,
 				BA11A000000000000000000E /* st-atento.mp4 */,
 				BA11A0000000000000000010 /* st-atento.png */,
+				BA11B0000000000000000002 /* lp-acolhendo.mp4 */,
+				BA11B0000000000000000004 /* lp-acolhendo.png */,
+				BA11B0000000000000000006 /* lp-adormecendo.mp4 */,
+				BA11B0000000000000000008 /* lp-adormecendo.png */,
+				BA11B000000000000000000A /* lp-buscando.mp4 */,
+				BA11B000000000000000000C /* lp-buscando.png */,
+				BA11B000000000000000000E /* lp-celebrando.mp4 */,
+				BA11B0000000000000000010 /* lp-celebrando.png */,
+				BA11B0000000000000000012 /* lp-despertar.mp4 */,
+				BA11B0000000000000000014 /* lp-despertar.png */,
+				BA11B0000000000000000016 /* lp-escutando-longo.mp4 */,
+				BA11B0000000000000000018 /* lp-escutando-longo.png */,
+				BA11B000000000000000001A /* lp-firme.mp4 */,
+				BA11B000000000000000001C /* lp-firme.png */,
+				BA11B000000000000000001E /* lp-madrugada.mp4 */,
+				BA11B0000000000000000020 /* lp-madrugada.png */,
+				BA11B0000000000000000022 /* lp-manha.mp4 */,
+				BA11B0000000000000000024 /* lp-manha.png */,
+				BA11B0000000000000000026 /* lp-olhar.mp4 */,
+				BA11B0000000000000000028 /* lp-olhar.png */,
+				BA11B000000000000000002A /* lp-preocupado.mp4 */,
+				BA11B000000000000000002C /* lp-preocupado.png */,
+				BA11B000000000000000002E /* lp-reconhecendo.mp4 */,
+				BA11B0000000000000000030 /* lp-reconhecendo.png */,
+				BA11B0000000000000000032 /* lp-silencio.mp4 */,
+				BA11B0000000000000000034 /* lp-silencio.png */,
+				BA11B0000000000000000036 /* lp-sintetizando.mp4 */,
+				BA11B0000000000000000038 /* lp-sintetizando.png */,
+				BA11B000000000000000003A /* lp-tempestade.mp4 */,
+				BA11B000000000000000003C /* lp-tempestade.png */,
 				BA11A0000000000000000012 /* st-ouvindo.mp4 */,
 				BA11A0000000000000000014 /* st-ouvindo.png */,
 				BA11A0000000000000000016 /* st-pensando.mp4 */,
@@ -655,6 +745,36 @@
 				BA11A000000000000000000D /* st-adormecido.png in Resources */,
 				BA11A000000000000000000F /* st-atento.mp4 in Resources */,
 				BA11A0000000000000000011 /* st-atento.png in Resources */,
+				BA11B0000000000000000001 /* lp-acolhendo.mp4 in Resources */,
+				BA11B0000000000000000003 /* lp-acolhendo.png in Resources */,
+				BA11B0000000000000000005 /* lp-adormecendo.mp4 in Resources */,
+				BA11B0000000000000000007 /* lp-adormecendo.png in Resources */,
+				BA11B0000000000000000009 /* lp-buscando.mp4 in Resources */,
+				BA11B000000000000000000B /* lp-buscando.png in Resources */,
+				BA11B000000000000000000D /* lp-celebrando.mp4 in Resources */,
+				BA11B000000000000000000F /* lp-celebrando.png in Resources */,
+				BA11B0000000000000000011 /* lp-despertar.mp4 in Resources */,
+				BA11B0000000000000000013 /* lp-despertar.png in Resources */,
+				BA11B0000000000000000015 /* lp-escutando-longo.mp4 in Resources */,
+				BA11B0000000000000000017 /* lp-escutando-longo.png in Resources */,
+				BA11B0000000000000000019 /* lp-firme.mp4 in Resources */,
+				BA11B000000000000000001B /* lp-firme.png in Resources */,
+				BA11B000000000000000001D /* lp-madrugada.mp4 in Resources */,
+				BA11B000000000000000001F /* lp-madrugada.png in Resources */,
+				BA11B0000000000000000021 /* lp-manha.mp4 in Resources */,
+				BA11B0000000000000000023 /* lp-manha.png in Resources */,
+				BA11B0000000000000000025 /* lp-olhar.mp4 in Resources */,
+				BA11B0000000000000000027 /* lp-olhar.png in Resources */,
+				BA11B0000000000000000029 /* lp-preocupado.mp4 in Resources */,
+				BA11B000000000000000002B /* lp-preocupado.png in Resources */,
+				BA11B000000000000000002D /* lp-reconhecendo.mp4 in Resources */,
+				BA11B000000000000000002F /* lp-reconhecendo.png in Resources */,
+				BA11B0000000000000000031 /* lp-silencio.mp4 in Resources */,
+				BA11B0000000000000000033 /* lp-silencio.png in Resources */,
+				BA11B0000000000000000035 /* lp-sintetizando.mp4 in Resources */,
+				BA11B0000000000000000037 /* lp-sintetizando.png in Resources */,
+				BA11B0000000000000000039 /* lp-tempestade.mp4 in Resources */,
+				BA11B000000000000000003B /* lp-tempestade.png in Resources */,
 				BA11A0000000000000000013 /* st-ouvindo.mp4 in Resources */,
 				BA11A0000000000000000015 /* st-ouvindo.png in Resources */,
 				BA11A0000000000000000017 /* st-pensando.mp4 in Resources */,
