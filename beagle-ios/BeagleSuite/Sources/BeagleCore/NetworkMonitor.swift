@@ -13,6 +13,9 @@ public final class NetworkMonitor {
     public private(set) var isOnline: Bool = true
     /// Called on an offline→online transition (e.g. to trigger an outbox flush).
     @ObservationIgnored public var onReconnect: (() -> Void)?
+    /// Chamado na transição online→offline. É o momento certo de carregar o
+    /// modelo local: antes disso ele só ocupa memória que o iOS cobra de volta.
+    @ObservationIgnored public var onDisconnect: (() -> Void)?
 
     @ObservationIgnored private let monitor = NWPathMonitor()
     @ObservationIgnored private let queue = DispatchQueue(label: "dev.sounio.networkmonitor")
@@ -25,6 +28,7 @@ public final class NetworkMonitor {
                 let was = self.isOnline
                 self.isOnline = online
                 if online && !was { self.onReconnect?() }
+                if !online && was { self.onDisconnect?() }
             }
         }
         monitor.start(queue: queue)

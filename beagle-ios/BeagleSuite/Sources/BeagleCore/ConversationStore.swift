@@ -139,13 +139,23 @@ public final class ConversationStore {
         self.publicationScope = publicationScope
         // Drain the offline outbox to the memory spine the moment connectivity returns.
         NetworkMonitor.shared.onReconnect = { [weak self] in
-            Task { @MainActor in await self?.flushOutbox() }
+            Task { @MainActor in
+                await self?.flushOutbox()
+                // Voltou a rede: a nuvem responde e os 4,29 GB viram só risco.
+                LocalLLMEngine.shared.unload()
+            }
         }
         // Aquece o modelo local na abertura, se os pesos já estiverem aqui.
         // Carregar 8B leva dezenas de segundos; pagar isso quando a rede já caiu
         // é pagar no pior momento possível.
         print(String(format: "[Beagle] RAM fisica: %.2f GB", LocalLLMEngine.ramGBMedida))
-        Task { @MainActor in await LocalLLMEngine.shared.restaurarUltimoModelo() }
+        // Carregar o modelo na ABERTURA matava o app: o iOS mata em
+        // per-process-limit ~6,45 GB e os pesos sozinhos são 4,29 GB. Online ele
+        // não precisa do modelo — então só carrega quando a rede cai, e devolve
+        // a memória quando ela volta.
+        NetworkMonitor.shared.onDisconnect = {
+            Task { @MainActor in await LocalLLMEngine.shared.restaurarUltimoModelo() }
+        }
     }
 
     /// The active thread's id. Empty → falls back to the legacy single-thread id so an
@@ -365,6 +375,14 @@ public final class ConversationStore {
 
     /// Prompt do modelo NO APARELHO. Usa o grounding em cache quando existe; sem ele,
     /// cai no comportamento antigo em vez de falhar.
+    /// Mantém cabeça e cauda, descarta o meio, e diz que descartou.
+    static func enxuga(_ texto: String, teto: Int) -> String {
+        guard texto.count > teto else { return texto }
+        let cabeca = String(texto.prefix(teto * 6 / 10))
+        let cauda = String(texto.suffix(teto * 4 / 10))
+        return cabeca + "\n\n[…trecho omitido para caber na memória do aparelho…]\n\n" + cauda
+    }
+
     private func offlineGroundedPrompt(_ text: String) -> String {
         guard let grounding = cachedGrounding, !grounding.isEmpty else {
             return contextualizedUserText(text)
@@ -373,7 +391,11 @@ public final class ConversationStore {
             .filter { !$0.content.isEmpty }
             .map { "\($0.role == .user ? "Ele" : "Você"): \($0.content)" }
             .joined(separator: "\n")
-        var parts: [String] = [grounding]
+        // No aparelho, contexto é memória: cada mil tokens de prompt custam
+        // cache de KV, e o teto do processo é ~6,45 GB com 4,29 GB já ocupados
+        // pelos pesos. Manda o começo (quem ele é) e o fim (## Agora), corta o
+        // meio — é o meio que menos muda a resposta.
+        var parts: [String] = [Self.enxuga(grounding, teto: 9000)]
         if !recent.isEmpty {
             parts.append("## Conversa recente entre vocês\n" + recent)
         }
