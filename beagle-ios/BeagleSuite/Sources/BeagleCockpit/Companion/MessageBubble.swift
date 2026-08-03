@@ -27,6 +27,9 @@ struct MessageBubble: View {
     @State private var showGoDeep = false
     @State private var goDeepStore = GoDeepStore()
 
+    /// Âmbar do desenho da presença — a mesma brasa do ancestral de luz.
+    static let marcaAmbar = Color(red: 0.78, green: 0.48, blue: 0.29)
+
     private var isUser: Bool { message.role == .user }
     /// The text the user actually reads (the companion's note is stripped out) — what we copy,
     /// share, or send to Go-Deeper.
@@ -130,9 +133,11 @@ struct MessageBubble: View {
                     .padding(.vertical, 14)
                     .padding(.horizontal, BeagleSpacing.md)
             } else if isUser {
+                // Você sabe o que escreveu. A tela serve à voz dele.
                 Text(message.content)
-                    .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .font(BeagleFont.body.font.italic())
+                    .foregroundStyle(BeagleTheme.textPrimary.opacity(0.58))
+                    .multilineTextAlignment(.trailing)
                     .textSelection(.enabled)
                     .padding(.vertical, BeagleSpacing.sm)
                     .padding(.horizontal, BeagleSpacing.md)
@@ -147,13 +152,30 @@ struct MessageBubble: View {
             } else {
                 // Companion replies render real markdown — code blocks (with copy), lists,
                 // tables, headings, emphasis — instead of a flat string.
-                MarkdownText(text: parsed.message, inkColor: BeagleTheme.companionInk)
-                    .padding(.vertical, BeagleSpacing.sm)
-                    .padding(.horizontal, BeagleSpacing.md)
+                MarkdownText(
+                    text: parsed.message,
+                    inkColor: BeagleTheme.companionInk,
+                    bodyFont: .system(.body, design: .serif),
+                    lineSpacingPt: 6.5
+                )
+                .padding(.vertical, BeagleSpacing.sm)
+                .padding(.leading, BeagleSpacing.md)
+                .padding(.trailing, BeagleSpacing.sm)
             }
         }
-        .background(isUser ? BeagleTheme.userSurface : BeagleTheme.companionSurface, in: bubbleShape)
-        .frame(maxWidth: 540, alignment: isUser ? .trailing : .leading)
+        // Bolhas simétricas tratavam as duas falas como a mesma coisa. Não são:
+        // a sua é telegráfica, a dele é parágrafo. Moldura de altura inteira
+        // vira caixa; uma marca curta no início do turno é assinatura.
+        .overlay(alignment: .topLeading) {
+            if !isUser && !isThinking {
+                Capsule()
+                    .fill(Self.marcaAmbar)
+                    .frame(width: 2.5, height: 20)
+                    .padding(.top, BeagleSpacing.sm + 3)
+                    .padding(.leading, 3)
+            }
+        }
+        .frame(maxWidth: 620, alignment: isUser ? .trailing : .leading)
     }
 
     private var bubbleShape: UnevenRoundedRectangle {
@@ -233,6 +255,9 @@ private struct MemoryProvenanceChip: View {
 struct MarkdownText: View {
     let text: String
     var inkColor: Color = BeagleTheme.companionInk
+    /// A fala dele é para LER, não para escanear: serifa e entrelinha de leitura.
+    var bodyFont: Font = BeagleFont.body.font
+    var lineSpacingPt: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
@@ -240,7 +265,8 @@ struct MarkdownText: View {
                 blockView(block)
             }
         }
-        .font(BeagleFont.body.font)
+        .font(bodyFont)
+        .lineSpacing(lineSpacingPt)
         .foregroundStyle(inkColor)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)
