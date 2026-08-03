@@ -37,6 +37,11 @@ CRF="${CRF:-30}"
 SCALE_W="${SCALE_W:-640}"
 FPS="${FPS:-20}"
 XFADE="${XFADE:-1}"          # segundos de fechamento do laço
+# Material mais dinâmico (buscando, sintetizando: SSIM cru ~0.45) não fecha em
+# 1s. Fechar mais devagar sobe o SSIM mas encurta o laço — por isso a janela de
+# duração acompanha, em vez de reprovar por consequência do próprio ajuste.
+DUR_MIN="${DUR_MIN:-6.8}"
+DUR_MAX="${DUR_MAX:-7.3}"
 LOOPS=("${@:-}")
 if [ -z "${LOOPS[0]:-}" ]; then
   LOOPS=(st-adormecido st-atento st-ouvindo st-pensando)
@@ -94,8 +99,8 @@ for name in "${LOOPS[@]}"; do
   printf '%-18s %8.3f %10s %8s %8s\n' "$name" "$odur" "$osize" "${s_in:-?}" "${s_out:-?}"
 
   # critérios de aceite MEDIDOS
-  awk -v d="$odur" -v s="${s_out:-0}" -v n="$name" 'BEGIN{
-    if (d < 6.8 || d > 7.3) { printf "FALHA %s: duração %.3f fora de ~7.05s\n", n, d > "/dev/stderr"; exit 1 }
+  awk -v d="$odur" -v s="${s_out:-0}" -v n="$name" -v dmin="$DUR_MIN" -v dmax="$DUR_MAX" 'BEGIN{
+    if (d < dmin || d > dmax) { printf "FALHA %s: duração %.3f fora de [%.2f,%.2f]\n", n, d, dmin, dmax > "/dev/stderr"; exit 1 }
     if (s < 0.85)           { printf "FALHA %s: SSIM head↔tail %.3f < 0.85\n", n, s > "/dev/stderr"; exit 1 }
   }'
 done
