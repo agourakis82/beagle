@@ -858,6 +858,10 @@ function buildPersonalFloor({
 
 async function completeChatRequest(req, deps, options = {}) {
   const onToken = typeof options.onToken === "function" ? options.onToken : null;
+  // Presence/phase channel (see 2026-08-02-companion-presence-design.md §5). Lets the
+  // caller (the SSE route) tell the app WHERE we are in the ~25s wait — grounding vs
+  // voice — without inventing progress. Never carries model content.
+  const onPhase = typeof options.onPhase === "function" ? options.onPhase : null;
   const prompt = cleanString(req.body?.prompt);
   if (!prompt) {
     throw contractFailure(ErrorCode.BAD_REQUEST, "prompt is required");
@@ -1125,6 +1129,12 @@ async function completeChatRequest(req, deps, options = {}) {
         bytes: Buffer.byteLength(effectiveSystem || "", "utf8")
       }
     };
+  }
+
+  // Grounding is done here (measured ~6.0s of the ~25s TTFT); everything below is the
+  // voice. Tell the caller so the presence line can change with truth instead of a timer.
+  if (onPhase) {
+    try { onPhase({ phase: "voice" }); } catch { /* presence must never break the turn */ }
   }
 
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
@@ -2157,14 +2167,44 @@ export function registerMobileRoutes(app, deps) {
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     };
 
+    // Presence channel. DEDICATED envelope (`event`), never the `presence` key — that one
+    // already belongs to the final `done` event (the FLOOR layer). Reusing it would make a
+    // degraded `done` parse as presence on the client and hang the stream forever.
+    // Contract with the app: done → error → event → token, in that order.
+    let hb = null;
+    let firstToken = false;
+    const safeWrite = (payload) => {
+      try { writeEvent(payload); } catch { /* socket gone; nothing to do */ }
+    };
+    const stopHeartbeat = () => {
+      if (hb) { clearInterval(hb); hb = null; }
+    };
+    req.on("close", stopHeartbeat);
+
     try {
       let streamed = false;
+      // t≈0: one byte of body. This is also what unblocks the response headers through
+      // Cloudflare, which only flushes an SSE response once the first body byte arrives.
+      // Text is generic on purpose: it states what the SERVER is doing and claims nothing
+      // about memory content (invariante 3 — a presença não mente).
+      safeWrite({ event: "presence", phase: "grounding", text: "estou com você — montando o contexto" });
+      hb = setInterval(() => {
+        if (firstToken) { stopHeartbeat(); return; }
+        safeWrite({ event: "phase", phase: "alive" });
+      }, 10000);
+
       const completion = await completeChatRequest(req, deps, {
         onToken(token) {
           streamed = true;
+          if (!firstToken) { firstToken = true; stopHeartbeat(); }
           writeEvent({ token });
+        },
+        onPhase(info) {
+          if (firstToken) return;
+          safeWrite({ event: "phase", phase: info?.phase || "voice" });
         }
       });
+      stopHeartbeat();
       // Floor / non-streamed path: when the voice degrades to the floor it produces no
       // tokens via onToken. Emit the text now so a streaming client shows presence+state
       // instead of an empty bubble (the void this whole change exists to prevent).
@@ -2183,9 +2223,10 @@ export function registerMobileRoutes(app, deps) {
       });
       res.end();
     } catch (error) {
+      stopHeartbeat();
       const mapped = mapStatusCodeToErrorCode(error?.statusCode);
       const code = error?.code && ErrorCode[error.code] ? error.code : mapped.code;
-      writeEvent({
+      safeWrite({
         done: true,
         error: error?.message || "mobile chat stream failed",
         code
