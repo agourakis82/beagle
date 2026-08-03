@@ -1540,6 +1540,63 @@ public actor BeagleClient {
         return .staleError(lastError, source: "cockpit-mobile-gateway")
     }
 
+    // MARK: - Companion grounding (cache offline)
+
+    /// O pacote de identidade dele, montado pelo cluster: persona, biografia viva,
+    /// Sounio, continuidade. ~18 KB de texto.
+    public struct CompanionGrounding: Decodable, Sendable {
+        public let system: String
+        public let bytes: Int?
+    }
+
+    /// Busca o grounding para o app guardar em disco. Existe por um motivo concreto:
+    /// dentro do hospital a rede cai, e sem isto o modelo no aparelho responde como um
+    /// estranho educado usando o nome dele — justamente quando ele está mais sozinho.
+    public func fetchCompanionGrounding() async -> Truthful<CompanionGrounding> {
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        let body: [String: any Sendable] = ["space": "personal", "prompt": "grounding"]
+        var lastError = "grounding gateway unreachable"
+        let debugLabel = "[CompanionGrounding] POST /api/mobile/v1/companion/grounding"
+
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/companion/grounding", relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                request.timeoutInterval = 60
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = "HTTP \(statusCode)"
+                    print("[BeagleClient] \(debugLabel) HTTP \(statusCode)")
+                    continue
+                }
+                let envelope = try decoder.decode(MobileEnvelope<CompanionGrounding>.self, from: data)
+                guard envelope.ok != false, let payload = envelope.data else {
+                    lastError = envelope.error?.message ?? "grounding returned no data"
+                    continue
+                }
+                print("[BeagleClient] \(debugLabel) ok — \(payload.bytes ?? payload.system.count) bytes")
+                return Truthful(value: payload, mode: .observed, observedAt: .now, source: url.host, error: nil)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
+        return .staleError(lastError, source: "cockpit-mobile-gateway")
+    }
+
     // MARK: - Streaming chat (SSE: /api/mobile/v1/chat/stream)
     //
     // Streams tokens from the cockpit's SSE endpoint as they arrive — the user sees

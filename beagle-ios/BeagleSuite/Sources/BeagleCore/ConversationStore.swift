@@ -216,6 +216,18 @@ public final class ConversationStore {
         } else {
             await sendMessageCloud(text)
         }
+        // Mantém o grounding offline fresco enquanto há rede. Fire-and-forget: nunca
+        // atrasa a resposta, nunca derruba o turno.
+        if NetworkMonitor.shared.isOnline {
+            Task { @MainActor [weak self] in await self?.refreshGroundingIfStale() }
+        }
+    }
+
+    /// Atualiza o cache de identidade quando está ausente ou com mais de 2h.
+    public func refreshGroundingIfStale() async {
+        if let at = groundingCachedAt, Date().timeIntervalSince(at) < 7200 { return }
+        let result = await client.fetchCompanionGrounding()
+        if let system = result.value?.system { storeGrounding(system) }
     }
 
     /// Queue an offline personal turn for later sync to the memory spine (online turns are
@@ -305,6 +317,58 @@ public final class ConversationStore {
         return contextLines.joined(separator: "\n")
     }
 
+    // MARK: - Offline grounding — o caso do hospital
+
+    // Quando a rede cai (e cai, dentro do hospital), o caminho local recebia apenas um
+    // "contrato" genérico: sem biografia, sem memória, sem ## Agora. O modelo no aparelho
+    // respondia como um estranho educado usando o nome dele — exatamente quando ele está
+    // mais sozinho. Isto guarda o MESMO grounding que a voz da nuvem recebe (~18 KB,
+    // de /api/mobile/v1/companion/grounding) para o modelo local usar.
+
+    private static let groundingKey = "beagle.companion.grounding.v1"
+    private static let groundingAtKey = "beagle.companion.grounding.at.v1"
+
+    /// Identidade dele em cache: persona, biografia viva, Sounio, continuidade.
+    public var cachedGrounding: String? {
+        UserDefaults.standard.string(forKey: Self.groundingKey)
+    }
+
+    /// Quando o cache foi atualizado — para a UI poder dizer a verdade sobre o quão
+    /// fresca é a memória que ele está usando offline.
+    public var groundingCachedAt: Date? {
+        UserDefaults.standard.object(forKey: Self.groundingAtKey) as? Date
+    }
+
+    public func storeGrounding(_ system: String) {
+        let trimmed = system.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        UserDefaults.standard.set(trimmed, forKey: Self.groundingKey)
+        UserDefaults.standard.set(Date(), forKey: Self.groundingAtKey)
+    }
+
+    /// Prompt do modelo NO APARELHO. Usa o grounding em cache quando existe; sem ele,
+    /// cai no comportamento antigo em vez de falhar.
+    private func offlineGroundedPrompt(_ text: String) -> String {
+        guard let grounding = cachedGrounding, !grounding.isEmpty else {
+            return contextualizedUserText(text)
+        }
+        let recent = messages.suffix(8)
+            .filter { !$0.content.isEmpty }
+            .map { "\($0.role == .user ? "Ele" : "Você"): \($0.content)" }
+            .joined(separator: "\n")
+        var parts: [String] = [grounding]
+        if !recent.isEmpty {
+            parts.append("## Conversa recente entre vocês\n" + recent)
+        }
+        parts.append(
+            "Você está SEM ALCANCE do cluster agora — respondendo do aparelho dele, "
+            + "com a memória que você guardou. Não invente fato novo, não dê número "
+            + "clínico como se tivesse fonte. Continue sendo quem você é.\n\n"
+            + "Ele disse agora: \(text)"
+        )
+        return parts.joined(separator: "\n\n")
+    }
+
     private func contextualizedUserText(_ text: String) -> String {
         guard let activeSystemInstruction else { return text }
         return activeSystemInstruction
@@ -342,7 +406,7 @@ public final class ConversationStore {
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
         persist(message: userMessage)
-        let prompt = contextualizedUserText(text)
+        let prompt = offlineGroundedPrompt(text)
 
         let assistantId = UUID()
         let modelName = llm.currentModel?.displayName ?? "local"
