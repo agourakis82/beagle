@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import SQLite3
 import Observation
 import SwiftData
 
@@ -364,22 +365,39 @@ public final class ConversationStore {
         if !recent.isEmpty {
             parts.append("## Conversa recente entre vocês\n" + recent)
         }
+        // A base clínica entra ANTES da regra, para a regra poder apontar para ela.
+        // Achou o fármaco: o número tem que ser copiado do trecho, com citação.
+        // Não achou: continua a recusa — é o caso seguro, não o caso degradado.
+        let bula = BulaStore.shared.consulta(text)
+        if let bula {
+            parts.append(
+                "## Bula em cache (VERBATIM — única fonte de número permitida)\n"
+                + "Fármaco: \(bula.nomePT) (\(bula.generico))\n"
+                + "Citação: \(bula.citacao)\n\n"
+                + bula.texto)
+        }
+        let regraClinica = bula == nil
+            ? "REGRA DURA, sem exceção: você NÃO tem fonte clínica para este pedido. "
+                + "Se ele pedir dose, posologia, ajuste renal, diluição, velocidade de "
+                + "infusão, interação ou QUALQUER número clínico — você não dá o número. "
+                + "Nem aproximado, nem \"geralmente é\", nem em negrito, nem com ressalva "
+                + "depois. Você diz, na primeira frase, que está sem fonte. Depois ajuda do "
+                + "jeito que dá: o raciocínio, o que pesar, o que muda a conduta, o que "
+                + "conferir na bula ou no protocolo da instituição. Um número que você "
+                + "inventar aqui pode entrar num paciente."
+            : "REGRA CLÍNICA, sem exceção: todo número clínico que você disser tem que ser "
+                + "COPIADO do trecho de bula acima, e vir com a citação. Nunca converta, "
+                + "extrapole, arredonde ou \"ajuste\" um número do trecho. Diga de qual "
+                + "fármaco e de qual seção veio. Se o trecho não responder à pergunta dele, "
+                + "diga isso e não dê número. A bula é do rótulo aprovado nos EUA — se o "
+                + "protocolo da instituição dele divergir, o protocolo manda."
         parts.append(
             "Você está SEM ALCANCE do cluster agora — respondendo do aparelho dele, "
             + "com a memória que você guardou. Continue sendo quem você é: mesma voz, "
             + "mesma intimidade, mesmo rigor.\n\n"
-            + "REGRA DURA, sem exceção, enquanto estiver offline: você NÃO tem fonte "
-            + "clínica aqui. Se ele pedir dose, posologia, ajuste renal, diluição, "
-            + "velocidade de infusão, interação ou QUALQUER número clínico — você não "
-            + "dá o número. Nem aproximado, nem \"geralmente é\", nem em negrito, nem "
-            + "com ressalva depois. Você diz, na primeira frase, que está sem fonte. "
-            + "Depois ajuda do jeito que dá: o raciocínio, o que pesar, o que muda a "
-            + "conduta, o que conferir na bula ou no protocolo da instituição, o que "
-            + "perguntar a alguém. Um número que você inventar aqui pode entrar num "
-            + "paciente.\n\n"
-            + "Também não invente fato novo sobre a vida dele — só o que você guardou."
-            + "\n\nEle disse agora: \(text)"
-        )
+            + regraClinica
+            + "\n\nTambém não invente fato novo sobre a vida dele — só o que você guardou."
+            + "\n\nEle disse agora: \(text)")
         return parts.joined(separator: "\n\n")
     }
 
@@ -994,5 +1012,211 @@ public final class ConversationStore {
             }
         )
         return (try? modelContext.fetchCount(descriptor)) ?? 0
+    }
+}
+
+// MARK: - Base clínica citável (offline)
+
+/// Um trecho VERBATIM de bula aprovada, com a citação que o permite verificar.
+public struct BulaTrecho: Sendable {
+    public let nomePT: String
+    public let generico: String
+    public let citacao: String
+    public let texto: String
+}
+
+/// Base clínica offline: bulas aprovadas (openFDA/DailyMed) em SQLite, no bundle.
+///
+/// O propósito NÃO é ensinar o modelo. É dar a ele o parágrafo para COPIAR, com
+/// a fonte. Medido: sem isto, perguntado sobre enoxaparina profilática com
+/// ClCr~30, o modelo local respondeu "40 mg" — a bula diz 30 mg. O número não
+/// pode sair do peso da rede.
+public final class BulaStore: @unchecked Sendable {
+    public static let shared = BulaStore()
+
+    private struct Farmaco {
+        let id: Int64
+        let pt: String
+        let generico: String
+        let marcas: String
+        let citacao: String
+    }
+
+    private var db: OpaquePointer?
+    private var farmacos: [Farmaco] = []
+    public private(set) var disponivel = false
+
+    private init() {
+        let url = Bundle.main.url(forResource: "bula", withExtension: "sqlite")
+            ?? Bundle(for: BulaStore.self).url(forResource: "bula", withExtension: "sqlite")
+        guard let url else { return }
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else { return }
+        carregaIndice()
+        disponivel = !farmacos.isEmpty
+    }
+
+    private func carregaIndice() {
+        var st: OpaquePointer?
+        let sql = "SELECT id, nome_pt, generico, IFNULL(marcas,''), citacao FROM farmaco"
+        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(st) }
+        while sqlite3_step(st) == SQLITE_ROW {
+            farmacos.append(Farmaco(
+                id: sqlite3_column_int64(st, 0),
+                pt: Self.texto(st, 1),
+                generico: Self.texto(st, 2),
+                marcas: Self.texto(st, 3),
+                citacao: Self.texto(st, 4)))
+        }
+    }
+
+    private static func texto(_ st: OpaquePointer?, _ i: Int32) -> String {
+        guard let c = sqlite3_column_text(st, i) else { return "" }
+        return String(cString: c)
+    }
+
+    // Palavras que casariam por prefixo com nome de fármaco sem ser pedido de dose.
+    // Sem esta lista, "para o paciente" acha paracetamol.
+    private static let paradas: Set<String> = [
+        "para", "pare", "parar", "paciente", "pacientes", "dose", "doses", "dosagem",
+        "quanto", "quando", "quantos", "como", "onde", "porque", "pode", "posso",
+        "podia", "fazer", "faco", "tenho", "estou", "esta", "esse", "essa", "isso",
+        "aqui", "agora", "hoje", "noite", "manha", "tarde", "mais", "menos", "muito",
+        "pouco", "sobre", "ainda", "meu", "minha", "seu", "sua", "nao", "sim", "tudo",
+        "nada", "algum", "alguma", "plantao", "hospital", "leito", "anos", "idade",
+        "peso", "kilo", "quilo", "hora", "horas", "dias", "semana", "mesmo", "melhor",
+        "pior", "certo", "errado", "duvida", "ajuda", "preciso", "queria", "acho"
+    ]
+
+    // pergunta -> seção da bula que responde, e onde centrar a janela
+    private static let gatilhos: [(pergunta: String, secao: String, foco: String?)] = [
+        ("renal|clcr|cl cr|creatinin|dialis|tfg|clearance|nefro", "use_in_specific_populations",
+         "renal impairment|creatinine clearance|crcl|dialysis"),
+        ("hepat|cirros|child pugh", "use_in_specific_populations", "hepatic impairment|liver"),
+        ("gestan|gravid|gestacao|amament|lactan", "use_in_specific_populations", "pregnan|lactation|nursing"),
+        ("idoso|geriatr", "use_in_specific_populations", "geriatric|elderly"),
+        ("contraindic|nao pode usar", "contraindications", nil),
+        ("interac|junto com|associad", "drug_interactions", nil),
+        ("intoxic|superdos|overdose", "overdosage", nil)
+    ]
+
+    private static let janela = 1400
+    private static let teto = 4200
+
+    private func normaliza(_ s: String) -> String {
+        let f = s.folding(options: [.diacriticInsensitive, .caseInsensitive],
+                          locale: Locale(identifier: "pt_BR"))
+        return String(f.map { ($0.isLetter || $0.isNumber) ? $0 : " " })
+    }
+
+    private func casa(_ regex: String, _ texto: String) -> Bool {
+        texto.range(of: regex, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// A janela com mais densidade de dose entre todas as ocorrências do foco.
+    /// Pegar a primeira ocorrência deixava a tabela de ajuste renal de fora.
+    private func melhorJanela(_ texto: String, foco: String?) -> String {
+        let chars = Array(texto)
+        guard let foco, !chars.isEmpty else { return String(chars.prefix(Self.janela)) }
+        var inicios: [Int] = []
+        var busca = texto.startIndex..<texto.endIndex
+        while let r = texto.range(of: foco, options: [.regularExpression, .caseInsensitive], range: busca) {
+            inicios.append(texto.distance(from: texto.startIndex, to: r.lowerBound))
+            guard r.upperBound < texto.endIndex else { break }
+            busca = r.upperBound..<texto.endIndex
+        }
+        guard !inicios.isEmpty else { return String(chars.prefix(Self.janela)) }
+        var melhor = ""
+        var melhorPeso = -1
+        for i in inicios {
+            let ini = max(0, i - 350)
+            let fim = min(chars.count, ini + Self.janela)
+            let jan = String(chars[ini..<fim])
+            let doses = jan.ranges(pattern: "\\d+(\\.\\d+)?\\s?(mg|mcg|units|mL)").count
+            let renal = jan.ranges(pattern: "creatinine clearance|crcl|renal impairment|dialysis").count
+            // Um título de ajuste de dose vale mais que qualquer densidade: é a
+            // seção que existe para responder exatamente esta pergunta.
+            let cabecalho = jan.ranges(pattern: "dose reduction|dosage adjustment|dosage in patients with|dosage modification").count
+            let peso = cabecalho * 40 + doses * 3 + renal
+            if peso > melhorPeso { melhor = jan; melhorPeso = peso }
+        }
+        return melhor
+    }
+
+    private func secoes(_ fid: Int64) -> [String: (titulo: String, texto: String)] {
+        var out: [String: (String, String)] = [:]
+        var st: OpaquePointer?
+        let sql = "SELECT chave, titulo, texto FROM secao WHERE farmaco_id = ?"
+        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return out }
+        defer { sqlite3_finalize(st) }
+        sqlite3_bind_int64(st, 1, fid)
+        while sqlite3_step(st) == SQLITE_ROW {
+            out[Self.texto(st, 0)] = (Self.texto(st, 1), Self.texto(st, 2))
+        }
+        return out
+    }
+
+    /// Devolve o trecho verbatim, ou nil — e nil significa que o app deve recusar.
+    public func consulta(_ pergunta: String) -> BulaTrecho? {
+        guard disponivel else { return nil }
+        let q = normaliza(pergunta)
+        let tokens = q.split(separator: " ").map(String.init)
+            .filter { $0.count >= 4 && !Self.paradas.contains($0) }
+        guard !tokens.isEmpty else { return nil }
+
+        var achado: (pontos: Int, f: Farmaco)?
+        for f in farmacos {
+            var candidatos = [f.pt, f.generico]
+            candidatos += f.marcas.split(separator: ",").map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            for cand in candidatos {
+                for palavra in normaliza(cand).split(separator: " ").map(String.init) where palavra.count >= 4 {
+                    for t in tokens where palavra.hasPrefix(t) || t.hasPrefix(palavra) {
+                        if achado == nil || t.count > achado!.pontos {
+                            achado = (t.count, f)
+                        }
+                    }
+                }
+            }
+        }
+        guard let achado else { return nil }
+        let secs = secoes(achado.f.id)
+
+        var foco: String?
+        var extra: String?
+        for g in Self.gatilhos where casa(g.pergunta, q) {
+            foco = g.foco
+            extra = g.secao
+            break
+        }
+
+        var partes: [String] = []
+        if let dose = secs["dosage_and_administration"] {
+            partes.append("### Posologia e administração\n" + melhorJanela(dose.texto, foco: foco))
+        }
+        if let extra, let s = secs[extra] {
+            partes.append("### \(s.titulo)\n" + melhorJanela(s.texto, foco: foco))
+        }
+        if let bw = secs["boxed_warning"] {
+            partes.append("### Advertência em tarja preta\n" + String(bw.texto.prefix(600)))
+        }
+        guard !partes.isEmpty else { return nil }
+        let corpo = String(partes.joined(separator: "\n\n").prefix(Self.teto))
+        return BulaTrecho(nomePT: achado.f.pt, generico: achado.f.generico,
+                          citacao: achado.f.citacao, texto: corpo)
+    }
+}
+
+private extension String {
+    func ranges(pattern: String) -> [Range<String.Index>] {
+        var out: [Range<String.Index>] = []
+        var busca = startIndex..<endIndex
+        while let r = range(of: pattern, options: [.regularExpression, .caseInsensitive], range: busca) {
+            out.append(r)
+            guard r.upperBound < endIndex else { break }
+            busca = r.upperBound..<endIndex
+        }
+        return out
     }
 }

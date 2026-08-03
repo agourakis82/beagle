@@ -52,6 +52,7 @@
 		88C136823E49CE00F3BACA50 /* MatrixMathUtil.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4CE1683D1192E8680C94F682 /* MatrixMathUtil.swift */; };
 		8A5884FB4F1AAAAF5E951305 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 89A4FE3D86B15D992A7B5030 /* BeagleCore */; };
 		9186CB9B9DEC4901445A3C3A /* trellis_doodle.ply in Resources */ = {isa = PBXBuildFile; fileRef = 381B14E054CDB5B337BC4A52 /* trellis_doodle.ply */; };
+		BA1A501000000000000AA001 /* bula.sqlite in Resources */ = {isa = PBXBuildFile; fileRef = BA1A501000000000000AA002 /* bula.sqlite */; };
 		92B4E05E95660C6A18722F63 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = EC23CD7FEB1FC70A4E7192BF /* BeagleCore */; };
 		940357316D6ABA1C8BB85DF3 /* CognitiveRecall.swift in Sources */ = {isa = PBXBuildFile; fileRef = FCFA09876B0976760E929222 /* CognitiveRecall.swift */; };
 		947DC1F85670234F684A0FCF /* MetalSplatter in Frameworks */ = {isa = PBXBuildFile; productRef = BB39F53D2A16552DD1727933 /* MetalSplatter */; };
@@ -152,6 +153,7 @@
 		33C43E52CFE080A1A53483E0 /* MetalKitSceneRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalKitSceneRenderer.swift; sourceTree = "<group>"; };
 		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
 		381B14E054CDB5B337BC4A52 /* trellis_doodle.ply */ = {isa = PBXFileReference; path = trellis_doodle.ply; sourceTree = "<group>"; };
+		BA1A501000000000000AA002 /* bula.sqlite */ = {isa = PBXFileReference; path = bula.sqlite; sourceTree = "<group>"; };
 		3FADF6A9C3533B785FE38619 /* GoDeepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepView.swift; sourceTree = "<group>"; };
 		4023CB24CCDF9382D2F91CD3 /* ProviderSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSetupView.swift; sourceTree = "<group>"; };
 		4391CB65FB2D130CC3568338 /* BeagleCockpit.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleCockpit.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -357,6 +359,7 @@
 			isa = PBXGroup;
 			children = (
 				381B14E054CDB5B337BC4A52 /* trellis_doodle.ply */,
+				BA1A501000000000000AA002 /* bula.sqlite */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -609,6 +612,7 @@
 			files = (
 				88A28D4391FECECF547F0F1F /* Assets.xcassets in Resources */,
 				9186CB9B9DEC4901445A3C3A /* trellis_doodle.ply in Resources */,
+				BA1A501000000000000AA001 /* bula.sqlite in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -879,7 +883,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 56;
+				CURRENT_PROJECT_VERSION = 57;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -949,7 +953,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 56;
+				CURRENT_PROJECT_VERSION = 57;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
