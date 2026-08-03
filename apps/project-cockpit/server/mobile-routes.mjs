@@ -1105,6 +1105,16 @@ async function completeChatRequest(req, deps, options = {}) {
   // tudo para a conversa. Reaproveita a montagem acima em vez de duplicá-la — se o
   // grounding do chat mudar, o offline muda junto, sem drift.
   if (options.groundingOnly === true) {
+    // Este pacote vira o cérebro dele offline, dentro do hospital, sem rede para
+    // reclamar. Um 200 com system vazio encheria o cache do app de nada e só
+    // apareceria como frieza, tarde demais. Falha ruidosa aqui, sempre.
+    const groundingBytes = Buffer.byteLength(effectiveSystem || "", "utf8");
+    if (groundingBytes < 2000) {
+      throw contractFailure(
+        ErrorCode.RUNTIME_UNAVAILABLE,
+        `grounding incompleto: ${groundingBytes} bytes, seções=${auditSectionTitles.length}`
+      );
+    }
     return {
       status: 200,
       payload: {
