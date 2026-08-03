@@ -77,6 +77,35 @@ O maior desconforto medido não era visual: **~21s de tela morta** entre enviar 
 
 "Hands-on" com o celular na mão andando pela casa não se resolve com botão maior: resolve-se **não precisando de botão**. Segurar e falar; ele responde em voz e deixa a carta escrita como registro. Teclado continua disponível, secundário.
 
+### 6b. A voz DELE: boca, não mente — **provado em 2026-08-02**
+
+O companion fala com voz de verdade usando o realtime da xAI, mas **só como boca**. A mente continua sendo o Opus 5 com a memória e a proveniência dele.
+
+**Por que isso não é preciosismo:** um agente de voz realtime *pensa e fala*. Se ele responder direto, quem respondeu não tem a biografia, não tem o `## Agora`, não passou pelo filtro de confiança — é outra pessoa atendendo com a mesma cara. E foi um agente Grok que plantou o backdoor removido neste mesmo dia.
+
+**O que existe (medido, não presumido):**
+
+| endpoint | estado |
+|---|---|
+| `wss://api.x.ai/v1/realtime` | **101 Switching Protocols** — aberto |
+| `/v1/audio/speech` (TTS puro) | 403 — time sem permissão |
+| `/v1/agents` | 403 — não habilitado |
+
+Sessão devolve `model: grok-voice-think-fast-1.0`, `voice: "ara"`, `modalities: ["audio"]`.
+
+**Sequência do protocolo:**
+
+1. `session.update` — `modalities: ["audio","text"]`, `voice`, e as instruções de boca
+2. `conversation.item.create` — item `message`/`user` com o texto que o Opus compôs
+3. `response.create`
+4. chegam `response.output_audio.delta` (base64) + `response.output_audio_transcript.delta`
+
+**Teste verbatim (passou):** enviado um parágrafo real do companion, o transcript devolvido bateu palavra por palavra, 301 KB de áudio em pt-BR. Ele não respondeu, não comentou, não cumprimentou.
+
+**⚠️ A instrução é a única parede — e por isso precisa de guarda no cliente.** Não existe modo TTS estrutural que o impeça de opinar: ele obedeceu porque foi mandado. Diante de texto estranho, ou se a instrução se perder numa sessão longa, ele pode responder em vez de ler.
+
+**Guarda obrigatório:** comparar o `output_audio_transcript` devolvido com o texto enviado. Divergindo além de um limiar, **descartar o áudio e cair para texto**. A boca não pode virar mente por acidente — e falha de boca é silenciosa exatamente como as duas que a gente caçou hoje.
+
 ### 7. A chegada: ele já falou
 
 Quando há material, ao abrir o app ele **já disse algo** — vindo do `/synthesize`, com etiqueta visualmente distinta da fala em resposta.
@@ -90,6 +119,7 @@ Quando há material, ao abrir o app ele **já disse algo** — vindo do `/synthe
 3. **A presença não mente.** Sem Physiome, ela não inventa batimento: cai para respiração neutra declarada. Um corpo que finge dado é pior que um ícone parado.
 4. **Emoção reage, não diagnostica.** O laço emocional deriva do que **você escreveu**, nunca de inferência sobre o seu estado.
 5. **O chão continua.** Se tudo falhar, presença em vez de vazio — mas agora o `companion-health` grita quando isso acontece, em vez de o usuário descobrir sentindo frio.
+6. **A boca não pensa.** A voz da xAI vocaliza texto que o Opus já compôs, nunca gera resposta própria. Guarda no cliente compara transcript × texto enviado e descarta o áudio se divergir. Um agente de voz respondendo direto seria outro interlocutor com a cara dele — e sem proveniência.
 
 ---
 
@@ -111,6 +141,10 @@ Quando há material, ao abrir o app ele **já disse algo** — vindo do `/synthe
 | Streaming por frases exige mudança no proxy/servidor | Não desenhado ainda — precisa de plano próprio |
 | Latência de ~21s do `claude` CLI por request | Independente do streaming; alvo separado |
 | Consistência dos laços gerados sob demanda no futuro | Sempre re-derivar da mesma imagem-fonte |
+| Transcript veio duplicado no teste de voz | Provável bug de coleta meu (somei `delta` + `done`); confirmar antes de construir o guarda em cima |
+| `/v1/audio/speech` 403 | TTS puro eliminaria a ambiguidade "boca vs mente". Vale tentar habilitar no console do time — é o caminho limpo |
+| Latência do realtime não medida | Só provei que fala verbatim; falta medir tempo até o primeiro áudio para saber se cabe na cadência da conversa |
+| Voz "ara" é a única testada | Não sei quais outras existem nem se combinam com o registro dele |
 
 ---
 
