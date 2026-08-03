@@ -77,11 +77,20 @@ struct ChatComposer: View {
     @Binding var depth: ChatDepth
     var isStreaming: Bool
     var onSend: () -> Void
-    var onVoice: () -> Void
+    /// The voice turn for this composer. Held by the screen so it survives composer redraws;
+    /// the composer only drives the gesture and reads the state.
+    var voice: VoiceTurnController
+    /// A finished spoken turn. Same funnel as `onSend` on the screen side.
+    var onVoiceCommit: (String) -> Void
 
     @State private var pickedItem: PhotosPickerItem?
     @State private var attachedData: Data?
     @FocusState private var focused: Bool
+    /// When the long-press last engaged. SwiftUI still delivers the Button's `action` on
+    /// touch-up after a long hold, and the ordering against the gesture's `onEnded` is not
+    /// guaranteed — so a hold must be able to veto the tap that follows it, or every
+    /// push-to-talk turn would also toggle hands-free.
+    @State private var holdEngagedAt: Date?
     /// Accessibility: Reduce Transparency swaps the Liquid Glass for a solid material so the
     /// draft text never loses contrast over a busy aurora (iOS 27 contrast guidance).
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -110,47 +119,189 @@ struct ChatComposer: View {
                 // style) so the user picks how hard the companion works before sending.
                 depthGear
 
-                TextField("Fala comigo…", text: $text, axis: .vertical)
-                    .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.companionInk)
-                    .tint(BeagleTheme.truthObserved)
-                    .lineLimit(1...6)
-                    .focused($focused)
-                    .padding(.vertical, 4)
+                inputField
 
-                // ONE persistent Button — send-vs-mic is just which icon/action it wears right
-                // now, never a structural if/else. (See `canSend`'s doc comment: the old
-                // if/else identity-swap was the real remaining disappearing bug.) Streaming is
-                // shown as a quiet ring around the still full-opacity arrow, not a gray dim —
-                // the button is never hidden and never looks "broken".
-                Button(action: hasContent ? send : onVoice) {
-                    ZStack {
-                        if hasContent && isStreaming {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .tint(BeagleTheme.truthObserved.opacity(0.7))
-                                .scaleEffect(1.25)
-                        }
-                        Image(systemName: hasContent ? "arrow.up.circle.fill" : "mic.fill")
-                            .font(.system(size: hasContent ? 28 : 20))
-                            .foregroundStyle(hasContent ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
-                            .contentTransition(.symbolEffect(.replace))
-                    }
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(hasContent && !canSend)
-                .accessibilityLabel(hasContent ? (isStreaming ? "Enviando" : "Enviar") : "Voz")
-                .animation(.snappy(duration: 0.2), value: hasContent)
-                .animation(.snappy(duration: 0.2), value: isStreaming)
+                actionButton
             }
         }
         .padding(.vertical, BeagleSpacing.xs)
         .padding(.horizontal, BeagleSpacing.sm)
         .modifier(ComposerGlass(reduceTransparency: reduceTransparency))
         .onChange(of: pickedItem) { _, item in
-            Task { attachedData = try? await item?.loadTransferable(type: Data.self) }
+            Task<Void, Never> { attachedData = try? await item?.loadTransferable(type: Data.self) }
+        }
+        .onAppear {
+            // Routed through the composer, not straight to the screen, so a spoken turn goes
+            // through the same cleanup as a typed one and can never leave an orphan attachment
+            // stuck in the bar for the next message.
+            voice.onCommit = { spoken in
+                attachedData = nil
+                pickedItem = nil
+                onVoiceCommit(spoken)
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: voice.isListening)
+    }
+
+    // MARK: - Voice turn
+
+    /// Voice may only arm when the bar is idle: not while editing text (a long press inside a
+    /// TextField is the system's cursor/selection gesture), not while an attachment is pending
+    /// (that turn belongs to the arrow), and not mid-stream.
+    private var canArmVoice: Bool { !hasContent && !focused && !isStreaming }
+
+    private var voiceAccessibilityLabel: String {
+        if hasContent { return isStreaming ? "Enviando" : "Enviar" }
+        switch voice.phase {
+        case .cancelArmed: return "Solte para cancelar"
+        case .listening, .latched: return "Ouvindo"
+        case .arming: return "Abrindo o microfone"
+        case .denied: return "Microfone sem permissão"
+        case .idle: return "Voz"
+        }
+    }
+
+    /// Short tap = latch hands-free for this turn (and tap again to force the commit). A tap
+    /// that merely ends a hold is vetoed here.
+    private func micTapped() {
+        if let engaged = holdEngagedAt, Date().timeIntervalSince(engaged) < 3 {
+            holdEngagedAt = nil
+            return
+        }
+        guard canArmVoice || voice.isListening else { return }
+        Task<Void, Never> { await voice.toggleLatched() }
+    }
+
+    /// Hold to talk; drag up past the threshold to cancel. The finger is the endpoint
+    /// detector — the only one that works when the room is not quiet.
+    ///
+    /// The handlers are written out as methods with explicit types on purpose: inline
+    /// closures over a SequenceGesture value blew up the type-checker in this file.
+    private typealias VoiceGesture = SequenceGesture<LongPressGesture, DragGesture>
+
+    private var voiceGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.18)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+            .onChanged(handleVoiceGestureChange)
+            .onEnded(handleVoiceGestureEnd)
+    }
+
+    private func handleVoiceGestureChange(_ value: VoiceGesture.Value) {
+        switch value {
+        case .first(true):
+            guard canArmVoice else { return }
+            holdEngagedAt = Date()
+            Task<Void, Never> { await voice.beginHold() }
+        case .second(true, let drag):
+            guard let drag else { return }
+            voice.updateHold(translation: drag.translation.height)
+        default:
+            break
+        }
+    }
+
+    private func handleVoiceGestureEnd(_ value: VoiceGesture.Value) {
+        voice.endHold()
+    }
+
+    /// What the text field becomes while he is speaking: the words as they land, plus a level
+    /// bar that proves the microphone is actually hearing something.
+    private var listeningField: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            levelMeter
+            Text(listeningText)
+                .font(BeagleFont.body.font)
+                .foregroundStyle(voice.phase == .cancelArmed ? BeagleTheme.textSecondary : BeagleTheme.companionInk)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var listeningText: String {
+        if voice.phase == .cancelArmed { return "solta para cancelar" }
+        let t = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { return t }
+        return voice.phase == .latched ? "ouvindo · toca para enviar" : "ouvindo…"
+    }
+
+    /// Three bars breathing with the input level. Deliberately tiny — it is a proof of life,
+    /// not a visualization; the real feedback channel for this gesture is haptic.
+    private var levelMeter: some View {
+        let lvl = CGFloat(max(0.06, min(1, voice.level)))
+        return HStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { i in
+                Capsule()
+                    .fill(voice.phase == .cancelArmed ? BeagleTheme.textTertiary : BeagleTheme.truthObserved)
+                    .frame(width: 2.5, height: 6 + lvl * (i == 1 ? 16 : 10))
+            }
+        }
+        .frame(width: 14, height: 24)
+        .animation(.easeOut(duration: 0.12), value: voice.level)
+    }
+
+    /// The text field, or — while he is speaking — the live transcript. Swapping the FIELD's
+    /// content is safe; the forbidden swap is the Button's.
+    @ViewBuilder
+    private var inputField: some View {
+        if voice.isListening {
+            listeningField
+        } else {
+            TextField("Fala comigo…", text: $text, axis: .vertical)
+                .font(BeagleFont.body.font)
+                .foregroundStyle(BeagleTheme.companionInk)
+                .tint(BeagleTheme.truthObserved)
+                .lineLimit(1...6)
+                .focused($focused)
+                .padding(.vertical, 4)
+        }
+    }
+
+    /// ONE persistent Button — send-vs-mic is just which icon/action it wears right now, never
+    /// a structural if/else. (See `canSend`'s doc comment: the old if/else identity-swap was
+    /// the real remaining disappearing bug.) Streaming is shown as a quiet ring around the
+    /// still full-opacity arrow, not a gray dim — the button is never hidden and never looks
+    /// "broken". It lives in its own property purely so the type-checker can cope.
+    private var actionButton: some View {
+        // The ternary is INSIDE the closure, not on the Button: two partially-applied method
+        // references as a ternary is what the type-checker choked on, and swapping the Button
+        // itself is forbidden (see canSend).
+        Button(action: { hasContent ? send() : micTapped() }) {
+            ZStack {
+                if hasContent && isStreaming {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(BeagleTheme.truthObserved.opacity(0.7))
+                        .scaleEffect(1.25)
+                }
+                Image(systemName: hasContent ? "arrow.up.circle.fill" : "mic.fill")
+                    .font(.system(size: hasContent ? 28 : 20))
+                    .foregroundStyle(micTint)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(width: 44, height: 44)   // HIG minimum: 34 was unhittable without looking
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(hasContent && !canSend)
+        .accessibilityLabel(voiceAccessibilityLabel)
+        .accessibilityHint(hasContent ? "" : "Segure para falar, arraste para cima para cancelar")
+        .scaleEffect(voice.isListening ? 1.12 : 1.0)
+        // simultaneousGesture, never .gesture: .gesture would swallow the Button's own action
+        // and trade the send tap for the hold. The Button's identity is untouched.
+        .simultaneousGesture(voiceGesture)
+        .animation(.snappy(duration: 0.2), value: hasContent)
+        .animation(.snappy(duration: 0.2), value: isStreaming)
+        .animation(.snappy(duration: 0.2), value: voice.isListening)
+    }
+
+    private var micTint: Color {
+        if hasContent { return BeagleTheme.truthObserved }
+        switch voice.phase {
+        case .cancelArmed: return BeagleTheme.textTertiary
+        case .listening, .latched, .arming: return BeagleTheme.truthObserved
+        default: return BeagleTheme.textSecondary
         }
     }
 

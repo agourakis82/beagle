@@ -22,7 +22,9 @@ import SwiftUI
 import BeagleCore
 
 struct AuroraPresence: View {
-    let breathRate: Double?
+    /// Ritmo declarado. `.neutral` (Physiome mudo) respira mais lento E mais raso —
+    /// antes isto era `breathRate ?? 5.5`, um ritmo inventado indistinguível de um medido.
+    let breath: PresenceBreath
     let weather: SpaceWeatherStore.Snapshot?
     let isStreaming: Bool
     let size: Size
@@ -54,11 +56,8 @@ struct AuroraPresence: View {
     /// Number of overlapping curtains. More drapes when geomagnetically active.
     private var drapeCount: Int { 3 + Int(round(kpIntensity * 3)) }   // 3…6
 
-    /// Breath period in seconds.
-    private var breathPeriod: Double {
-        let bpm = max(4.0, min(20.0, breathRate ?? 5.5))
-        return 60.0 / bpm
-    }
+    /// Breath period in seconds — vem do tipo, sem default silencioso.
+    private var breathPeriod: Double { breath.period }
 
     /// Pulse base — slow normally, faster during streaming (companion is talking).
     private var streamingBoost: Double { isStreaming ? 1.6 : 1.0 }
@@ -81,7 +80,7 @@ struct AuroraPresence: View {
 
         // Breath modulates overall brightness.
         let breath = (sin(time * .pi * 2 / breathPeriod) + 1) / 2
-        let pulse = 0.85 + 0.30 * breath
+        let pulse = 0.85 + 0.30 * self.breath.amplitude * breath
 
         // Slow hue rotation — full cycle every 90s.
         let hueShift = (time / 90).truncatingRemainder(dividingBy: 1)

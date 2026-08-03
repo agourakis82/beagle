@@ -1622,7 +1622,12 @@ public actor BeagleClient {
         solarWind: Double? = nil,
         bz: Double? = nil,
         voiceModel: String? = nil,
-        deepThink: Bool = false
+        deepThink: Bool = false,
+        // Presence channel (2026-08-02-companion-presence-design.md §5): the server writes
+        // {"event":"presence"|"phase", ...} at t≈0 and while it waits. Optional callback
+        // instead of widening the stream element type, so the other call-site
+        // (DailySynthesisView) keeps compiling untouched. Invoked off the main actor.
+        onPhase: (@Sendable (String, String) -> Void)? = nil
     ) -> AsyncThrowingStream<String, Error> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1713,15 +1718,28 @@ public actor BeagleClient {
                                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                                 continue
                             }
-                            if let token = obj["token"] as? String, !token.isEmpty {
-                                continuation.yield(token)
-                            } else if obj["done"] as? Bool == true {
+                            // ORDER IS CONTRACT: done → error → event → token. `done` carries a
+                            // `presence` field of its own (the FLOOR layer) — checking presence
+                            // first would swallow every degraded `done` and hang the stream.
+                            if obj["done"] as? Bool == true {
+                                if let err = obj["error"] as? String {
+                                    continuation.finish(throwing: NSError(domain: "BeagleChatStream", code: -1,
+                                        userInfo: [NSLocalizedDescriptionKey: err]))
+                                    return
+                                }
                                 continuation.finish()
                                 return
                             } else if let err = obj["error"] as? String {
                                 continuation.finish(throwing: NSError(domain: "BeagleChatStream", code: -1,
                                     userInfo: [NSLocalizedDescriptionKey: err]))
                                 return
+                            } else if let event = obj["event"] as? String,
+                                      event == "presence" || event == "phase" {
+                                let phase = obj["phase"] as? String ?? event
+                                let text = obj["text"] as? String ?? ""
+                                onPhase?(phase, text)
+                            } else if let token = obj["token"] as? String, !token.isEmpty {
+                                continuation.yield(token)
                             }
                         }
                         continuation.finish()

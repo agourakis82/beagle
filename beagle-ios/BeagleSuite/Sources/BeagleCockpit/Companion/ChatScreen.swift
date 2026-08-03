@@ -14,9 +14,10 @@ import BeagleCore
 
 public struct ChatScreen: View {
     let store: ConversationStore   // @Observable — SwiftUI tracks property reads in body
-    /// User's real respiratory rate (breaths/min, from PhysioStore/HealthKit) so the companion
-    /// breathes at the user's pace; nil → calm resting default.
-    let breathRate: Double?
+    /// Ritmo declarado da respiração (PhysioStore/HealthKit). `.neutral` quando o
+    /// Physiome está mudo — e aí a presença respira visivelmente mais raso, em vez
+    /// de fingir um ritmo.
+    let breath: PresenceBreath
     /// Live geomagnetic snapshot for AuroraPresence. nil → calm placeholder; the
     /// store keeps refreshing in the background so this updates naturally.
     let weather: SpaceWeatherStore.Snapshot?
@@ -41,6 +42,15 @@ public struct ChatScreen: View {
     /// feature in the app. Drawer footer.
     var onOpenWork: (() -> Void)?
     @State private var draft = ""
+    /// Última vez que o usuário mexeu em alguma coisa. `nil` → ainda não mexeu nesta
+    /// sessão, e nesse caso a presença NÃO adormece (abrir o app e ficar lendo não é
+    /// abandono).
+    @State private var lastInteraction: Date?
+    /// Relógio grosso (30s) só para a ociosidade poder virar `adormecido` sem que nada
+    /// mais na tela mude. Não é um timer de animação.
+    @State private var idleTick = Date()
+    /// The voice turn. Owned by the screen so a composer redraw never drops a live recording.
+    @State private var voice = VoiceTurnController()
     @State private var appeared = false
     /// ONE sheet for the whole screen — multiple `.sheet(isPresented:)` on the same view conflict
     /// in SwiftUI (the second silently breaks the first, which is why the drawer stopped opening).
@@ -57,9 +67,12 @@ public struct ChatScreen: View {
     /// Accessibility: when the user turns on Reduce Transparency, glass falls back to a
     /// solid material so text/controls stay legible (iOS 27's contrast guidance).
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// A hold whose release event never arrives (incoming call, backgrounding) would leave the
+    /// microphone open. Leaving the foreground closes the turn.
+    @Environment(\.scenePhase) private var scenePhase
 
     public init(store: ConversationStore,
-                breathRate: Double? = nil,
+                breath: PresenceBreath = .neutral,
                 weather: SpaceWeatherStore.Snapshot? = nil,
                 posture: CognitivePosture? = nil,
                 onOpenSettings: (() -> Void)? = nil,
@@ -70,7 +83,7 @@ public struct ChatScreen: View {
                 unreadDreamInsightCount: Int = 0,
                 onOpenWork: (() -> Void)? = nil) {
         self.store = store
-        self.breathRate = breathRate
+        self.breath = breath
         self.weather = weather
         self.posture = posture
         self.onOpenSettings = onOpenSettings
@@ -80,6 +93,23 @@ public struct ChatScreen: View {
         self.onOpenDreamInsights = onOpenDreamInsights
         self.unreadDreamInsightCount = unreadDreamInsightCount
         self.onOpenWork = onOpenWork
+    }
+
+    /// Estado da presença. Toda a regra vive em `PresenceResolver` (puro, testado em
+    /// BeagleCoreTests); aqui só se colhem as entradas.
+    ///
+    /// `composerFocused` é aproximado por "há rascunho digitado": o foco de teclado
+    /// mora dentro do ChatComposer e não é exposto para cá. Vale mais errar para
+    /// menos (não ficar em `ouvindo` com o composer vazio) do que instrumentar o
+    /// composer inteiro neste corte.
+    private var presenceState: PresenceState {
+        PresenceResolver(
+            isStreaming: store.isStreaming,
+            isVoiceListening: voice.isListening,
+            composerFocused: !draft.isEmpty,
+            isActive: scenePhase == .active,
+            lastInteraction: lastInteraction
+        ).state(now: idleTick)
     }
 
     public var body: some View {
@@ -115,6 +145,20 @@ public struct ChatScreen: View {
             if ProcessInfo.processInfo.arguments.contains("--demo-chat") {
                 store.seedDemoConversation()
             }
+            // Warm the on-device speech assets now so the first hold doesn't eat the first
+            // three words. Fire-and-forget and time-boxed inside the controller.
+            voice.prewarm()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { voice.handleResignActive() }
+            if phase == .active { lastInteraction = .now; idleTick = .now }
+        }
+        .onChange(of: draft) { _, _ in lastInteraction = .now }
+        .onChange(of: store.messages.count) { _, _ in lastInteraction = .now }
+        // 30s é grosso de propósito: só existe para a ociosidade poder virar
+        // `adormecido`. Nada de animação depende disto.
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now in
+            idleTick = now
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.55)) { appeared = true }
@@ -138,14 +182,23 @@ public struct ChatScreen: View {
             HStack(spacing: BeagleSpacing.sm) {
                 topBarButton("line.3.horizontal") { activeSheet = .history }
                 Spacer(minLength: BeagleSpacing.sm)
-                Text(store.currentConversationTitle)
-                    .font(BeagleFont.subheadline.font.weight(.semibold))
-                    .foregroundStyle(BeagleTheme.companionInk)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    // Legibility over the variable aurora — a soft dark halo keeps the title
-                    // readable whether it floats over bright green or deep night.
-                    .shadow(color: .black.opacity(0.45), radius: 4, y: 0.5)
+                VStack(spacing: 2) {
+                    Text(store.currentConversationTitle)
+                        .font(BeagleFont.subheadline.font.weight(.semibold))
+                        .foregroundStyle(BeagleTheme.companionInk)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        // Legibility over the variable aurora - a soft dark halo keeps the title
+                        // readable whether it floats over bright green or deep night.
+                        .shadow(color: .black.opacity(0.45), radius: 4, y: 0.5)
+                    // The Agora block distilled to three words: day-part, hour, readiness (when
+                    // HealthKit has a signal). Same vocabulary the server puts in the model
+                    // own Agora block - never invents a state the model was not given.
+                    Text(agoraStrip)
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .shadow(color: .black.opacity(0.45), radius: 4, y: 0.5)
+                }
                 Spacer(minLength: BeagleSpacing.sm)
                 topBarButton("square.and.pencil") {
                     withAnimation(.easeOut(duration: 0.25)) { store.newConversation() }
@@ -190,18 +243,32 @@ public struct ChatScreen: View {
     // Chatting: dimmer and pulled to upper third so the conversation reads.
     private var presenceBackground: some View {
         let empty = store.messages.isEmpty
-        return AuroraPresence(
-            breathRate: breathRate,
-            weather: weather,
-            isStreaming: store.isStreaming,
-            size: empty ? .greeter : .header
-        )
-        // Inspiring when empty (greeter); a quiet whisper behind the text when reading, so the
-        // conversation stays the hero (the user: "a aurora no fundo é inspiradora, sabendo fazer
-        // design não atrapalha").
-        .opacity(empty ? 0.9 : 0.28)
+        // ATENÇÃO: cada camada tem a SUA opacidade. Antes havia um único
+        // `.opacity(empty ? 0.9 : 0.28)` no retorno da propriedade; herdá-lo deixaria
+        // o primordial a 28% justamente enquanto se lê — o efeito "fantasma".
+        return ZStack {
+            // Atrás: a aurora continua (foi construída de propósito e o usuário gosta
+            // dela), mas rebaixada a cenário do cenário para não virar sopa visual.
+            AuroraPresence(
+                breath: breath,
+                weather: weather,
+                isStreaming: store.isStreaming,
+                size: empty ? .greeter : .header
+            )
+            .opacity(empty ? 0.55 : 0.16)
+            .animation(.easeOut(duration: 0.35), value: empty)
+
+            // Na frente: o bicho. Máscara radial e curva própria de opacidade vivem
+            // dentro de PrimordialPresence.
+            PrimordialPresence(
+                state: presenceState,
+                breath: breath,
+                sky: weather?.band ?? .calm
+            )
+            .opacity(empty ? 0.95 : 0.55)
+            .animation(.easeOut(duration: 0.35), value: empty)
+        }
         .allowsHitTesting(false)
-        .animation(.easeOut(duration: 0.35), value: empty)
     }
 
     // Top-right "novo" button — clears the conversation thread. Floats over the
@@ -303,6 +370,17 @@ public struct ChatScreen: View {
                         )
                         .id(message.id)
                     }
+                    // Presence LAYER — a murmur about the wait, not a line of his letter.
+                    // Lives outside the message list so server-authored text never renders
+                    // in serif as his voice (desenho 2026-08-02, item 5).
+                    if store.isStreaming, let note = store.presenceNote, !note.isEmpty {
+                        Text(note)
+                            .font(BeagleFont.footnote.font.italic())
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, BeagleSpacing.xs)
+                            .transition(.opacity)
+                    }
                     // clearance so the floating composer never covers the last line
                     Color.clear.frame(height: 72).id(Self.bottomAnchor)
                 }
@@ -351,7 +429,8 @@ public struct ChatScreen: View {
             depth: $depth,
             isStreaming: store.isStreaming,
             onSend: send,
-            onVoice: {}     // TODO: voice capture
+            voice: voice,
+            onVoiceCommit: sendText
         )
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.bottom, BeagleSpacing.sm)
@@ -378,6 +457,42 @@ public struct ChatScreen: View {
         .padding(.horizontal, BeagleSpacing.xl)
     }
 
+    // MARK: - Agora strip (top bar)
+
+    /// Day-part word for the top bar. Same hour buckets as BodyStory.salutation so the
+    /// greeting and the strip never disagree about what time of day it is.
+    private var periodWord: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12:  return "manhã"
+        case 12..<18: return "tarde"
+        case 18..<24: return "noite"
+        default:      return "madrugada"
+        }
+    }
+
+    private var hourString: String {
+        "\(Calendar.current.component(.hour, from: Date()))h"
+    }
+
+    /// Same readiness word the server puts in the model's ## Agora block
+    /// (temporal-context.mjs readinessPtBR) — derived from store.physioSummary, NOT
+    /// posture, so the strip never contradicts what the model was just told. nil when
+    /// there's no HealthKit signal to derive it from (never invents a state).
+    private var stateWord: String? {
+        switch store.physioSummary?.readiness {
+        case .restored: return "recuperado"
+        case .steady: return "estável"
+        case .strained: return "tenso"
+        case .unavailable, .none: return nil
+        }
+    }
+
+    private var agoraStrip: String {
+        var parts = [periodWord, hourString]
+        if let stateWord { parts.append(stateWord) }
+        return parts.joined(separator: " · ")
+    }
+
     /// Body-as-story snapshot. Reads the wired store (flow ← HRV); `--demo` injects a
     /// realistic body state so the attuned greeting renders without live HealthKit (sim).
     private var physioSnapshot: PhysioSnapshot {
@@ -394,8 +509,12 @@ public struct ChatScreen: View {
 
     // MARK: - Send
 
-    private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func send() { sendText(draft) }
+
+    /// The single funnel for a turn, typed or spoken. Extracted so the voice commit inherits
+    /// the Fundo escalation and the voiceModel routing instead of quietly duplicating them.
+    private func sendText(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         // Fundo = escalate to a full Go-Deeper exploration instead of a chat turn.
         if depth == .fundo {

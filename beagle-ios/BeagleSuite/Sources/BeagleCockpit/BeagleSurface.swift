@@ -92,7 +92,12 @@ struct BeagleSurface: View {
 
             ChatScreen(
                 store: conversation,
-                breathRate: physio.cognitivePosture.respiratoryRate,
+                // Os DOIS precisam existir: sem `observedAt` o dado não foi observado,
+                // e uma leitura velha demais deixa de valer como agora.
+                breath: PresenceBreath.from(
+                    bpm: physio.cognitivePosture.respiratoryRate,
+                    observedAt: physio.cognitivePosture.observedAt
+                ).resolved(now: .now),
                 weather: spaceWeather.latest,
                 posture: physio.cognitivePosture,
                 onOpenSettings: { activeSheet = .settings },

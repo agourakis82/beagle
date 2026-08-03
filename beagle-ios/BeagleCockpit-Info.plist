@@ -64,11 +64,11 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Beagle records the weather (temperature, atmospheric pressure, humidity) at your current location so the exocortex can correlate your environment with how you feel.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Beagle uses the microphone for voice commands.</string>
+	<string>Para você falar com o companion em vez de digitar. O áudio é transcrito no próprio aparelho e descartado — nada de áudio bruto sai do iPhone.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Beagle reads the device barometer to record the exact local atmospheric pressure where you are.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Beagle uses speech recognition for voice commands.</string>
+	<string>Para transformar a sua fala em texto aqui no aparelho, sem enviar áudio para nenhum servidor.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>dev.sounio.cockpit.viewProject</string>

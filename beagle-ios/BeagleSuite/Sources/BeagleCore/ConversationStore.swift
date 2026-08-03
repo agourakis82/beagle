@@ -80,6 +80,11 @@ public final class ConversationStore {
 
     public private(set) var messages: [ChatMessage] = []
     public private(set) var isStreaming: Bool = false
+    /// Presence LAYER — never the letter. The server writes a presence/phase event at t≈0
+    /// of the ~25s wait so the silence reads as listening. It lives outside `messages` on
+    /// purpose: server-authored text must never end up in the slot that renders as HIS voice
+    /// (desenho 2026-08-02, item 4 vs item 5). Cleared the instant a real token arrives.
+    public private(set) var presenceNote: String? = nil
     public private(set) var autoImportState: ConversationAutoImportState = .idle
 
     /// When the user last sent a cloud message — the client owns the thread, so it sends
@@ -564,6 +569,9 @@ public final class ConversationStore {
         let previousContact = lastContactAt
         lastContactAt = Date()
 
+        // Presence is a signal about THIS turn; it must not survive it, on any exit path.
+        defer { presenceNote = nil }
+
         // STREAM tokens live from /api/mobile/v1/chat/stream. The user sees the
         // companion typing as the model emits — no more 7-9s frozen wait.
         // Falls back to the buffered /chat endpoint on stream failure so the chat
@@ -583,18 +591,60 @@ public final class ConversationStore {
             sleepHours: physioSummary?.sleepHours,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
-            voiceModel: voiceModel
+            voiceModel: voiceModel,
+            // Presence: written to the presence LAYER, not to the message slot — so the
+            // on-device quickAck (which owns that slot) always wins, by construction, and
+            // no server-authored sentence can ever be mistaken for his voice.
+            onPhase: { [weak self] phase, text in
+                Task { @MainActor [weak self] in
+                    guard let self, self.isStreaming else { return }
+                    guard let idx = self.messages.firstIndex(where: { $0.id == assistantId }),
+                          self.messages[idx].content.isEmpty || self.messages[idx].isProvisional else {
+                        self.presenceNote = nil
+                        return
+                    }
+                    switch phase {
+                    case "voice":
+                        self.presenceNote = "pensando…"
+                    case "alive":
+                        if self.presenceNote == nil { self.presenceNote = "ainda com você…" }
+                    default:
+                        self.presenceNote = text.isEmpty ? "estou com você…" : text + "…"
+                    }
+                }
+            }
         )
 
         var streamedText = ""
+        // Commit by PARAGRAPH, not by character: publish only up to the last "\n\n" so each
+        // paragraph lands whole. Ceiling below covers the single-paragraph answer, which would
+        // otherwise stay invisible for the whole turn.
+        var publishedLen = 0
+        var lastPublish = Date()
         var streamErr: Error? = nil
         do {
             for try await token in stream {
                 streamedText += token
                 if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
-                    // First real token evicts the provisional on-device ack.
+                    // First real token evicts the provisional on-device ack and the presence line.
                     if messages[idx].isProvisional { messages[idx].isProvisional = false }
-                    messages[idx].content = stripReasoning(streamedText)
+                    presenceNote = nil
+                    let cleaned = stripReasoning(streamedText)
+                    var publish: String? = nil
+                    if let br = cleaned.range(of: "\n\n", options: .backwards) {
+                        let upto = String(cleaned[..<br.lowerBound])
+                        if upto.count > publishedLen { publish = upto }
+                    }
+                    // Ceiling: an answer with no paragraph break must not sit invisible.
+                    if publish == nil, cleaned.count > publishedLen,
+                       Date().timeIntervalSince(lastPublish) > 2.0 {
+                        publish = cleaned
+                    }
+                    if let publish {
+                        messages[idx].content = publish
+                        publishedLen = publish.count
+                        lastPublish = Date()
+                    }
                 }
             }
         } catch {
