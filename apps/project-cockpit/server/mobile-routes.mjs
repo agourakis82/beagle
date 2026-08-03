@@ -1093,6 +1093,30 @@ async function completeChatRequest(req, deps, options = {}) {
     effectiveSystem = [...sections, ...dynamicSections, effectiveSystem].filter(Boolean).join("\n\n");
   }
 
+  // GROUNDING PACK — o que torna o companion offline possível.
+  //
+  // Ele trabalha dentro de um hospital. Quando a rede cai, o app hoje responde com um
+  // modelo local recebendo apenas um "contrato" genérico: sem biografia, sem recall,
+  // sem ## Agora. O resultado é um estranho educado usando o nome dele — exatamente
+  // quando ele está mais sozinho.
+  //
+  // Este retorno entrega o MESMO system que a voz da nuvem recebe, para o app guardar
+  // em disco e alimentar o modelo local. São ~10-15 KB de texto: nada para o aparelho,
+  // tudo para a conversa. Reaproveita a montagem acima em vez de duplicá-la — se o
+  // grounding do chat mudar, o offline muda junto, sem drift.
+  if (options.groundingOnly === true) {
+    return {
+      status: 200,
+      payload: {
+        system: effectiveSystem,
+        sections: auditSectionTitles,
+        space: chatSpace,
+        generatedAt: new Date().toISOString(),
+        bytes: Buffer.byteLength(effectiveSystem || "", "utf8")
+      }
+    };
+  }
+
   let appliedDiscussionProfile = effectiveDiscussionProfile || "cluster";
 
   // Degrade the personal voice onto the FLOOR (presence + state) instead of throwing,
@@ -2055,6 +2079,27 @@ export function registerMobileRoutes(app, deps) {
       } catch (error) {
         rethrowAsContract(error, "ensemble fanout failed");
       }
+    })
+  );
+
+  // Pacote de grounding para uso OFFLINE. O app busca isto quando está online e
+  // persiste; o modelo local passa a responder COM a memória dele em vez de um
+  // contrato genérico. Mesmo corpo do /chat (space, heartRate, timezone…) porque a
+  // montagem é a mesma — só que devolve o system em vez de chamar a voz.
+  app.post(
+    "/api/mobile/v1/companion/grounding",
+    withEnvelope(async (req) => {
+      const pack = await completeChatRequest(req, deps, { groundingOnly: true });
+      return {
+        data: {
+          system: pack.payload.system,
+          sections: pack.payload.sections,
+          space: pack.payload.space,
+          bytes: pack.payload.bytes,
+          generated_at: pack.payload.generatedAt
+        },
+        meta: { truthMode: "observed", observedAt: pack.payload.generatedAt }
+      };
     })
   );
 
