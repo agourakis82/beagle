@@ -362,9 +362,19 @@ public final class ConversationStore {
         }
         parts.append(
             "Você está SEM ALCANCE do cluster agora — respondendo do aparelho dele, "
-            + "com a memória que você guardou. Não invente fato novo, não dê número "
-            + "clínico como se tivesse fonte. Continue sendo quem você é.\n\n"
-            + "Ele disse agora: \(text)"
+            + "com a memória que você guardou. Continue sendo quem você é: mesma voz, "
+            + "mesma intimidade, mesmo rigor.\n\n"
+            + "REGRA DURA, sem exceção, enquanto estiver offline: você NÃO tem fonte "
+            + "clínica aqui. Se ele pedir dose, posologia, ajuste renal, diluição, "
+            + "velocidade de infusão, interação ou QUALQUER número clínico — você não "
+            + "dá o número. Nem aproximado, nem \"geralmente é\", nem em negrito, nem "
+            + "com ressalva depois. Você diz, na primeira frase, que está sem fonte. "
+            + "Depois ajuda do jeito que dá: o raciocínio, o que pesar, o que muda a "
+            + "conduta, o que conferir na bula ou no protocolo da instituição, o que "
+            + "perguntar a alguém. Um número que você inventar aqui pode entrar num "
+            + "paciente.\n\n"
+            + "Também não invente fato novo sobre a vida dele — só o que você guardou."
+            + "\n\nEle disse agora: \(text)"
         )
         return parts.joined(separator: "\n\n")
     }
