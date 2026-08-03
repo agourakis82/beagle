@@ -107,3 +107,4 @@ tmp/
 *.bak
 .envrc
 .artifacts/darwin-hpc/
+.superpowers/
