@@ -108,7 +108,9 @@ public struct ChatScreen: View {
             isVoiceListening: voice.isListening,
             composerFocused: !draft.isEmpty,
             isActive: scenePhase == .active,
-            lastInteraction: lastInteraction
+            lastInteraction: lastInteraction,
+            ultimaFalaDele: store.messages.last(where: { $0.role == .user })?.content,
+            hora: Calendar.current.component(.hour, from: idleTick)
         ).state(now: idleTick)
     }
 

@@ -109,3 +109,59 @@ struct PresenceBreathTests {
         #expect(stale.resolved(now: now) == .neutral)
     }
 }
+
+// MARK: - O resolvedor da presença
+
+@Test("app em background dorme, independentemente do resto")
+func presencaDormeEmBackground() {
+    let e = PresenceEntrada(appAtivo: false, gerando: true, buscandoMemoria: true)
+    #expect(PresenceState.resolver(e) == .adormecido)
+}
+
+@Test("trabalho interno ganha de emoção enquanto acontece")
+func trabalhoGanhaDeEmocao() {
+    let e = PresenceEntrada(gerando: true, buscandoMemoria: true, ultimaFalaDele: "morreu um paciente meu")
+    #expect(PresenceState.resolver(e) == .buscando)
+}
+
+@Test("emoção vem do que ELE escreveu, e só enquanto o companion responde")
+func emocaoVemDaFala() {
+    let respondendo = PresenceEntrada(gerando: true, ultimaFalaDele: "acabou de morrer um paciente meu")
+    #expect(PresenceState.resolver(respondendo) == .acolhendo)
+    let parado = PresenceEntrada(gerando: false, ultimaFalaDele: "acabou de morrer um paciente meu")
+    #expect(PresenceState.resolver(parado) == .atento)
+}
+
+@Test("sem palavra no texto, não há emoção inventada")
+func semPalavraSemEmocao() {
+    #expect(PresenceState.emocao(daFala: "qual a dose de enoxaparina?") == nil)
+    #expect(PresenceState.emocao(daFala: nil) == nil)
+    #expect(PresenceState.emocao(daFala: "") == nil)
+}
+
+@Test("céu sem medida NÃO vira tempestade")
+func ceuMudoNaoInventa() {
+    #expect(PresenceState.resolver(PresenceEntrada(hora: 14, kp: nil)) == .atento)
+    #expect(PresenceState.resolver(PresenceEntrada(hora: 14, kp: 6)) == .tempestade)
+}
+
+@Test("madrugada e manhã só quando a hora é conhecida")
+func horaConhecida() {
+    #expect(PresenceState.resolver(PresenceEntrada(hora: 3)) == .madrugada)
+    #expect(PresenceState.resolver(PresenceEntrada(hora: 7)) == .manha)
+    #expect(PresenceState.resolver(PresenceEntrada(hora: nil)) == .atento)
+}
+
+@Test("todo laço tem base de queda entre os quatro embarcados")
+func todosCaemParaBase() {
+    for s in PresenceState.allCases {
+        #expect(s.baseDeQueda.grupo == .base)
+    }
+}
+
+@Test("o nome do recurso bate com o prefixo do grupo")
+func recursoTemPrefixoCerto() {
+    #expect(PresenceState.atento.loopResource == "st-atento")
+    #expect(PresenceState.acolhendo.loopResource == "lp-acolhendo")
+    #expect(PresenceState.escutandoLongo.loopResource == "lp-escutando-longo")
+}
