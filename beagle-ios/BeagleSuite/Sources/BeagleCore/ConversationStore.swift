@@ -658,11 +658,26 @@ public final class ConversationStore {
                 messages[idx].source = "cloud-stream"
                 persist(message: messages[idx])
                 onCompanionTurnEnd?(messages[idx].content)
-                await autoImportExchange(
-                    user: userMessage,
-                    assistant: messages[idx],
-                    sourceSurface: "beagle-apple-cloud"
-                )
+                // A conversa NÃO espera durabilidade.
+                //
+                // Medido: o servidor já grava o turno (ingestPersonalTurn, com
+                // proveniência carimbada na escrita), e este assisted-import
+                // devolve 404 — a rota vive no beagle-core, não no cockpit, e o
+                // cliente ainda tenta os três gateways antes de desistir. O
+                // resultado era a resposta já inteira na tela e o composer preso
+                // esperando uma requisição condenada.
+                //
+                // Fica como fire-and-forget em vez de sumir porque ela também
+                // trata conteúdo restrito localmente; remover de vez é decisão
+                // separada, com o 404 consertado antes.
+                let respondida = messages[idx]
+                Task { @MainActor [weak self] in
+                    await self?.autoImportExchange(
+                        user: userMessage,
+                        assistant: respondida,
+                        sourceSurface: "beagle-apple-cloud"
+                    )
+                }
             }
             isStreaming = false
             return
@@ -702,11 +717,15 @@ public final class ConversationStore {
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
                 onCompanionTurnEnd?(messages[idx].content)
-                await autoImportExchange(
-                    user: userMessage,
-                    assistant: messages[idx],
-                    sourceSurface: "beagle-apple-cloud"
-                )
+                // Mesma razão do caminho de streaming: durabilidade não segura a conversa.
+                let respondidaBuf = messages[idx]
+                Task { @MainActor [weak self] in
+                    await self?.autoImportExchange(
+                        user: userMessage,
+                        assistant: respondidaBuf,
+                        sourceSurface: "beagle-apple-cloud"
+                    )
+                }
             } else {
                 messages[idx].content = result.error ?? streamErr?.localizedDescription ?? "No response received."
                 messages[idx].isStreaming = false
