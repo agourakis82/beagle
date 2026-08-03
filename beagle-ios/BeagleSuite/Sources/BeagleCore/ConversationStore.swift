@@ -141,6 +141,10 @@ public final class ConversationStore {
         NetworkMonitor.shared.onReconnect = { [weak self] in
             Task { @MainActor in await self?.flushOutbox() }
         }
+        // Aquece o modelo local na abertura, se os pesos já estiverem aqui.
+        // Carregar 8B leva dezenas de segundos; pagar isso quando a rede já caiu
+        // é pagar no pior momento possível.
+        Task { @MainActor in await LocalLLMEngine.shared.restaurarUltimoModelo() }
     }
 
     /// The active thread's id. Empty → falls back to the legacy single-thread id so an
@@ -211,11 +215,18 @@ public final class ConversationStore {
         // once connectivity returns. `flowState` still travels in the cloud request body.
         if NetworkMonitor.shared.isOnline {
             await sendMessageCloud(text)
-        } else if llm.isReady {
-            await sendMessageLocal(text)
-            enqueueOffline(userText: text)
         } else {
-            await sendMessageCloud(text)
+            // Sem rede. O engine esquece o modelo a cada abertura do app, então
+            // tentar restaurar AQUI é a diferença entre responder e não existir.
+            // Só carrega o que já está no aparelho: nunca baixa GB no celular.
+            var pronto = llm.isReady
+            if !pronto { pronto = await llm.restaurarUltimoModelo() }
+            if pronto {
+                await sendMessageLocal(text)
+                enqueueOffline(userText: text)
+            } else {
+                await sendMessageCloud(text)
+            }
         }
         // Mantém o grounding offline fresco enquanto há rede. Fire-and-forget: nunca
         // atrasa a resposta, nunca derruba o turno.

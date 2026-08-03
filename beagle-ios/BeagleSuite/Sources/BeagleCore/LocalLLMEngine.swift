@@ -594,6 +594,67 @@ public final class LocalLLMEngine {
         guard let raw = UserDefaults.standard.string(forKey: "lastSelectedModel") else { return nil }
         return OnDeviceModel(rawValue: raw)
     }
+
+    // MARK: - Sobreviver ao fechamento do app e à falta de rede
+
+    /// Onde os pesos ficam. **Não** em Caches: o iOS esvazia o diretório de
+    /// Caches sob pressão de armazenamento, e o modelo sumiria exatamente no
+    /// momento em que ele está sem rede, dentro do hospital.
+    nonisolated public static var pesosBase: URL {
+        let fm = FileManager.default
+        let raiz = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                appropriateFor: nil, create: true))
+            ?? fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = raiz.appendingPathComponent("modelos-locais", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        var url = dir
+        var rv = URLResourceValues()
+        rv.isExcludedFromBackup = true          // pesos são re-baixáveis; backup não
+        try? url.setResourceValues(rv)
+        return dir
+    }
+
+    /// Move o que já foi baixado para Caches, uma vez. Sem isto, a mudança de
+    /// diretório obrigaria a re-baixar vários GB — possivelmente no 5G.
+    nonisolated public static func migrarPesosDeCaches() {
+        let fm = FileManager.default
+        guard let velho = fm.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("models", isDirectory: true),
+              fm.fileExists(atPath: velho.path) else { return }
+        let novo = pesosBase.appendingPathComponent("models", isDirectory: true)
+        if fm.fileExists(atPath: novo.path) { return }
+        try? fm.createDirectory(at: novo.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        try? fm.moveItem(at: velho, to: novo)
+    }
+
+    /// Os pesos deste modelo estão no aparelho? Config sozinho não basta —
+    /// um download interrompido deixa config.json e nenhum peso.
+    public func pesosPresentes(_ model: OnDeviceModel) -> Bool {
+        let repo = model.mlxConfiguration.name
+        let dir = Self.pesosBase.appendingPathComponent("models/\(repo)", isDirectory: true)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dir.appendingPathComponent("config.json").path) else { return false }
+        let itens = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
+        return itens.contains { $0.hasSuffix(".safetensors") || $0.hasSuffix(".npz") }
+    }
+
+    /// Recarrega o último modelo escolhido, **só** se os pesos já estiverem aqui.
+    ///
+    /// O engine sempre guardou qual modelo ele escolheu, mas ninguém recarregava
+    /// ao abrir o app: `isReady` voltava a false a cada abertura e o caminho
+    /// offline caía silenciosamente para a nuvem, que sem rede falha. Este é o
+    /// conserto. A checagem de pesos presentes existe para nunca disparar um
+    /// download de vários GB no celular sem ele pedir.
+    @discardableResult
+    public func restaurarUltimoModelo() async -> Bool {
+        if isReady { return true }
+        if case .loading = loadState { return false }
+        Self.migrarPesosDeCaches()
+        guard let model = lastSelectedModel, pesosPresentes(model) else { return false }
+        await load(model)
+        return isReady
+    }
     public private(set) var downloadProgress: Double = 0
     public private(set) var isGenerating: Bool = false
     public private(set) var tokensPerSecond: Double = 0
@@ -1202,7 +1263,7 @@ struct HubApiDownloader: Downloader, Sendable {
         // Use stored HF token for gated models (medical, etc.)
         let token = UserDefaults.standard.string(forKey: "hfToken")
         self.hub = HubApi(
-            downloadBase: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+            downloadBase: LocalLLMEngine.pesosBase,
             hfToken: token
         )
     }
