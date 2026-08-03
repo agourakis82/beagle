@@ -144,6 +144,7 @@ public final class ConversationStore {
         // Aquece o modelo local na abertura, se os pesos já estiverem aqui.
         // Carregar 8B leva dezenas de segundos; pagar isso quando a rede já caiu
         // é pagar no pior momento possível.
+        print(String(format: "[Beagle] RAM fisica: %.2f GB", LocalLLMEngine.ramGBMedida))
         Task { @MainActor in await LocalLLMEngine.shared.restaurarUltimoModelo() }
     }
 

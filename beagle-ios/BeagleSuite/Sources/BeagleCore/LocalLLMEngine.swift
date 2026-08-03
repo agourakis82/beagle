@@ -56,6 +56,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
 
     // Reasoning
     case qwen3_8B        = "qwen3-8b-4bit"
+    case qwen3_14B       = "qwen3-14b-4bit"
     case deepseekR1      = "deepseek-r1-7b-4bit"
     case aceReason7B     = "acereason-nemotron-7b-4bit"
     case gemma2_9B       = "gemma2-9b-4bit"
@@ -130,6 +131,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba370m:      return "Mamba 370M"
         case .mamba790m:      return "Mamba 790M"
         case .qwen3_8B:      return "Qwen 3 8B"
+        case .qwen3_14B:     return "Qwen 3 14B"
         case .deepseekR1:    return "DeepSeek-R1 7B"
         case .aceReason7B:   return "AceReason 7B"
         case .gemma2_9B:     return "Gemma 2 9B"
@@ -174,6 +176,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var category: ModelCategory {
         switch self {
         case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B: return .reasoning
+        case .qwen3_14B: return .reasoning
         case .mimo7B, .phi35Mini, .qwen2_5_7B, .codeQwen7B: return .code
         case .bioMistral7B, .openBioLLM7B, .meditron7B: return .medical
         case .mamba130m, .mamba370m, .mamba790m: return .ssm
@@ -195,6 +198,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba370m:      return "~280 MB"
         case .mamba790m:      return "~500 MB"
         case .qwen3_8B:      return "~5 GB"
+        case .qwen3_14B:     return "~8,3 GB"
         case .deepseekR1:    return "~5 GB"
         case .aceReason7B:   return "~4.5 GB"
         case .gemma2_9B:     return "~5.5 GB"
@@ -242,6 +246,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba370m: return "370M"
         case .mamba790m: return "790M"
         case .qwen3_8B, .llama3_1_8B: return "8B"
+        case .qwen3_14B: return "14B"
         case .deepseekR1, .aceReason7B, .falconH1_7B, .mimo7B, .qwen2_5_7B, .mistral7B, .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B, .olmo2_7B, .xlstm7B: return "7B"
         case .gemma2_9B, .yi1_5_9B, .recurrentGemma: return "9B"
         case .exaone3_8B, .internLM3_8B: return "7.8B"
@@ -266,6 +271,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba370m:      return "Mid-size Mamba draft. Better triage accuracy than 130M while still extremely fast. Good speculative acceptance rate."
         case .mamba790m:      return "Largest Mamba draft. Highest standalone quality for SSM-only generation. Best triage accuracy for prompt complexity routing."
         case .qwen3_8B:      return "Top-tier reasoning: math proofs, scientific analysis, multi-step logic. Best overall quality on-device."
+        case .qwen3_14B:     return "O maior que cabe no aparelho. Raciocínio clínico e técnico mais longo, português mais firme. Custa RAM e o primeiro carregamento é lento."
         case .deepseekR1:    return "Chain-of-thought specialist. Shows its work step-by-step. Strongest at formal derivations."
         case .aceReason7B:   return "NVIDIA’s math champion. Outperforms larger models on MATH/GSM8K benchmarks."
         case .gemma2_9B:     return "Google’s most careful model. Strong instruction following with safety guardrails."
@@ -313,6 +319,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba370m:      return "Fast triage"
         case .mamba790m:      return "Best draft"
         case .qwen3_8B:      return "Best overall"
+        case .qwen3_14B:     return "O mais forte offline"
         case .deepseekR1:    return "Shows its work"
         case .aceReason7B:   return "Math champion"
         case .gemma2_9B:     return "Most careful"
@@ -356,6 +363,8 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
 
     public var minimumRAMGB: UInt64 {
         switch self {
+        case .qwen3_14B:
+            return 11
         case .qwen3_8B, .deepseekR1, .aceReason7B, .llama3_1_8B, .gemma2_9B,
              .qwen2_5_7B, .falconH1_7B, .mimo7B, .mistral7B,
              .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B,
@@ -417,6 +426,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var personality: ModelPersonality {
         switch self {
         // Reasoning — analytical by nature
+        case .qwen3_14B: fallthrough
         case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B:
             return .analytical
 
@@ -500,6 +510,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba370m:      return ModelConfiguration(id: "state-spaces/mamba-370m-hf")
         case .mamba790m:      return ModelConfiguration(id: "state-spaces/mamba-790m-hf")
         case .qwen3_8B:      return LLMRegistry.qwen3_8b_4bit
+        case .qwen3_14B:     return ModelConfiguration(id: "mlx-community/Qwen3-14B-4bit")
         case .deepseekR1:    return LLMRegistry.deepSeekR1_7B_4bit
         case .aceReason7B:   return ModelConfiguration(id: "mlx-community/AceReason-Nemotron-7B-4bit")
         case .gemma2_9B:     return LLMRegistry.gemma_2_9b_it_4bit
@@ -579,6 +590,12 @@ public final class LocalLLMEngine {
     """
     private static let defaultGenerateParameters = GenerateParameters(maxTokens: 2048, temperature: 0.7)
     #endif
+
+    /// RAM física em GB, medida. O gate de modelo depende disso e divisão
+    /// inteira já quase custou a recusa do 14B num aparelho que o comporta.
+    nonisolated public static var ramGBMedida: Double {
+        Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
+    }
 
     public private(set) var loadState: LoadState = .idle
     public private(set) var currentModel: OnDeviceModel? {
