@@ -227,7 +227,11 @@ public final class ConversationStore {
     public func refreshGroundingIfStale() async {
         if let at = groundingCachedAt, Date().timeIntervalSince(at) < 7200 { return }
         let result = await client.fetchCompanionGrounding()
-        if let system = result.value?.system { storeGrounding(system) }
+        // Nunca troque um cache bom por um pacote raquítico: offline, esse texto
+        // é tudo o que ele sabe. O servidor já recusa abaixo de 2000 bytes; aqui
+        // é a segunda parede, para o caso de um gateway devolver algo truncado.
+        guard let system = result.value?.system, system.utf8.count >= 2000 else { return }
+        storeGrounding(system)
     }
 
     /// Queue an offline personal turn for later sync to the memory spine (online turns are
