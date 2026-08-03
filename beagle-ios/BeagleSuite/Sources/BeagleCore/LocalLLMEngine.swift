@@ -648,12 +648,18 @@ public final class LocalLLMEngine {
     /// Os pesos deste modelo estão no aparelho? Config sozinho não basta —
     /// um download interrompido deixa config.json e nenhum peso.
     public func pesosPresentes(_ model: OnDeviceModel) -> Bool {
+        // Sem MLX não há runtime local (macOS, por exemplo): a resposta honesta
+        // é "não tenho pesos", não uma exceção de compilação.
+        #if !canImport(MLXLLM)
+        return false
+        #else
         let repo = model.mlxConfiguration.name
         let dir = Self.pesosBase.appendingPathComponent("models/\(repo)", isDirectory: true)
         let fm = FileManager.default
         guard fm.fileExists(atPath: dir.appendingPathComponent("config.json").path) else { return false }
         let itens = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
         return itens.contains { $0.hasSuffix(".safetensors") || $0.hasSuffix(".npz") }
+        #endif
     }
 
     /// Recarrega o último modelo escolhido, **só** se os pesos já estiverem aqui.
