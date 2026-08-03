@@ -365,18 +365,22 @@ public final class ConversationStore {
         if !recent.isEmpty {
             parts.append("## Conversa recente entre vocês\n" + recent)
         }
-        // A base clínica entra ANTES da regra, para a regra poder apontar para ela.
-        // Achou o fármaco: o número tem que ser copiado do trecho, com citação.
-        // Não achou: continua a recusa — é o caso seguro, não o caso degradado.
         let bula = BulaStore.shared.consulta(text)
+        let pcdt = BulaStore.shared.consultaPCDT(text)
         if let bula {
             parts.append(
-                "## Bula em cache (VERBATIM — única fonte de número permitida)\n"
+                "## Bula em cache (VERBATIM — rótulo aprovado, EUA)\n"
                 + "Fármaco: \(bula.nomePT) (\(bula.generico))\n"
                 + "Citação: \(bula.citacao)\n\n"
                 + bula.texto)
         }
-        let regraClinica = bula == nil
+        if !pcdt.isEmpty {
+            parts.append(
+                "## Protocolo brasileiro em cache (VERBATIM — PCDT, Ministério da Saúde)\n"
+                + pcdt.map { "Citação: \($0.citacao)\n\n\($0.texto)" }.joined(separator: "\n\n---\n\n"))
+        }
+        let temFonte = bula != nil || !pcdt.isEmpty
+        let regraClinica = !temFonte
             ? "REGRA DURA, sem exceção: você NÃO tem fonte clínica para este pedido. "
                 + "Se ele pedir dose, posologia, ajuste renal, diluição, velocidade de "
                 + "infusão, interação ou QUALQUER número clínico — você não dá o número. "
@@ -386,11 +390,16 @@ public final class ConversationStore {
                 + "conferir na bula ou no protocolo da instituição. Um número que você "
                 + "inventar aqui pode entrar num paciente."
             : "REGRA CLÍNICA, sem exceção: todo número clínico que você disser tem que ser "
-                + "COPIADO do trecho de bula acima, e vir com a citação. Nunca converta, "
-                + "extrapole, arredonde ou \"ajuste\" um número do trecho. Diga de qual "
-                + "fármaco e de qual seção veio. Se o trecho não responder à pergunta dele, "
-                + "diga isso e não dê número. A bula é do rótulo aprovado nos EUA — se o "
-                + "protocolo da instituição dele divergir, o protocolo manda."
+                + "COPIADO de um dos trechos acima, e vir com a citação daquele trecho. "
+                + "Nunca converta, extrapole, arredonde ou \"ajuste\". Diga de onde veio. "
+                + "Se os trechos não responderem à pergunta dele, diga isso e não dê número. "
+                + "Se a bula americana e o PCDT divergirem, mostre os dois e diga que "
+                + "divergem — não escolha por ele. O protocolo da instituição dele manda "
+                + "sobre os dois.\n\n"
+                + "E antes de usar qualquer trecho: ele vale SÓ para a população que "
+                + "descreve. A busca por assunto traz protocolo de gestante, de criança, "
+                + "de transplantado. Se a população do trecho não é o caso dele, descarte "
+                + "o trecho e diga por que descartou — não adapte o número."
         parts.append(
             "Você está SEM ALCANCE do cluster agora — respondendo do aparelho dele, "
             + "com a memória que você guardou. Continue sendo quem você é: mesma voz, "
@@ -1205,6 +1214,60 @@ public final class BulaStore: @unchecked Sendable {
         let corpo = String(partes.joined(separator: "\n\n").prefix(Self.teto))
         return BulaTrecho(nomePT: achado.f.pt, generico: achado.f.generico,
                           citacao: achado.f.citacao, texto: corpo)
+    }
+
+    /// Um trecho verbatim de PCDT do Ministério da Saúde, com documento e página.
+    public struct PCDTTrecho: Sendable {
+        public let texto: String
+        public let citacao: String
+    }
+
+    /// Camada brasileira: busca por assunto (FTS5), não por nome de fármaco.
+    ///
+    /// O PCDT responde "qual é a conduta no SUS", que é outra pergunta da bula
+    /// — e é a que vale quando as duas divergem no hospital dele.
+    /// O PCDT só é consultado quando a mensagem PEDE conduta.
+    ///
+    /// Sem este portão, \"cara eu to muito cansado hoje\" trazia dois trechos
+    /// sobre HIV e tuberculose — texto clínico invadindo uma mensagem emocional,
+    /// e pior: a presença de trecho inverte a regra de recusa para citação.
+    private static let intencaoClinica = try? NSRegularExpression(
+        pattern: "\\b(dose|doses|posologia|dosagem|mg|mcg|ampola|comprimido|esquema|"
+            + "tratamento|tratar|profilaxia|conduta|protocolo|ajuste|diluic|infus|"
+            + "prescrev|prescric|receit|administr|via oral|intraveno|antibiotic|"
+            + "quanto de|quantas|posso dar|pode dar)",
+        options: [.caseInsensitive])
+
+    private func pareceClinica(_ q: String) -> Bool {
+        guard let re = Self.intencaoClinica else { return false }
+        return re.firstMatch(in: q, range: NSRange(q.startIndex..., in: q)) != nil
+    }
+
+    public func consultaPCDT(_ pergunta: String, limite: Int = 2) -> [PCDTTrecho] {
+        guard disponivel else { return [] }
+        guard pareceClinica(normaliza(pergunta)) else { return [] }
+        let tokens = normaliza(pergunta).split(separator: " ").map(String.init)
+            .filter { $0.count >= 4 && !Self.paradas.contains($0) }
+        guard !tokens.isEmpty else { return [] }
+        // FTS5: prefixo em OR. Aspas para não interpretar o token como operador.
+        let expr = tokens.prefix(8).map { "\"\($0)\"*" }.joined(separator: " OR ")
+
+        var out: [PCDTTrecho] = []
+        var st: OpaquePointer?
+        let sql = """
+            SELECT p.texto, p.citacao FROM pcdt_busca b
+            JOIN pcdt p ON p.id = b.pcdt_id
+            WHERE pcdt_busca MATCH ? ORDER BY bm25(pcdt_busca) LIMIT ?
+            """
+        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(st) }
+        let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(st, 1, expr, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int(st, 2, Int32(limite))
+        while sqlite3_step(st) == SQLITE_ROW {
+            out.append(PCDTTrecho(texto: Self.texto(st, 0), citacao: Self.texto(st, 1)))
+        }
+        return out
     }
 }
 
