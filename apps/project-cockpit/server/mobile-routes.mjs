@@ -48,6 +48,11 @@ const SYNTHESIS_MODEL =
 import { ingestPersonalTurn, handleIngestRequest, captureProvenanced } from "./memory-ingest.mjs";
 import { buildTemporalContext, formatAgora, stampMemories, filterTrustedMemories, resolveTimezone } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
+// O app fala com o cockpit; a importação assistida mora no beagle-core. Sem esta
+// ponte o app recebia 404 e enfileirava o turno num outbox que nunca esvaziava.
+const BEAGLE_INTERNAL_URL =
+  process.env.PROJECT_COCKPIT_BEAGLE_INTERNAL_URL ||
+  "http://beagle-core.beagle.svc.cluster.local:8080";
 
 function cleanString(value) {
   if (typeof value === "string") {
@@ -2120,6 +2125,53 @@ export function registerMobileRoutes(app, deps) {
         },
         meta: { truthMode: "observed", observedAt: pack.payload.generatedAt }
       };
+    })
+  );
+
+  // Ponte para a importação assistida do beagle-core.
+  //
+  // O app chama ESTE caminho no host do cockpit desde sempre, e o cockpit não o
+  // servia: 404 em todos os gateways. O cliente trata falha enfileirando no
+  // outbox — então cada conversa vinha empilhando um turno numa fila que nunca
+  // entregava, e o flushOutbox retentava tudo a cada reconexão.
+  //
+  // O portão de auth do cockpit é global (app.use em index.mjs), então esta rota
+  // já exige x-cockpit-token como as demais. Para o beagle-core usamos o token de
+  // operador + x-beagle-consumer, o mesmo par que workspace-routes usa.
+  //
+  // O corpo passa INTACTO: quem monta o payload é o AssistedImportRequestFactory
+  // do app, e reescrever aqui criaria um segundo formato para divergir do primeiro.
+  app.post(
+    "/api/exocortex/v1/memory/assisted-import",
+    withEnvelope(async (req) => {
+      const tokenResult = await fetchOperatorToken().catch((error) => ({ error: error?.message }));
+      if (!tokenResult?.token) {
+        throw contractFailure(
+          ErrorCode.RUNTIME_UNAVAILABLE,
+          `token de operador indisponível: ${tokenResult?.error || "desconhecido"}`
+        );
+      }
+      const upstream = await fetch(`${BEAGLE_INTERNAL_URL}/api/exocortex/v1/memory/assisted-import`, {
+        method: "POST",
+        headers: {
+          "accept": "application/json",
+          "content-type": "application/json",
+          "x-beagle-consumer": "beagle-operator",
+          "authorization": `Bearer ${tokenResult.token}`,
+        },
+        body: JSON.stringify(req.body ?? {}),
+        signal: AbortSignal.timeout(30000),
+      });
+      const texto = await upstream.text();
+      let corpo = {};
+      try { corpo = texto ? JSON.parse(texto) : {}; } catch { corpo = { raw: texto }; }
+      if (!upstream.ok) {
+        throw contractFailure(
+          mapStatusCodeToErrorCode(upstream.status).code,
+          `assisted-import upstream ${upstream.status}: ${String(corpo?.error || texto).slice(0, 200)}`
+        );
+      }
+      return { data: corpo };
     })
   );
 
