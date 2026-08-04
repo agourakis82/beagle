@@ -1088,6 +1088,10 @@ async function completeChatRequest(req, deps, options = {}) {
         flowState: requestedFlowState,
         stateOfMind: num(req.body?.state_of_mind),
         stateOfMindLabel: cleanString(req.body?.state_of_mind_label),
+        // Sinal de tom derivado NO APARELHO quando ele falou em vez de digitar.
+        // Números, nunca áudio — o buffer é descartado no iPhone.
+        voiceSpeechRateWpm: num(req.body?.voice_speech_rate_wpm),
+        voicePauseRatio: num(req.body?.voice_pause_ratio),
       },
       sky: {
         kp: pick(req.body?.kp, skyNow?.kp),

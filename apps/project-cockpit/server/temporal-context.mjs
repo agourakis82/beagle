@@ -205,6 +205,33 @@ export function formatAgora({ ctx, body = {}, sky = {}, episodeMinutes = null } 
     lines.push(`CORPO: ${detail.join(" · ")}.`);
   }
 
+  // VOZ: como ESTA fala saiu, quando ele falou em vez de digitar.
+  //
+  // Derivado no aparelho (VoiceAcousticAnalyzer) e enviado como número — o áudio
+  // é descartado e nunca sai do iPhone. Viaja com o turno, não pelo digest: o
+  // digest é média do dia, e tom é sobre a frase que ele acabou de dizer.
+  //
+  // Só ritmo e pausa. Volume em dBFS depende de distância do microfone e de estar
+  // de fone; variação de F0 idem. Usar seria fingir precisão que o dado não tem.
+  //
+  // FRONTEIRA: isto descreve a FALA, nunca o falante. "Falou com pausas longas" é
+  // observação; "está cansado" seria diagnóstico — e diagnosticar pelo tom é
+  // exatamente o que o invariante da presença proíbe. Se importar, ele pergunta.
+  const wpm = num(body.voiceSpeechRateWpm);
+  const pausa = num(body.voicePauseRatio);
+  const voz = [];
+  if (wpm !== null) {
+    if (wpm < 100) voz.push("devagar");
+    else if (wpm > 180) voz.push("apressado");
+  }
+  if (pausa !== null && pausa > 0.35) voz.push("com pausas longas");
+  if (voz.length) {
+    lines.push(
+      `VOZ: ele falou ${voz.join(", ")} neste turno — é como a fala saiu, ` +
+      `não um diagnóstico dele. Não devolva isso como rótulo; se importar, pergunte.`
+    );
+  }
+
   // AFETO: his OWN logged State of Mind (Apple Health, iOS 18+). His testimony about how he
   // feels — honor it, never re-ask what he already recorded. Felt, not recited (block header).
   const affect = stateOfMindPtBR(body.stateOfMind, body.stateOfMindLabel);
