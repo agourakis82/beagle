@@ -66,6 +66,13 @@ final class SpeechRecognizer {
     /// primary input, every sentence would become prosody inference about his state, which
     /// collides with the companion design's invariant 4 ("emotion reacts, never diagnoses")
     /// and with the anti-creepy `explicit_session_only` policy the code already declares.
+    /// Ritmo e pausa do ÚLTIMO turno falado — o sinal de tom que viaja COM a
+    /// mensagem, sem áudio. Zerado no cancelamento junto do resto.
+    ///
+    /// Vai pelo turno e não pelo digest do Physiome porque o digest é média do
+    /// dia: para tom, o que importa é como ESTA frase saiu.
+    private(set) var sinalDoUltimoTurno: (wpm: Double?, pausa: Double)?
+
     var uploadsAcoustics: Bool = true
 
     /// True when SpeechAnalyzer assets are unavailable and we're on SFSpeechRecognizer.
@@ -170,6 +177,7 @@ final class SpeechRecognizer {
     /// utterance he explicitly discarded is exactly the behaviour the cancel gesture promises
     /// not to have.
     func cancelRecording() {
+        sinalDoUltimoTurno = nil
         audioWindows.removeAll()
         recordingStartedAt = nil
         teardownCapture()
@@ -209,6 +217,9 @@ final class SpeechRecognizer {
                 transcriptWordCount: wordCount > 0 ? wordCount : nil,
                 turnDurationSeconds: turnDuration
             )
+            await MainActor.run { [weak self] in
+                self?.sinalDoUltimoTurno = (wpm: summary.speechRateWpm, pausa: summary.pauseRatio)
+            }
             let now = ISO8601DateFormatter()
             now.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let ts = now.string(from: Date())

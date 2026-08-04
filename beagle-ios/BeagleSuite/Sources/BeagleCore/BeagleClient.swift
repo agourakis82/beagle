@@ -1265,6 +1265,8 @@ public actor BeagleClient {
         // Live body + sky for the server's `## Agora` block — the exact values the strip/aura
         // show. All optional → backward compatible (older server just ignores them).
         hrvMs: Double? = nil,
+        voiceWpm: Double? = nil,
+        voicePausa: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         kp: Double? = nil,
@@ -1317,7 +1319,8 @@ public actor BeagleClient {
             body["voiceModel"] = voiceModel
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
-                            kp: kp, dst: dst, solarWind: solarWind, bz: bz)
+                            kp: kp, dst: dst, solarWind: solarWind, bz: bz,
+                            voiceWpm: voiceWpm, voicePausa: voicePausa)
 
         let mobileResult = await postPublicMobileChat(body: body)
         if mobileResult.value != nil {
@@ -1436,6 +1439,8 @@ public actor BeagleClient {
         lastContactAt: Date? = nil,
         history: [[String: String]] = [],
         hrvMs: Double? = nil,
+        voiceWpm: Double? = nil,
+        voicePausa: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         kp: Double? = nil,
@@ -1455,7 +1460,8 @@ public actor BeagleClient {
             physioPolicy: physioPolicy,
             lastContactAt: lastContactAt,
             history: history,
-            hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
+            hrvMs: hrvMs, voiceWpm: voiceWpm, voicePausa: voicePausa,
+            readiness: readiness, sleepHours: sleepHours,
             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
             voiceModel: voiceModel
         )
@@ -1464,8 +1470,13 @@ public actor BeagleClient {
     /// Inject the live body + sky fields into a chat request body (shared by llmComplete +
     /// the streaming path). Only present values are sent — the server's `## Agora` fills in
     /// the rest from its own fetch.
+    /// Sinal de TOM (`voiceWpm`/`voicePausa`): derivado no aparelho quando ele falou
+    /// em vez de digitar. São dois números; o áudio é descartado no iPhone e nunca
+    /// sai. Ausentes quando ele digitou — ausência aqui significa "não falei", não
+    /// "falei normal".
     static func addLiveContext(_ body: inout [String: any Sendable], hrvMs: Double?, readiness: String?,
-                               sleepHours: Double?, kp: Double?, dst: Double?, solarWind: Double?, bz: Double?) {
+                               sleepHours: Double?, kp: Double?, dst: Double?, solarWind: Double?, bz: Double?,
+                               voiceWpm: Double? = nil, voicePausa: Double? = nil) {
         if let hrvMs { body["hrv_ms"] = hrvMs }
         if let readiness, !readiness.isEmpty { body["readiness"] = readiness }
         if let sleepHours { body["sleep_hours"] = sleepHours }
@@ -1473,6 +1484,8 @@ public actor BeagleClient {
         if let dst { body["dst"] = dst }
         if let solarWind { body["solar_wind"] = solarWind }
         if let bz { body["bz"] = bz }
+        if let voiceWpm { body["voice_speech_rate_wpm"] = voiceWpm }
+        if let voicePausa { body["voice_pause_ratio"] = voicePausa }
     }
 
     private func postPublicMobileChat(body: [String: any Sendable]) async -> Truthful<ChatResponse> {
@@ -1619,6 +1632,8 @@ public actor BeagleClient {
         lastContactAt: Date? = nil,
         history: [[String: String]] = [],
         hrvMs: Double? = nil,
+        voiceWpm: Double? = nil,
+        voicePausa: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         kp: Double? = nil,
@@ -1674,7 +1689,8 @@ public actor BeagleClient {
             body["deepThink"] = true
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
-                            kp: kp, dst: dst, solarWind: solarWind, bz: bz)
+                            kp: kp, dst: dst, solarWind: solarWind, bz: bz,
+                            voiceWpm: voiceWpm, voicePausa: voicePausa)
 
         let cockpitURLs: [URL] = [
             URL(string: "https://beagle.chiuratto.ai")!,

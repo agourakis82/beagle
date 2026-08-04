@@ -126,6 +126,13 @@ public final class ConversationStore {
     public var modelContext: ModelContext?
 
     private let client: BeagleClient
+    /// Sinal de tom do turno que ele acabou de FALAR — ritmo e pausa, derivados no
+    /// aparelho. O áudio nunca sai do iPhone.
+    ///
+    /// Consumido uma vez por turno: sem isso, a mensagem DIGITADA seguinte herdaria
+    /// o tom da fala anterior, e o companion falaria de um "agora" que já passou.
+    public var sinalDeVozDoTurno: (wpm: Double?, pausa: Double)?
+
     private let llm = LocalLLMEngine.shared
     private let assistedImportEncoder = JSONEncoder()
     private let conversationImportSessionId = "beagle-apple-chat-\(UUID().uuidString.lowercased())"
@@ -221,6 +228,10 @@ public final class ConversationStore {
     /// NORMAL → local MLX (balanced)
     /// STRESS → Foundation Models (fast, don't overwhelm)
     public func sendMessage(_ text: String) async {
+        // O tom vale para ESTE turno. `defer` roda depois de todos os awaits, então
+        // o sinal chega às chamadas do cliente e some antes do turno seguinte —
+        // senão a próxima mensagem digitada herdaria a fala anterior.
+        defer { sinalDeVozDoTurno = nil }
         // Light, casual messages → instant on-device Apple Intelligence (when available).
         if isLight(text), fastAvailable, fastResponder != nil {
             await sendMessageFast(text)
@@ -324,7 +335,9 @@ public final class ConversationStore {
                     projectSlug: projectSlug, projectFamily: projectFamily,
                     publicationScope: publicationScope, discussionProfile: discussionProfile,
                     flowState: flowState, physioPolicy: physioPolicy,
-                    hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
+                    hrvMs: physioSummary?.hrvMs,
+            voiceWpm: sinalDeVozDoTurno?.wpm, voicePausa: sinalDeVozDoTurno?.pausa,
+            readiness: physioSummary?.readiness.rawValue,
                     sleepHours: physioSummary?.sleepHours,
                     kp: currentSky?.kp, dst: currentSky?.dst,
                     solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz)
@@ -587,7 +600,9 @@ public final class ConversationStore {
             physioPolicy: physioPolicy,
             lastContactAt: previousContact,
             history: history,
-            hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
+            hrvMs: physioSummary?.hrvMs,
+            voiceWpm: sinalDeVozDoTurno?.wpm, voicePausa: sinalDeVozDoTurno?.pausa,
+            readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
@@ -696,7 +711,9 @@ public final class ConversationStore {
             physioPolicy: physioPolicy,
             lastContactAt: previousContact,
             history: history,
-            hrvMs: physioSummary?.hrvMs, readiness: physioSummary?.readiness.rawValue,
+            hrvMs: physioSummary?.hrvMs,
+            voiceWpm: sinalDeVozDoTurno?.wpm, voicePausa: sinalDeVozDoTurno?.pausa,
+            readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,

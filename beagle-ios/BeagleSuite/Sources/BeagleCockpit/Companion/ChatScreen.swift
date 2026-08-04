@@ -448,7 +448,12 @@ public struct ChatScreen: View {
             isStreaming: store.isStreaming,
             onSend: send,
             voice: voice,
-            onVoiceCommit: sendText
+            // Só o turno FALADO carrega tom. Digitado envia nil, e nil significa
+            // "não falei" — não "falei normal".
+            onVoiceCommit: { falado in
+                store.sinalDeVozDoTurno = voice.sinalDoUltimoTurno
+                sendText(falado)
+            }
         )
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.bottom, BeagleSpacing.sm)
