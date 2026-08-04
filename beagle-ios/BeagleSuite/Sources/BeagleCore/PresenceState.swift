@@ -194,8 +194,8 @@ public struct PresenceResolver: Sendable, Equatable {
     public var ultimaFalaDele: String?
     /// Hora local 0-23. `nil` = não sei, e não sei fica no base.
     public var hora: Int?
-    /// Kp medido. `nil` = não sei, e não sei NÃO vira tempestade.
-    public var kp: Double?
+    /// Banda do céu MEDIDA. `nil` = não sei — e não sei nunca vira tempestade.
+    public var ceu: SkyBand?
 
     public init(isStreaming: Bool = false,
                 isVoiceListening: Bool = false,
@@ -208,7 +208,7 @@ public struct PresenceResolver: Sendable, Equatable {
                 vozLonga: Bool = false,
                 ultimaFalaDele: String? = nil,
                 hora: Int? = nil,
-                kp: Double? = nil) {
+                ceu: SkyBand? = nil) {
         self.isStreaming = isStreaming
         self.isVoiceListening = isVoiceListening
         self.composerFocused = composerFocused
@@ -220,7 +220,7 @@ public struct PresenceResolver: Sendable, Equatable {
         self.vozLonga = vozLonga
         self.ultimaFalaDele = ultimaFalaDele
         self.hora = hora
-        self.kp = kp
+        self.ceu = ceu
     }
 
     /// Precedência, do mais forte para o mais fraco:
@@ -248,7 +248,7 @@ public struct PresenceResolver: Sendable, Equatable {
             vozLonga: vozLonga,
             ultimaFalaDele: ultimaFalaDele,
             hora: hora,
-            kp: kp))
+            ceu: ceu))
     }
 }
 
@@ -270,17 +270,19 @@ public struct PresenceEntrada: Sendable {
     public var ultimaFalaDele: String?
     /// Hora local, 0-23. `nil` = não sei.
     public var hora: Int?
-    /// Índice geomagnético medido. `nil` = não sei — e não sei não vira tempestade.
-    public var kp: Double?
+    /// Banda do céu MEDIDA (calm/active/storm). `nil` = não sei — e não sei nunca
+    /// vira tempestade. Vem como banda porque SkyBand.from() já pondera Dst junto
+    /// do Kp; um segundo limiar aqui divergiria do que o shader mostra.
+    public var ceu: SkyBand?
 
     public init(appAtivo: Bool = true, compondo: Bool = false, gerando: Bool = false,
                 buscandoMemoria: Bool = false, sintetizando: Bool = false,
                 vozLonga: Bool = false, ultimaFalaDele: String? = nil,
-                hora: Int? = nil, kp: Double? = nil) {
+                hora: Int? = nil, ceu: SkyBand? = nil) {
         self.appAtivo = appAtivo; self.compondo = compondo; self.gerando = gerando
         self.buscandoMemoria = buscandoMemoria; self.sintetizando = sintetizando
         self.vozLonga = vozLonga; self.ultimaFalaDele = ultimaFalaDele
-        self.hora = hora; self.kp = kp
+        self.hora = hora; self.ceu = ceu
     }
 }
 
@@ -330,7 +332,7 @@ public extension PresenceState {
         if e.vozLonga { return .escutandoLongo }
         if e.gerando { return emocao(daFala: e.ultimaFalaDele) ?? .pensando }
         if e.compondo { return .ouvindo }
-        if let kp = e.kp, kp >= 5 { return .tempestade }
+        if e.ceu == .storm { return .tempestade }
         if let h = e.hora {
             if h >= 0 && h < 5 { return .madrugada }
             if h >= 5 && h < 9 { return .manha }

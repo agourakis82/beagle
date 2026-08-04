@@ -102,6 +102,21 @@ public struct ChatScreen: View {
     /// mora dentro do ChatComposer e não é exposto para cá. Vale mais errar para
     /// menos (não ficar em `ouvindo` com o composer vazio) do que instrumentar o
     /// composer inteiro neste corte.
+    /// O céu só conta se foi MEDIDO e ainda vale.
+    ///
+    /// `SpaceWeatherStore.latest` é nil até a primeira leitura, então ausência é
+    /// distinguível. Mas `SkyBand.from` devolve `.calm` com Kp e Dst nulos — passar
+    /// a banda direto faria "não sei" virar "calmo", e a presença estaria afirmando
+    /// algo sobre o céu sem ter olhado.
+    ///
+    /// O poller roda a cada 30min; 3h de folga cobre uma falha de rede sem deixar
+    /// tempestade de ontem animando o bicho hoje.
+    private var ceuMedido: SkyBand? {
+        guard let w = weather else { return nil }
+        guard idleTick.timeIntervalSince(w.ts) < 3 * 60 * 60 else { return nil }
+        return w.band
+    }
+
     private var presenceState: PresenceState {
         PresenceResolver(
             isStreaming: store.isStreaming,
@@ -110,7 +125,8 @@ public struct ChatScreen: View {
             isActive: scenePhase == .active,
             lastInteraction: lastInteraction,
             ultimaFalaDele: store.messages.last(where: { $0.role == .user })?.content,
-            hora: Calendar.current.component(.hour, from: idleTick)
+            hora: Calendar.current.component(.hour, from: idleTick),
+            ceu: ceuMedido
         ).state(now: idleTick)
     }
 

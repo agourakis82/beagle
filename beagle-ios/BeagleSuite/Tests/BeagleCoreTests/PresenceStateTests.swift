@@ -141,8 +141,11 @@ func semPalavraSemEmocao() {
 
 @Test("céu sem medida NÃO vira tempestade")
 func ceuMudoNaoInventa() {
-    #expect(PresenceState.resolver(PresenceEntrada(hora: 14, kp: nil)) == .atento)
-    #expect(PresenceState.resolver(PresenceEntrada(hora: 14, kp: 6)) == .tempestade)
+    #expect(PresenceState.resolver(PresenceEntrada(hora: 14, ceu: nil)) == .atento)
+    #expect(PresenceState.resolver(PresenceEntrada(hora: 14, ceu: .storm)) == .tempestade)
+    // .active é céu agitado, não tempestade: só a banda extrema muda o bicho.
+    #expect(PresenceState.resolver(PresenceEntrada(hora: 14, ceu: .active)) == .atento)
+    #expect(PresenceState.resolver(PresenceEntrada(hora: 14, ceu: .calm)) == .atento)
 }
 
 @Test("madrugada e manhã só quando a hora é conhecida")
