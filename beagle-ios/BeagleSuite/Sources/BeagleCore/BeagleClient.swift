@@ -957,7 +957,11 @@ public actor BeagleClient {
     ) async -> Truthful<AssistedImportBatchResult> {
         await postEncoded(
             AssistedImportBatchResult.self,
-            path: "/api/exocortex/v1/memory/assisted-import",
+            // O Cloudflare libera /api/mobile/* e bloqueia /api/exocortex/* (401 de corpo
+            // vazio, antes de chegar ao servidor). Como o gateway público é o primeiro
+            // que o app tenta, a importação nunca chegava — e cada falha ia para o
+            // outbox. O cockpit serve o MESMO handler nos dois caminhos.
+            path: "/api/mobile/v1/memory/assisted-import",
             body: request,
             timeout: 120
         )
