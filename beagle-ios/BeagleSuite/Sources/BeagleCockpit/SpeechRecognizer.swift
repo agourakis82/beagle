@@ -201,8 +201,18 @@ final class SpeechRecognizer {
     /// (see extractSamples/audioWindows above) and uploads it like any other health metric.
     /// Best-effort, fire-and-forget — never blocks stopRecording() or the caller's UI flow.
     private func uploadAcousticSummaryForCompletedTurn() {
-        guard uploadsAcoustics else { audioWindows.removeAll(); return }
-        guard !audioWindows.isEmpty else { return }
+        // SINAL DO TURNO x MÉTRICA DE SAÚDE — duas coisas diferentes, duas travas.
+        //
+        // `uploadsAcoustics` foi criado para impedir que turno de chat vire linha de
+        // prosódia no Physiome, e isso continua valendo. Mas o sinal de TOM que
+        // acompanha a mensagem (ritmo e pausa) é outra coisa: ele foi pedido
+        // explicitamente, viaja como dois números no corpo do turno, e nunca vira
+        // série histórica. Calcular antes da trava é o que faz o recurso existir no
+        // chat — que é justamente onde ele importa.
+        //
+        // O áudio segue descartado aqui, nos dois caminhos.
+        guard !audioWindows.isEmpty else { audioWindows.removeAll(); return }
+        let vaiParaPhysiome = uploadsAcoustics
         let windows = audioWindows
         audioWindows.removeAll()
         let turnDuration = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
@@ -220,6 +230,7 @@ final class SpeechRecognizer {
             await MainActor.run { [weak self] in
                 self?.sinalDoUltimoTurno = (wpm: summary.speechRateWpm, pausa: summary.pauseRatio)
             }
+            guard vaiParaPhysiome else { return }
             let now = ISO8601DateFormatter()
             now.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let ts = now.string(from: Date())
@@ -660,6 +671,30 @@ final class SpeechRecognizer {
         }
 
         let engine = AVAudioEngine()
+
+        // O `catch` abaixo só pega erro SWIFT. `prepare()` levanta exceção
+        // OBJECTIVE-C quando o grafo é inválido, e exceção ObjC não é capturável
+        // em Swift: ela chama abort() e o app MORRE.
+        //
+        // Medido no aparelho dele (BeagleCockpit-2026-08-04-170839.ips):
+        //   AVAudioEngine.prepare -> AVAudioEngineGraph::Initialize -> NSException
+        //   -> SIGABRT, saindo de startAudioEngine().
+        //
+        // A causa é o formato do nó de entrada vir inválido (0 Hz ou 0 canais) —
+        // acontece quando a rota de áudio ainda não assentou depois de ativar a
+        // sessão, o que é a regra com Bluetooth, não a exceção.
+        //
+        // Tocar em `inputNode` força o grafo a resolver a entrada; validar ANTES de
+        // `prepare()` troca um crash por uma mensagem. Nunca chame prepare() sem
+        // esta checagem.
+        let formatoDeEntrada = engine.inputNode.inputFormat(forBus: 0)
+        let formatoDeEntradaValido = formatoDeEntrada.sampleRate > 0 && formatoDeEntrada.channelCount > 0
+        guard formatoDeEntradaValido else {
+            self.error = "O microfone não abriu (rota de áudio indisponível). Tente de novo; se estiver com fone, desconecte e repita."
+            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            return
+        }
+
         do {
             engine.prepare()
             try engine.start()

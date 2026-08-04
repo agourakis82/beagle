@@ -110,8 +110,30 @@ struct ChatComposer: View {
     /// only ever changes its icon/action in place cannot do that.
     private var canSend: Bool { hasContent && !isStreaming }
 
+    /// A voz falhando precisa DIZER que falhou.
+    ///
+    /// O motivo já era gravado em `recognizer.error` e nenhuma superfície o
+    /// mostrava: microfone negado, rota de áudio indisponível, tudo virava
+    /// silêncio idêntico a "não apertei direito". Uma linha curta, apagada, que
+    /// some sozinha quando a voz volta a funcionar.
+    @ViewBuilder
+    private var avisoDeVoz: some View {
+        if voice.phase == .denied {
+            Text("Microfone sem permissão — libere em Ajustes › Beagle › Microfone.")
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .padding(.horizontal, BeagleSpacing.xs)
+        } else if let erro = voice.erro, !erro.isEmpty {
+            Text(erro)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .padding(.horizontal, BeagleSpacing.xs)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            avisoDeVoz
             if attachedData != nil { attachmentChip }
 
             HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {

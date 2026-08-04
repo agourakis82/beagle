@@ -51,6 +51,9 @@ final class VoiceTurnController {
     private(set) var phase: Phase = .idle
     /// Live partial transcript. Empty until the recognizer produces something.
     var transcript: String { recognizer.transcript }
+    /// Por que a voz não abriu. Era gravado e ninguém lia — o usuário segurava o
+    /// microfone e não acontecia nada, sem uma palavra na tela.
+    var erro: String? { recognizer.error }
     /// Ritmo e pausa do último turno FALADO. Nulo quando ele digitou, e nulo
     /// depois de um cancelamento — cancelar promete que nada daquele turno sai.
     var sinalDoUltimoTurno: (wpm: Double?, pausa: Double)? { recognizer.sinalDoUltimoTurno }
