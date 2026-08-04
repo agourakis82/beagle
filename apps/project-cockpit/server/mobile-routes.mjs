@@ -2141,9 +2141,15 @@ export function registerMobileRoutes(app, deps) {
   //
   // O corpo passa INTACTO: quem monta o payload é o AssistedImportRequestFactory
   // do app, e reescrever aqui criaria um segundo formato para divergir do primeiro.
-  app.post(
-    "/api/exocortex/v1/memory/assisted-import",
-    withEnvelope(async (req) => {
+  // DOIS caminhos, um handler.
+  //
+  // O Cloudflare libera /api/mobile/* e BLOQUEIA /api/exocortex/* — 401 de corpo
+  // vazio, antes de chegar ao app (medido). Como o telefone tenta o gateway
+  // público primeiro, a ponte no caminho antigo nunca seria alcançada de fora.
+  // O caminho /api/mobile/v1/memory/assisted-import é o que o app passa a usar;
+  // o antigo fica porque funciona por dentro do cluster e pela tailnet, e porque
+  // build antigo do app ainda o chama.
+  const pontearImportacaoAssistida = withEnvelope(async (req) => {
       const tokenResult = await fetchOperatorToken().catch((error) => ({ error: error?.message }));
       if (!tokenResult?.token) {
         throw contractFailure(
@@ -2172,8 +2178,10 @@ export function registerMobileRoutes(app, deps) {
         );
       }
       return { data: corpo };
-    })
-  );
+  });
+
+  app.post("/api/mobile/v1/memory/assisted-import", pontearImportacaoAssistida);
+  app.post("/api/exocortex/v1/memory/assisted-import", pontearImportacaoAssistida);
 
   app.post(
     "/api/mobile/v1/chat",
