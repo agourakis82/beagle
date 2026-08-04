@@ -54,6 +54,11 @@ final class VoiceTurnController {
     /// Por que a voz não abriu. Era gravado e ninguém lia — o usuário segurava o
     /// microfone e não acontecia nada, sem uma palavra na tela.
     var erro: String? { recognizer.error }
+
+    /// Por que o TOQUE não fez nada. Havia duas saídas mudas — sem mãos-livres e
+    /// fora do estado ocioso — e as duas só vibravam. Vibração não é explicação:
+    /// quem aperta e não vê nada conclui que apertou errado.
+    private(set) var motivoDaRecusa: String?
     /// Ritmo e pausa do último turno FALADO. Nulo quando ele digitou, e nulo
     /// depois de um cancelamento — cancelar promete que nada daquele turno sai.
     var sinalDoUltimoTurno: (wpm: Double?, pausa: Double)? { recognizer.sinalDoUltimoTurno }
@@ -156,9 +161,11 @@ final class VoiceTurnController {
             commit()
         case .idle, .denied:
             guard supportsHandsFree else {
+                motivoDaRecusa = "Ditado contínuo indisponível neste aparelho — SEGURE o microfone para falar."
                 haptic(.error)
                 return
             }
+            motivoDaRecusa = nil
             await start(latched: true)
         default:
             break

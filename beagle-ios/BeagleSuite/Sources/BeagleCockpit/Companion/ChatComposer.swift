@@ -123,6 +123,11 @@ struct ChatComposer: View {
                 .font(BeagleFont.caption.font)
                 .foregroundStyle(BeagleTheme.postureWarm)
                 .padding(.horizontal, BeagleSpacing.xs)
+        } else if let recusa = voice.motivoDaRecusa, !recusa.isEmpty {
+            Text(recusa)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .padding(.horizontal, BeagleSpacing.xs)
         } else if let erro = voice.erro, !erro.isEmpty {
             Text(erro)
                 .font(BeagleFont.caption.font)
