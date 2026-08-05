@@ -1,0 +1,193 @@
+# ntfy em casa — o canal de alarme deixa de depender de um mural público.
+#
+# POR QUE SAIR DO ntfy.sh:
+#
+#   1. CONFIDENCIALIDADE. No ntfy.sh o texto do alerta trafega e fica no servidor
+#      deles. Aqui o conteúdo NUNCA sai: para acordar o iPhone, o ntfy manda ao
+#      upstream apenas o ID da mensagem e o SHA256 do topic — o aparelho volta e
+#      busca o conteúdo AQUI. A campainha é de fora; o recado é de casa.
+#
+#   2. INTEGRIDADE, que é o motivo mais forte. As sondas deduplicam LENDO o canal
+#      antes de avisar. Num topic público, qualquer um que soubesse o nome podia
+#      postar a marca `[companion-quebrou]` e calar o alarme para sempre — negação
+#      de alerta, silenciosa, exatamente o que essas sondas existem para impedir.
+#      Aqui publicar exige autenticação e estar na tailnet.
+#
+# COMO CADA LADO CHEGA:
+#   sondas (cluster)  -> http://ntfy.beagle.svc.cluster.local  (sem egress, sem TLS)
+#   iPhone dele       -> https://ntfy.tail21cbc4.ts.net        (Ingress tailscale)
+#
+# O app ntfy do iOS NÃO aceita servidor em HTTP puro — por isso o Ingress com
+# classe `tailscale`, que termina TLS no domínio ts.net (mesmo padrão de
+# chat.tail21cbc4.ts.net e mcp-llm.tail21cbc4.ts.net, no ar há 65 dias).
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ntfy-data
+  namespace: beagle
+  labels: { app.kubernetes.io/name: ntfy, app.kubernetes.io/part-of: beagle }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd-ssd
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ntfy-config
+  namespace: beagle
+  labels: { app.kubernetes.io/name: ntfy, app.kubernetes.io/part-of: beagle }
+data:
+  server.yml: |
+    # Precisa ser a URL que o TELEFONE usa: é ela que o app guarda e usa para
+    # buscar o conteúdo depois do toque de campainha.
+    base-url: "https://ntfy.tail21cbc4.ts.net"
+    listen-http: ":80"
+
+    # A ponte para o push da Apple. Sem isto o iPhone só recebe mensagem com o
+    # app aberto — o certificado APNs é do ntfy.sh e não há como contorná-lo.
+    # O que sobe daqui: ID da mensagem + SHA256 do topic. Nunca o texto.
+    upstream-base-url: "https://ntfy.sh"
+
+    # Cache é o que permite ao aparelho buscar a mensagem depois de acordar.
+    cache-file: "/var/lib/ntfy/cache.db"
+    cache-duration: "24h"
+
+    # Fechado por padrão: só quem tem credencial publica ou lê. É isto que
+    # devolve integridade ao dedup das sondas.
+    auth-file: "/var/lib/ntfy/auth.db"
+    auth-default-access: "deny-all"
+    enable-signup: false
+    enable-login: true
+
+    # Sem anexos: as sondas mandam texto curto, e um diretório de upload seria
+    # superfície nova sem uso.
+    attachment-cache-dir: ""
+
+    behind-proxy: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ntfy
+  namespace: beagle
+  labels: { app.kubernetes.io/name: ntfy, app.kubernetes.io/part-of: beagle }
+spec:
+  replicas: 1
+  # RWO + SQLite: nunca dois pods no mesmo volume.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: ntfy }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: ntfy, app.kubernetes.io/part-of: beagle }
+    spec:
+      securityContext:
+        # RuntimeDefault, não Unconfined: este processo só fala HTTP de saída, e
+        # afrouxar seccomp sem necessidade medida é regressão de segurança.
+        seccompProfile: { type: RuntimeDefault }
+      tolerations:
+        - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
+        - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
+      initContainers:
+        # Cria o usuário na primeira subida. Idempotente: se já existe, não toca.
+        - name: cria-usuario
+          image: binwiederhier/ntfy:v2.27.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              # `ntfy user add` exige o auth.db, e o auth.db só nasce quando o
+              # servidor sobe. Então sobe-se um servidor efêmero só para criar o
+              # arquivo, cria-se o usuário, e mata-se. Sem isto o init entra em
+              # CrashLoop com "auth-file does not exist" — medido.
+              if [ ! -f /var/lib/ntfy/auth.db ]; then
+                ntfy serve >/tmp/boot.log 2>&1 &
+                PID=$!
+                i=0
+                while [ ! -f /var/lib/ntfy/auth.db ] && [ $i -lt 60 ]; do
+                  sleep 1; i=$((i+1))
+                done
+                kill "$PID" 2>/dev/null || true
+                wait "$PID" 2>/dev/null || true
+                [ -f /var/lib/ntfy/auth.db ] || { echo "auth.db nao foi criado:"; tail -5 /tmp/boot.log; exit 1; }
+              fi
+              if ntfy user list 2>/dev/null | grep -q "^${NTFY_USER}"; then
+                echo "usuario ${NTFY_USER} ja existe"
+              else
+                NTFY_PASSWORD="${NTFY_PASSWORD}" ntfy user add --role=admin "${NTFY_USER}"
+                echo "usuario ${NTFY_USER} criado"
+              fi
+          env:
+            - name: NTFY_USER
+              valueFrom: { secretKeyRef: { name: ntfy-auth, key: user } }
+            - name: NTFY_PASSWORD
+              valueFrom: { secretKeyRef: { name: ntfy-auth, key: password } }
+          volumeMounts:
+            - { name: dados, mountPath: /var/lib/ntfy }
+            - { name: config, mountPath: /etc/ntfy }
+      containers:
+        - name: ntfy
+          image: binwiederhier/ntfy:v2.27.0
+          args: ["serve"]
+          ports:
+            - { name: http, containerPort: 80 }
+          volumeMounts:
+            - { name: dados, mountPath: /var/lib/ntfy }
+            - { name: config, mountPath: /etc/ntfy }
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          livenessProbe:
+            httpGet: { path: /v1/health, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet: { path: /v1/health, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: dados
+          persistentVolumeClaim: { claimName: ntfy-data }
+        - name: config
+          configMap: { name: ntfy-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ntfy
+  namespace: beagle
+  labels: { app.kubernetes.io/name: ntfy, app.kubernetes.io/part-of: beagle }
+spec:
+  type: ClusterIP
+  selector: { app.kubernetes.io/name: ntfy }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# HTTPS na tailnet. O nome vira ntfy.tail21cbc4.ts.net e só os aparelhos dele
+# alcançam — não há exposição pública.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ntfy
+  namespace: beagle
+  labels: { app.kubernetes.io/name: ntfy, app.kubernetes.io/part-of: beagle }
+  annotations:
+    # OBRIGATÓRIO. Sem esta classe o operador agenda o proxy em qualquer nó, e em
+    # alguns o AppArmor nega AF_UNIX: o tailscaled morre com
+    # "listen unix /tmp/tailscaled.sock: socket: permission denied" e o Ingress
+    # nunca ganha hostname. Medido em 05-ago — caiu no dl380 e travou.
+    # A ProxyClass fixa em r770-proxmox, onde os outros proxies rodam há meses.
+    tailscale.com/proxy-class: sounio-workspace-proxy
+    tailscale.com/tags: "tag:k8s"
+spec:
+  ingressClassName: tailscale
+  defaultBackend:
+    service:
+      name: ntfy
+      port: { number: 80 }
+  tls:
+    - hosts: ["ntfy"]

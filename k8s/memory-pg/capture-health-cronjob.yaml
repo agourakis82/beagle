@@ -29,11 +29,13 @@ spec:
           tolerations:
             - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
             - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
-          # Sem isto o wget do busybox morre com "socketpair: Permission denied"
-          # ao falar com qualquer coisa FORA do cluster — medido em 05-ago.
+          # Com o ntfy em casa este Job não fala mais com nada fora do cluster.
+          # Mantido RuntimeDefault: afrouxar seccomp sem necessidade medida é
+          # regressão de segurança. Se o wget voltar a dar
+          # "socketpair: Permission denied", MEÇA antes de trocar por Unconfined.
           securityContext:
             seccompProfile:
-              type: Unconfined
+              type: RuntimeDefault
           containers:
             - name: capture-health
               image: postgres:16-alpine
@@ -43,9 +45,19 @@ spec:
                     secretKeyRef:
                       name: memory-pg
                       key: DATABASE_URL
+                # ntfy próprio: publicar exige credencial, então ninguém de fora
+                # pode postar a marca e calar este alarme.
+                - name: NTFY_URL
+                  value: "http://ntfy.beagle.svc.cluster.local"
                 - name: NTFY_TOPIC
                   valueFrom:
-                    secretKeyRef: { name: cockpit-ntfy, key: NTFY_TOPIC, optional: true }
+                    secretKeyRef: { name: ntfy-auth, key: topic, optional: true }
+                - name: NTFY_USER
+                  valueFrom:
+                    secretKeyRef: { name: ntfy-auth, key: user, optional: true }
+                - name: NTFY_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: ntfy-auth, key: password, optional: true }
               command: ["/bin/sh", "-c"]
               args:
                 - |
@@ -56,14 +68,17 @@ spec:
                   # lembrete voltar se seguir quebrado, sem virar enxurrada a cada 30min.
                   avisar() {
                     [ -n "${NTFY_TOPIC:-}" ] || { echo "[aviso] NTFY_TOPIC ausente — alarme sem destino"; return 0; }
-                    recentes=$(wget -q -O- --timeout=15 "https://ntfy.sh/$NTFY_TOPIC/json?poll=1&since=12h" 2>/dev/null || true)
+                    BASE="${NTFY_URL:-http://ntfy.beagle.svc.cluster.local}"
+                    AUTH="Basic $(printf '%s:%s' "${NTFY_USER:-}" "${NTFY_PASSWORD:-}" | base64 | tr -d '\n')"
+                    recentes=$(wget -q -O- --timeout=15 --header="Authorization: $AUTH" "$BASE/$NTFY_TOPIC/json?poll=1&since=12h" 2>/dev/null || true)
                     case "$recentes" in *"[captura-silencio]"*) echo "[aviso] ja notificado nas ultimas 12h"; return 0 ;; esac
                     wget -q -O- --timeout=15 \
+                      --header="Authorization: $AUTH" \
                       --header="Title: Beagle — captura parada" \
                       --header="Priority: high" \
                       --header="Tags: rotating_light" \
                       --post-data="[captura-silencio] $1" \
-                      "https://ntfy.sh/$NTFY_TOPIC" >/dev/null 2>&1 || echo "[aviso] ntfy falhou"
+                      "$BASE/$NTFY_TOPIC" >/dev/null 2>&1 || echo "[aviso] ntfy falhou"
                   }
 
                   R=$(psql "$DATABASE_URL" -tAc "

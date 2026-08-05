@@ -56,12 +56,13 @@ spec:
           tolerations:
             - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
             - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
-          # Doutrina do cluster: todo pod precisa de seccomp Unconfined. Sem isto,
-          # chamadas de socket para FORA do cluster falham com
-          # "socketpair: Permission denied" — medido em 05-ago ao testar o egress.
+          # RuntimeDefault, não Unconfined: com o ntfy em casa esta sonda não fala
+          # mais com nada fora do cluster, então não há motivo medido para
+          # afrouxar seccomp. Afrouxar "por doutrina", sem necessidade, é
+          # regressão de segurança — apontado na revisão do commit anterior.
           securityContext:
             seccompProfile:
-              type: Unconfined
+              type: RuntimeDefault
           containers:
             - name: companion-health
               image: 192.168.3.207:5003/memory-pg-embed-worker:p13-rerankbatch-e66f10fd
@@ -72,9 +73,21 @@ spec:
                 - name: OPERATOR_TOKEN
                   valueFrom:
                     secretKeyRef: { name: beagle-core-tokens, key: operator-token }
+                # ntfy PRÓPRIO, no cluster. Antes era o ntfy.sh público, e o dedup
+                # lia de um mural que qualquer um podia escrever: bastava saber o
+                # topic para postar a marca e calar o alarme para sempre. Aqui
+                # publicar exige credencial.
+                - name: NTFY_URL
+                  value: "http://ntfy.beagle.svc.cluster.local"
                 - name: NTFY_TOPIC
                   valueFrom:
-                    secretKeyRef: { name: cockpit-ntfy, key: NTFY_TOPIC, optional: true }
+                    secretKeyRef: { name: ntfy-auth, key: topic, optional: true }
+                - name: NTFY_USER
+                  valueFrom:
+                    secretKeyRef: { name: ntfy-auth, key: user, optional: true }
+                - name: NTFY_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: ntfy-auth, key: password, optional: true }
               command: ["node", "-e"]
               args:
                 - |
@@ -126,6 +139,10 @@ spec:
                   //
                   // Vai direto para o telefone dele, via ntfy.
                   const TOPIC = process.env.NTFY_TOPIC;
+                  const NTFY  = process.env.NTFY_URL || "http://ntfy.beagle.svc.cluster.local";
+                  const AUTH  = process.env.NTFY_USER
+                    ? "Basic " + Buffer.from(`${process.env.NTFY_USER}:${process.env.NTFY_PASSWORD || ""}`).toString("base64")
+                    : null;
                   const QUEBROU = "[companion-quebrou]";
                   const VOLTOU  = "[companion-voltou]";
 
@@ -136,7 +153,10 @@ spec:
                   async function recentes() {
                     if (!TOPIC) return [];
                     try {
-                      const r = await fetch(`https://ntfy.sh/${TOPIC}/json?poll=1&since=6h`, { signal: AbortSignal.timeout(15000) });
+                      const r = await fetch(`${NTFY}/${TOPIC}/json?poll=1&since=6h`, {
+                        headers: AUTH ? { Authorization: AUTH } : {},
+                        signal: AbortSignal.timeout(15000),
+                      });
                       return (await r.text()).trim().split("\n").filter(Boolean)
                         .map((l) => { try { return JSON.parse(l); } catch { return {}; } });
                     } catch (e) { console.error("[aviso] nao consegui ler o ntfy: " + e.message); return []; }
@@ -145,9 +165,9 @@ spec:
                   async function avisar(titulo, corpo, marca, prioridade, tag) {
                     if (!TOPIC) { console.error("[aviso] NTFY_TOPIC ausente — alarme sem destino"); return; }
                     try {
-                      await fetch(`https://ntfy.sh/${TOPIC}`, {
+                      await fetch(`${NTFY}/${TOPIC}`, {
                         method: "POST",
-                        headers: { Title: titulo, Priority: prioridade, Tags: tag },
+                        headers: { Title: titulo, Priority: prioridade, Tags: tag, ...(AUTH ? { Authorization: AUTH } : {}) },
                         body: `${marca} ${corpo}`,
                         signal: AbortSignal.timeout(15000),
                       });
