@@ -1,0 +1,208 @@
+# reaper-keeper — mantém o daemon reaper vivo no login node do slurm-pilot.
+#
+# O reaper propriamente dito (reaper.sh, no ConfigMap abaixo) roda dentro do pod
+# de login e mata processos comprovadamente em loop de CPU. Este CronJob é só o
+# guardião: a cada 10 min ele (re)instala o script e relança o daemon se ele não
+# estiver de pé — necessário porque um restart do pod de login limpa /root.
+#
+# Extraído do cluster vivo em 2026-08-05, com a correção do seletor de pod
+# descrita abaixo. Antes disso o CronJob só existia aplicado ao vivo, sem fonte
+# de verdade no repo.
+#
+# Aplicar:  kubectl apply -f reaper-keeper.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: reaper-keeper
+  namespace: slurm-pilot
+  labels:
+    app: reaper-keeper
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: reaper-keeper
+  namespace: slurm-pilot
+  labels:
+    app: reaper-keeper
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: reaper-keeper
+  namespace: slurm-pilot
+  labels:
+    app: reaper-keeper
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: reaper-keeper
+subjects:
+  - kind: ServiceAccount
+    name: reaper-keeper
+    namespace: slurm-pilot
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reaper-keeper-script
+  namespace: slurm-pilot
+  labels:
+    app: reaper-keeper
+data:
+  reaper.sh: |
+    #!/bin/sh
+    # r770 slurm-login reaper (singleton via flock)
+    # Mata APENAS processos comprovadamente em loop de CPU (amostragem), para nao tocar
+    # trabalho legitimo num login node compartilhado:
+    #   - alvos: souc* OU binarios em /tmp (*.elf, run.out, check.out)
+    #   - condicao: idade > MIN_AGE_S  E  CPU sustentada > CPU_FRAC de 1 core durante SAMPLE_S
+    #   - extra: souc com RSS > RSS_MAX_KB (blowup estilo workspace) morre na hora
+    LOCK=/root/.reaper/lock
+    exec 9>"$LOCK"; flock -n 9 || exit 0
+    MIN_AGE_S=1800        # 30 min - protege compiles/jobs normais
+    CPU_FRAC=85           # % de 1 core sustentado durante a amostra
+    SAMPLE_S=20
+    INTERVAL=40           # gap entre varreduras (alem da amostra)
+    RSS_MAX_KB=16777216   # 16 GiB
+    LOG=/root/.reaper/reaper.log
+    HZ=$(getconf CLK_TCK)
+    ts() { date "+%Y-%m-%dT%H:%M:%S"; }
+    cputicks() { s=$(cat /proc/$1/stat 2>/dev/null) || return 1; r=${s#*") "}; set -- $r; echo $(( ${12} + ${13} )); }
+    starttk()  { s=$(cat /proc/$1/stat 2>/dev/null) || return 1; r=${s#*") "}; set -- $r; echo ${20}; }
+    is_target() {
+      comm=$(sed -n "s/^Name:\t//p" /proc/$1/status 2>/dev/null)
+      case "$comm" in souc*) echo souc; return;; esac
+      exe=$(readlink /proc/$1/exe 2>/dev/null)
+      case "$exe" in /tmp/*.elf|/tmp/*run.out|/tmp/*check.out) echo testbin; return;; esac
+      echo ""
+    }
+    echo "$(ts) reaper start pid=$$ min_age=${MIN_AGE_S}s cpu>${CPU_FRAC}%/${SAMPLE_S}s rss_max=${RSS_MAX_KB}KB" >> "$LOG"
+    while true; do
+      up=$(awk "{print int(\$1)}" /proc/uptime)
+      snap=""
+      for d in /proc/[0-9]*; do
+        pid=${d#/proc/}; [ -r "$d/stat" ] || continue
+        kind=$(is_target "$pid"); [ -z "$kind" ] && continue
+        st=$(starttk "$pid") || continue
+        age=$(( up - st / HZ ))
+        [ "$age" -lt "$MIN_AGE_S" ] && continue
+        # souc RAM blowup: mata imediatamente
+        if [ "$kind" = souc ]; then
+          rss=$(sed -n "s/^VmRSS:[[:space:]]*\([0-9]*\).*/\1/p" "$d/status" 2>/dev/null)
+          if [ -n "$rss" ] && [ "$rss" -gt "$RSS_MAX_KB" ]; then
+            kill -KILL "$pid" 2>/dev/null; echo "$(ts) KILL souc-RAM pid=$pid rss=${rss}KB age=${age}s" >> "$LOG"; continue
+          fi
+        fi
+        c0=$(cputicks "$pid") || continue
+        snap="$snap $pid:$kind:$age:$c0"
+      done
+      [ -z "$snap" ] && { sleep "$INTERVAL"; continue; }
+      sleep "$SAMPLE_S"
+      for e in $snap; do
+        pid=${e%%:*}; rest=${e#*:}; kind=${rest%%:*}; rest=${rest#*:}; age=${rest%%:*}; c0=${rest##*:}
+        c1=$(cputicks "$pid") || continue
+        used=$(( (c1 - c0) * 100 / (SAMPLE_S * HZ) ))
+        if [ "$used" -ge "$CPU_FRAC" ]; then
+          cmd=$(tr "\0" " " < /proc/$pid/cmdline 2>/dev/null | cut -c1-100)
+          kill -KILL "$pid" 2>/dev/null
+          echo "$(ts) KILL cpu-loop pid=$pid kind=$kind cpu=${used}% age=${age}s cmd=$cmd" >> "$LOG"
+        fi
+      done
+      sleep "$INTERVAL"
+    done
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: reaper-keeper
+  namespace: slurm-pilot
+  labels:
+    app: reaper-keeper
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 120
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: reaper-keeper
+          nodeSelector:
+            kubernetes.io/hostname: r770-proxmox
+          tolerations:
+            - effect: NoSchedule
+              key: sounio.dev/pool
+              operator: Exists
+            - effect: NoSchedule
+              key: sounio.dev/compute
+              operator: Exists
+          volumes:
+            - name: script
+              configMap:
+                name: reaper-keeper-script
+          containers:
+            - name: keeper
+              image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260425-zellij1:stable
+              imagePullPolicy: IfNotPresent
+              volumeMounts:
+                - name: script
+                  mountPath: /cm
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                  ephemeral-storage: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
+                  ephemeral-storage: 256Mi
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  # O label app.kubernetes.io/name=login casa tambem com pods de login
+                  # ja terminados (Succeeded), e o `head -1` pegava o mais antigo pela
+                  # ordem alfabetica. O exec num pod completo falha, e sob `set -eu` isso
+                  # matava o job inteiro antes do fallback abaixo — o keeper ficou
+                  # quebrado de 2026-08-03 a 2026-08-05 sem ninguem notar, com o daemon
+                  # reaper morto. Filtrar por fase no proprio seletor resolve na origem.
+                  POD=$(kubectl -n slurm-pilot get pod -l app.kubernetes.io/name=login \
+                        --field-selector=status.phase=Running \
+                        --no-headers -o custom-columns=:.metadata.name 2>/dev/null | head -1)
+                  if [ -z "$POD" ]; then
+                    POD=$(kubectl -n slurm-pilot get pod --no-headers 2>/dev/null \
+                          | awk '/login-slinky.*Running/{print $1; exit}')
+                  fi
+                  if [ -z "$POD" ]; then echo "no running login pod; nothing to do"; exit 0; fi
+                  echo "login pod: $POD"
+                  # (re)deploy the reaper script (survives pod restarts that wipe /root)
+                  kubectl -n slurm-pilot exec -i "$POD" -c login -- \
+                    sh -c 'mkdir -p /root/.reaper && cat > /root/.reaper/reaper.sh && chmod +x /root/.reaper/reaper.sh' < /cm/reaper.sh
+                  # launch only if none running (pgrep guard); flock inside is the final singleton backstop
+                  if ! kubectl -n slurm-pilot exec "$POD" -c login -- sh -c "pgrep -f 'reaper[.]sh' >/dev/null 2>&1"; then
+                    kubectl -n slurm-pilot exec "$POD" -c login -- \
+                      sh -c 'setsid nohup sh /root/.reaper/reaper.sh >/root/.reaper/daemon.out 2>&1 </dev/null & exit 0'
+                    echo "reaper launched"
+                  else
+                    echo "reaper already running"
+                  fi
+                  # report
+                  ALIVE=$(kubectl -n slurm-pilot exec "$POD" -c login -- \
+                    sh -c "pgrep -f 'reaper[.]sh' | tr '\n' ' '" 2>/dev/null || true)
+                  echo "ensured reaper on $POD (pids: $ALIVE)"
