@@ -56,6 +56,12 @@ spec:
           tolerations:
             - { effect: NoSchedule, key: sounio.dev/compute, operator: Equal, value: heavy }
             - { effect: NoSchedule, key: sounio.dev/pool, operator: Equal, value: gpu-batch }
+          # Doutrina do cluster: todo pod precisa de seccomp Unconfined. Sem isto,
+          # chamadas de socket para FORA do cluster falham com
+          # "socketpair: Permission denied" — medido em 05-ago ao testar o egress.
+          securityContext:
+            seccompProfile:
+              type: Unconfined
           containers:
             - name: companion-health
               image: 192.168.3.207:5003/memory-pg-embed-worker:p13-rerankbatch-e66f10fd
@@ -66,6 +72,9 @@ spec:
                 - name: OPERATOR_TOKEN
                   valueFrom:
                     secretKeyRef: { name: beagle-core-tokens, key: operator-token }
+                - name: NTFY_TOPIC
+                  valueFrom:
+                    secretKeyRef: { name: cockpit-ntfy, key: NTFY_TOPIC, optional: true }
               command: ["node", "-e"]
               args:
                 - |
@@ -108,16 +117,61 @@ spec:
                     console.log(`voz OK: model=${d.model} grounded=${d.grounded}`);
                   }
 
+                  // O ALARME PRECISA ALCANÇAR ALGUÉM.
+                  //
+                  // Esta sonda falhava corretamente desde 02-ago e ninguém soube: um Job
+                  // falho só é visível para quem já foi olhar `kubectl get jobs`. E o
+                  // Alertmanager do cluster roda há 140 dias com o receptor chamado
+                  // literalmente `null`. Alarme que grita no vazio não é alarme.
+                  //
+                  // Vai direto para o telefone dele, via ntfy.
+                  const TOPIC = process.env.NTFY_TOPIC;
+                  const QUEBROU = "[companion-quebrou]";
+                  const VOLTOU  = "[companion-voltou]";
+
+                  // O canal É o estado. Sem dedup, uma queda de madrugada viraria 30
+                  // notificações e ele aprenderia a ignorá-las — que é como um alarme
+                  // morre de verdade. A janela de 6h faz o lembrete voltar se seguir
+                  // quebrado, em vez de silenciar para sempre.
+                  async function recentes() {
+                    if (!TOPIC) return [];
+                    try {
+                      const r = await fetch(`https://ntfy.sh/${TOPIC}/json?poll=1&since=6h`, { signal: AbortSignal.timeout(15000) });
+                      return (await r.text()).trim().split("\n").filter(Boolean)
+                        .map((l) => { try { return JSON.parse(l); } catch { return {}; } });
+                    } catch (e) { console.error("[aviso] nao consegui ler o ntfy: " + e.message); return []; }
+                  }
+
+                  async function avisar(titulo, corpo, marca, prioridade, tag) {
+                    if (!TOPIC) { console.error("[aviso] NTFY_TOPIC ausente — alarme sem destino"); return; }
+                    try {
+                      await fetch(`https://ntfy.sh/${TOPIC}`, {
+                        method: "POST",
+                        headers: { Title: titulo, Priority: prioridade, Tags: tag },
+                        body: `${marca} ${corpo}`,
+                        signal: AbortSignal.timeout(15000),
+                      });
+                    } catch (e) { console.error("[aviso] ntfy falhou: " + e.message); }
+                  }
+
                   (async () => {
                     for (const [nome, fn] of [["memoria", checaMemoria], ["voz", checaVoz]]) {
                       try { await fn(); } catch (e) { falhas.push(`${nome.toUpperCase()}: ${e.message}`); }
                     }
+
+                    const msgs = await recentes();
+                    const ultima = (m) => msgs.filter((x) => (x.message || "").includes(m)).pop();
+                    const q = ultima(QUEBROU), v = ultima(VOLTOU);
+                    const jaAvisado = !!q && (!v || (q.time || 0) > (v.time || 0));
+
                     if (falhas.length) {
                       console.error("\n=== COMPANION DEGRADADO ===");
                       for (const f of falhas) console.error("  " + f);
                       console.error("\nEle continua respondendo — é justamente por isso que ninguém percebe.");
+                      if (!jaAvisado) await avisar("Beagle degradado", falhas.join(" · "), QUEBROU, "high", "rotating_light");
                       process.exit(1);
                     }
+                    if (jaAvisado) await avisar("Beagle voltou", "memória e voz respondendo", VOLTOU, "default", "white_check_mark");
                     console.log("companion inteiro: memoria + voz");
                     process.exit(0);
                   })();
