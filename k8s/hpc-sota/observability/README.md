@@ -140,6 +140,19 @@ creating a second monitoring plane.
     - current backend unhealthy
     - stale logical dumps
     - stale or incomplete migration snapshots
+- `darwin-infra-cronjob-rules.yaml`
+  - PrometheusRule bundle that watches the cluster's infrastructure CronJobs:
+    - a job that exceeded its `backoffLimit` in the last hour (acute, self-clearing)
+    - a CronJob with no successful completion for far longer than its period,
+      bucketed by cadence: sub-hourly (1h), hourly/6-hourly (8h), daily (26h)
+  - added after `slurm-pilot/reaper-keeper` failed every 10 minutes for ~2 days
+    with nothing alerting; the reaper daemon it keeps alive was dead the whole
+    time on a shared login node
+  - the alert `labels.namespace` is the routing namespace (`darwin-platform`),
+    as everywhere else here; the resource's real namespace is carried separately
+    as `resource_namespace` and is what the descriptions render
+  - when you add a new infra CronJob, add it to the matching cadence bucket —
+    the buckets are explicit name regexes, not a catch-all
 - `apply-darwin-observability-control-plane-patches.sh`
   - idempotent recovery patch that pins the observability stack to the
     `t560-proxmox` control-plane node with the required toleration
@@ -237,6 +250,7 @@ bash install-darwin-t560-slurmdbd-backend-metrics.sh
 bash install-darwin-t560-sounio-abide-runner-metrics.sh
 kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f darwin-tailscale-route-rules.yaml
 kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f darwin-slurmdbd-backend-rules.yaml
+kubectl --kubeconfig /etc/kubernetes/admin.conf apply -f darwin-infra-cronjob-rules.yaml
 ```
 
 If the main observability stack is stuck because every worker node is tainted or
