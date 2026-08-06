@@ -738,6 +738,18 @@ public final class LocalLLMEngine {
 
     #endif
 
+    /// Desliga o raciocínio no modelo, quando ele entende o pedido.
+    ///
+    /// O Qwen3 é híbrido: por padrão emite um bloco <think> que costuma ser
+    /// VÁRIAS VEZES maior que a resposta. Filtrar depois resolve o vazamento na
+    /// tela, mas não o tempo — e o tempo é o que dói num corredor de hospital.
+    /// `/no_think` é o interruptor suave do Qwen; em modelo que não conhece, seria
+    /// texto solto no sistema, então só entra quando o modelo é da família.
+    public var sufixoSemRaciocinio: String {
+        guard let m = currentModel else { return "" }
+        return m.rawValue.hasPrefix("qwen3") ? "\n\n/no_think" : ""
+    }
+
     /// Instruções de SISTEMA em vigor na sessão local.
     private var instrucoesAtuais: String?
 

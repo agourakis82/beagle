@@ -508,7 +508,9 @@ public final class ConversationStore {
     /// r1, olmo3-think, …) so the chat bubble shows only the answer, not the raw reasoning.
     /// Removes `<think>…</think>` pairs; if a block is left open (truncated), drops from the
     /// last `<think>` onward.
-    private func stripReasoning(_ text: String) -> String {
+    /// Exposto e nonisolated para poder ser testado: o caso que quebrou não foi o
+    /// bloco fechado, foi o PARCIAL durante o streaming.
+    nonisolated static func semRaciocinio(_ text: String) -> String {
         var s = text
         if let regex = try? NSRegularExpression(pattern: "<think>[\\s\\S]*?</think>", options: [.caseInsensitive]) {
             s = regex.stringByReplacingMatches(in: s, options: [], range: NSRange(s.startIndex..., in: s), withTemplate: "")
@@ -519,6 +521,8 @@ public final class ConversationStore {
         }
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private func stripReasoning(_ text: String) -> String { Self.semRaciocinio(text) }
 
     // MARK: - Send via on-device LLM
 
@@ -536,7 +540,7 @@ public final class ConversationStore {
         // Papéis separados: quem ele é vai como SISTEMA, o turno vai como fala.
         // O texto é o MESMO todo turno, então aplicarInstrucoes vira no-op depois
         // da primeira vez — a sessão sobrevive e o prefill fica pago.
-        llm.aplicarInstrucoes(instrucoesOffline())
+        llm.aplicarInstrucoes(instrucoesOffline() + llm.sufixoSemRaciocinio)
         let prompt = offlineGroundedPrompt(text)
 
         let assistantId = UUID()
@@ -550,9 +554,20 @@ public final class ConversationStore {
 
         // Stream tokens from on-device model
         do {
+            // O raciocínio do modelo NUNCA vai para a tela.
+            //
+            // `stripReasoning` já existia, mas só rodava no FIM: durante a geração
+            // o texto cru ia direto para a bolha e ele via o bloco <think> inteiro
+            // passando — em inglês, que é como o Qwen pensa. Acumula-se o cru e
+            // publica-se o filtrado a cada pedaço.
+            //
+            // Enquanto só há raciocínio, a bolha fica vazia e a camada de presença
+            // cobre a espera — que é exatamente o papel dela.
+            var cruDoTurno = ""
             for try await chunk in llm.generate(prompt: prompt) {
+                cruDoTurno += chunk
                 if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
-                    messages[idx].content += chunk
+                    messages[idx].content = stripReasoning(cruDoTurno)
                 }
             }
         } catch {
