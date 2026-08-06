@@ -1,0 +1,46 @@
+# Publica o SSH do workspace no tailnet como sounio-workspace-ssh.
+#
+# Este arquivo e referenciado por ops/repair-workspace-tailnet-services.sh
+# (SSH_MANIFEST) mas nao existia no repo — o script de reparo falharia. Criado em
+# 2026-08-06 a partir do servico VIVO, nao do last-applied-configuration.
+#
+# ATENCAO ao seletor: o last-applied gravado no cluster ainda dizia
+# `sounio-workspace-habitat`, enquanto o servico vivo aponta para
+# `sounio-workspace-control`. Aplicar o last-applied reverteria o seletor e
+# derrubaria o SSH. O valor correto e o de baixo.
+#
+# A porta 60001/UDP e o mosh. O wrapper em ~/bin/mosh-server no workspace ja
+# forca FORCE_PORT=60001 (instancia unica), entao basta o caminho de rede: sem
+# esta porta o mosh conecta por SSH, sobe o servidor e morre esperando o UDP de
+# volta — "Timed out waiting for server (15 s without contact)".
+#
+# Nota: nenhum outro Service tailscale deste cluster usa UDP; este e o primeiro.
+# Se a reconciliacao do operador quebrar, remova a porta mosh e o SSH volta.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sounio-workspace-tailnet-ssh
+  namespace: beagle
+  annotations:
+    tailscale.com/hostname: sounio-workspace-ssh
+    tailscale.com/proxy-group: sounio-workspace-ingress
+    tailscale.com/tags: tag:k8s,tag:sounio-workspace
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  publishNotReadyAddresses: true
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 86400
+  selector:
+    app.kubernetes.io/name: sounio-workspace-control
+  ports:
+    - name: ssh
+      port: 2222
+      protocol: TCP
+      targetPort: ssh
+    - name: mosh
+      port: 60001
+      protocol: UDP
+      targetPort: 60001
