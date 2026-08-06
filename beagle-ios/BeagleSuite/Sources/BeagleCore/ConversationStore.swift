@@ -440,6 +440,40 @@ public final class ConversationStore {
         return partes.joined(separator: "\n\n")
     }
 
+    /// O modelo local está devolvendo as PRÓPRIAS instruções em vez de responder?
+    ///
+    /// Aconteceu (06-ago): o grounding ia no papel de fala do usuário e o modelo
+    /// continuava o documento de persona. A causa foi corrigida — instruções vão
+    /// como SISTEMA agora — mas o modo de falha é ruim demais para depender de uma
+    /// correção só: ele sozinho de madrugada, offline, lendo a própria biografia
+    /// em vez de receber ajuda.
+    ///
+    /// Detecta por sobreposição de frases longas com o texto de sistema. Frase
+    /// longa repetida verbatim é cópia; parecença de vocabulário não é.
+    nonisolated static func pareceEco(_ resposta: String, instrucoes: String) -> Bool {
+        let r = resposta.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !r.isEmpty, !instrucoes.isEmpty else { return false }
+
+        // Marcador estrutural ANTES de qualquer portão de tamanho: um cabeçalho do
+        // grounding na resposta é cópia mesmo em texto curto. A primeira versão
+        // checava tamanho primeiro e por isso deixava passar o caso mais óbvio —
+        // pego pelos testes, não no aparelho.
+        for marca in ["# Você é o Beagle", "## Agora —", "REGRA CLÍNICA", "Não é assistente, não é ferramenta"] {
+            if r.contains(marca) { return true }
+        }
+
+        // Sobreposição verbatim. Frase longa repetida é cópia; vocabulário
+        // parecido não é — o companion legítimo fala dos mesmos assuntos.
+        guard r.count >= 200 else { return false }
+        let frases = instrucoes
+            .components(separatedBy: CharacterSet(charactersIn: ".\n"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.count >= 45 }
+        guard frases.count >= 3 else { return false }
+        let copiadas = frases.filter { r.contains($0) }.count
+        return copiadas >= 3
+    }
+
     private func offlineGroundedPrompt(_ text: String) -> String {
         // USUÁRIO: só o que muda no turno. O grounding e as regras vão no papel de
         // SISTEMA (instrucoesOffline) — misturar os dois foi o bug.
@@ -531,6 +565,13 @@ public final class ConversationStore {
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
             messages[idx].content = stripReasoning(messages[idx].content)
+            // Rede de segurança: se ele devolveu as instruções, não entregue isso.
+            if Self.pareceEco(messages[idx].content, instrucoes: instrucoesOffline()) {
+                messages[idx].content =
+                    "Me perdi aqui dentro e comecei a repetir as minhas próprias instruções "
+                    + "em vez de te responder. Não vou te entregar isso. Me pergunta de novo, "
+                    + "com outras palavras — e se insistir, é defeito meu, não seu."
+            }
             messages[idx].isStreaming = false
             persist(message: messages[idx])
             await autoImportExchange(
