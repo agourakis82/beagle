@@ -48,6 +48,7 @@ const SYNTHESIS_MODEL =
 import { ingestPersonalTurn, handleIngestRequest, captureProvenanced } from "./memory-ingest.mjs";
 import { buildTemporalContext, formatAgora, stampMemories, filterTrustedMemories, resolveTimezone } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
+import { falar } from "./voice-mouth.mjs";
 // O app fala com o cockpit; a importação assistida mora no beagle-core. Sem esta
 // ponte o app recebia 404 e enfileirava o turno num outbox que nunca esvaziava.
 const BEAGLE_INTERNAL_URL =
@@ -2186,6 +2187,27 @@ export function registerMobileRoutes(app, deps) {
 
   app.post("/api/mobile/v1/memory/assisted-import", pontearImportacaoAssistida);
   app.post("/api/exocortex/v1/memory/assisted-import", pontearImportacaoAssistida);
+
+  // A BOCA. Vocaliza texto que o Opus JÁ compôs — nunca gera resposta.
+  //
+  // A chave da xAI fica AQUI, nunca no app: o token do cockpit acabou de ser
+  // rotacionado por ter vivido cinco semanas num arquivo público do GitHub, e
+  // repetir isso com uma chave paga seria não aprender nada.
+  app.post(
+    "/api/mobile/v1/companion/voice",
+    withEnvelope(async (req) => {
+      const texto = cleanString(req.body?.text);
+      if (!texto) throw contractFailure(ErrorCode.BAD_REQUEST, "text obrigatório");
+      const r = await falar(texto, { apiKey: process.env.XAI_API_KEY });
+      if (!r.ok) {
+        // 422 e não 500: não é o servidor quebrado, é o guarda funcionando ou a
+        // boca indisponível. Nos dois casos o app deve cair para texto.
+        throw contractFailure(ErrorCode.UNPROCESSABLE || ErrorCode.BAD_REQUEST,
+          `voz indisponível: ${r.motivo}${r.similaridade !== undefined ? ` (sim=${r.similaridade.toFixed(2)})` : ""}`);
+      }
+      return { data: { wav_base64: r.wavBase64, transcript: r.transcript, similarity: r.similaridade, ms: r.ms } };
+    })
+  );
 
   app.post(
     "/api/mobile/v1/chat",

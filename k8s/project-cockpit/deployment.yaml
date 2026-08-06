@@ -71,6 +71,15 @@ spec:
             secretKeyRef:
               name: cockpit-mobile-auth
               key: PROJECT_COCKPIT_AUTH_TOKEN
+        # A BOCA (xAI realtime). A chave fica AQUI, nunca no app: o token do
+        # cockpit acabou de ser rotacionado por ter vivido cinco semanas num
+        # arquivo público do GitHub. optional para o cockpit subir sem voz.
+        - name: XAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: beagle-core-secrets
+              key: XAI_API_KEY
+              optional: true
         - name: PROJECT_COCKPIT_INTERNAL_AUTH_TOKEN
           valueFrom:
             secretKeyRef:
