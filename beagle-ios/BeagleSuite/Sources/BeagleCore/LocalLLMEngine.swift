@@ -727,14 +727,39 @@ public final class LocalLLMEngine {
     }
     
     #if canImport(MLXLLM)
-    private func makeChatSession(with container: ModelContainer) -> ChatSession {
+    private func makeChatSession(with container: ModelContainer, instructions: String? = nil) -> ChatSession {
         ChatSession(
             container,
-            instructions: Self.defaultInstructions,
+            instructions: instructions ?? Self.defaultInstructions,
             generateParameters: Self.defaultGenerateParameters
         )
     }
+
+
     #endif
+
+    /// Instruções de SISTEMA em vigor na sessão local.
+    private var instrucoesAtuais: String?
+
+    /// Põe o grounding onde ele pertence: no papel de SISTEMA.
+    ///
+    /// Antes o offline mandava o grounding inteiro dentro do turno do USUÁRIO
+    /// (`streamResponse(to:)` trata tudo como fala dele). O modelo então recebia
+    /// 9 KB de "Você é o Beagle, não é assistente..." como se ELE tivesse dito
+    /// aquilo — e respondia continuando o documento de persona. Foi o que ele viu
+    /// na tela: o companion escrevendo longamente sobre como devia se comportar,
+    /// sem que nada tivesse sido perguntado.
+    ///
+    /// Trocar de papel custa recriar a sessão (perde o histórico interno), então
+    /// só recria quando o texto realmente muda.
+    public func aplicarInstrucoes(_ texto: String) {
+        #if canImport(MLXLLM)
+        let novo = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !novo.isEmpty, novo != instrucoesAtuais, let container = modelContainer else { return }
+        chatSession = makeChatSession(with: container, instructions: novo)
+        instrucoesAtuais = novo
+        #endif
+    }
 
     // MARK: - Load
 

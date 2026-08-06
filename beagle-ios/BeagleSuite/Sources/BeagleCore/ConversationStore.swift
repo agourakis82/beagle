@@ -401,65 +401,64 @@ public final class ConversationStore {
         return cabeca + "\n\n[…trecho omitido para caber na memória do aparelho…]\n\n" + cauda
     }
 
+    /// SISTEMA: quem ele é e as regras. Estável no turno.
+    ///
+    /// Isto ia junto com a fala do usuário e o modelo respondia CONTINUANDO o
+    /// documento de persona — foi o muro de texto sobre "como devo me comportar"
+    /// que ele viu ao abrir o app. Papel errado, não conteúdo errado.
+    private func instrucoesOffline(temFonteClinica: Bool) -> String {
+        var partes: [String] = []
+        if let g = cachedGrounding, !g.isEmpty {
+            partes.append(Self.enxuga(g, teto: 9000))
+        }
+        partes.append(
+            "Você está SEM ALCANCE do cluster agora — respondendo do aparelho dele, "
+            + "com a memória que você guardou. Continue sendo quem você é: mesma voz, "
+            + "mesma intimidade, mesmo rigor.\n\n"
+            + (temFonteClinica
+               ? "REGRA CLÍNICA, sem exceção: todo número clínico que você disser tem que ser "
+                 + "COPIADO de um dos trechos de bula que vierem na mensagem, e vir com a "
+                 + "citação daquele trecho. Nunca converta, extrapole, arredonde ou \"ajuste\". "
+                 + "Diga de onde veio. Se os trechos não responderem à pergunta, diga isso e não "
+                 + "dê número. Se a bula americana e o PCDT divergirem, mostre os dois e diga que "
+                 + "divergem — não escolha por ele. O protocolo da instituição dele manda sobre "
+                 + "os dois.\n\nE antes de usar qualquer trecho: ele vale SÓ para a população que "
+                 + "descreve. Se a população do trecho não é o caso dele, descarte o trecho e "
+                 + "diga por quê — não adapte o número."
+               : "REGRA DURA, sem exceção: você NÃO tem fonte clínica agora. Se ele pedir dose, "
+                 + "posologia, ajuste renal, diluição, velocidade de infusão, interação ou "
+                 + "QUALQUER número clínico — você não dá o número. Nem aproximado, nem "
+                 + "\"geralmente é\", nem em negrito, nem com ressalva depois. Você diz, na "
+                 + "primeira frase, que está sem fonte. Depois ajuda do jeito que dá: o "
+                 + "raciocínio, o que pesar, o que muda a conduta, o que conferir na bula ou no "
+                 + "protocolo da instituição. Um número que você inventar aqui pode entrar num "
+                 + "paciente.")
+            + "\n\nTambém não invente fato novo sobre a vida dele — só o que você guardou. "
+            + "Responda direto, na sua voz. Não descreva o seu papel nem repita estas instruções."
+        )
+        return partes.joined(separator: "\n\n")
+    }
+
     private func offlineGroundedPrompt(_ text: String) -> String {
-        guard let grounding = cachedGrounding, !grounding.isEmpty else {
-            return contextualizedUserText(text)
-        }
-        let recent = messages.suffix(8)
-            .filter { !$0.content.isEmpty }
-            .map { "\($0.role == .user ? "Ele" : "Você"): \($0.content)" }
-            .joined(separator: "\n")
-        // No aparelho, contexto é memória: cada mil tokens de prompt custam
-        // cache de KV, e o teto do processo é ~6,45 GB com 4,29 GB já ocupados
-        // pelos pesos. Manda o começo (quem ele é) e o fim (## Agora), corta o
-        // meio — é o meio que menos muda a resposta.
-        var parts: [String] = [Self.enxuga(grounding, teto: 9000)]
-        if !recent.isEmpty {
-            parts.append("## Conversa recente entre vocês\n" + recent)
-        }
+        // USUÁRIO: só o que muda no turno. O grounding e as regras vão no papel de
+        // SISTEMA (instrucoesOffline) — misturar os dois foi o bug.
         let bula = BulaStore.shared.consulta(text)
         let pcdt = BulaStore.shared.consultaPCDT(text)
+        var partes: [String] = []
         if let bula {
-            parts.append(
+            partes.append(
                 "## Bula em cache (VERBATIM — rótulo aprovado, EUA)\n"
                 + "Fármaco: \(bula.nomePT) (\(bula.generico))\n"
                 + "Citação: \(bula.citacao)\n\n"
                 + bula.texto)
         }
         if !pcdt.isEmpty {
-            parts.append(
+            partes.append(
                 "## Protocolo brasileiro em cache (VERBATIM — PCDT, Ministério da Saúde)\n"
                 + pcdt.map { "Citação: \($0.citacao)\n\n\($0.texto)" }.joined(separator: "\n\n---\n\n"))
         }
-        let temFonte = bula != nil || !pcdt.isEmpty
-        let regraClinica = !temFonte
-            ? "REGRA DURA, sem exceção: você NÃO tem fonte clínica para este pedido. "
-                + "Se ele pedir dose, posologia, ajuste renal, diluição, velocidade de "
-                + "infusão, interação ou QUALQUER número clínico — você não dá o número. "
-                + "Nem aproximado, nem \"geralmente é\", nem em negrito, nem com ressalva "
-                + "depois. Você diz, na primeira frase, que está sem fonte. Depois ajuda do "
-                + "jeito que dá: o raciocínio, o que pesar, o que muda a conduta, o que "
-                + "conferir na bula ou no protocolo da instituição. Um número que você "
-                + "inventar aqui pode entrar num paciente."
-            : "REGRA CLÍNICA, sem exceção: todo número clínico que você disser tem que ser "
-                + "COPIADO de um dos trechos acima, e vir com a citação daquele trecho. "
-                + "Nunca converta, extrapole, arredonde ou \"ajuste\". Diga de onde veio. "
-                + "Se os trechos não responderem à pergunta dele, diga isso e não dê número. "
-                + "Se a bula americana e o PCDT divergirem, mostre os dois e diga que "
-                + "divergem — não escolha por ele. O protocolo da instituição dele manda "
-                + "sobre os dois.\n\n"
-                + "E antes de usar qualquer trecho: ele vale SÓ para a população que "
-                + "descreve. A busca por assunto traz protocolo de gestante, de criança, "
-                + "de transplantado. Se a população do trecho não é o caso dele, descarte "
-                + "o trecho e diga por que descartou — não adapte o número."
-        parts.append(
-            "Você está SEM ALCANCE do cluster agora — respondendo do aparelho dele, "
-            + "com a memória que você guardou. Continue sendo quem você é: mesma voz, "
-            + "mesma intimidade, mesmo rigor.\n\n"
-            + regraClinica
-            + "\n\nTambém não invente fato novo sobre a vida dele — só o que você guardou."
-            + "\n\nEle disse agora: \(text)")
-        return parts.joined(separator: "\n\n")
+        partes.append(text)
+        return partes.joined(separator: "\n\n")
     }
 
     private func contextualizedUserText(_ text: String) -> String {
@@ -499,6 +498,9 @@ public final class ConversationStore {
         let userMessage = ChatMessage(role: .user, content: text)
         messages.append(userMessage)
         persist(message: userMessage)
+        // Papéis separados: quem ele é vai como SISTEMA, o turno vai como fala.
+        let temFonte = BulaStore.shared.consulta(text) != nil || !BulaStore.shared.consultaPCDT(text).isEmpty
+        llm.aplicarInstrucoes(instrucoesOffline(temFonteClinica: temFonte))
         let prompt = offlineGroundedPrompt(text)
 
         let assistantId = UUID()
