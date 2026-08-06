@@ -122,6 +122,7 @@ public struct ChatScreen: View {
     /// turno de conversa.
     @State private var chegada = ArrivalStore()
     @State private var voz = CompanionVoice()
+    @State private var chegadaAberta = false
     /// O turno atual começou por FALA. É isto que decide se ele responde em voz.
     ///
     /// Se ele falou, quer ouvir — está andando, com a tela longe dos olhos, e foi
@@ -438,11 +439,23 @@ public struct ChatScreen: View {
                     .accessibilityLabel("Dispensar")
                 }
                 MarkdownText(
-                    text: chegada.texto,
+                    text: chegadaAberta ? chegada.textoCompleto : chegada.texto,
                     inkColor: BeagleTheme.companionInk.opacity(0.92),
                     bodyFont: .system(.callout, design: .serif),
                     lineSpacingPt: 5.5
                 )
+                if chegada.temMais {
+                    Button {
+                        withAnimation(BeagleMotion.snappy) { chegadaAberta.toggle() }
+                    } label: {
+                        Text(chegadaAberta ? "menos" : "o resto")
+                            .font(BeagleFont.caption2.font)
+                            .foregroundStyle(MessageBubble.marcaAmbar.opacity(0.9))
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.leading, BeagleSpacing.sm)
             .padding(.trailing, BeagleSpacing.xs)
