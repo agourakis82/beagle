@@ -1,0 +1,131 @@
+# slurm-sweep-watch — vigia um conjunto de jobs Slurm e avisa DE VERDADE quando terminam.
+#
+# Motivo: em 2026-08-06 um vigia de sweep rodava como laco de shell dentro de uma
+# sessao de agente. O pai morreu, o init (dropbear) adotou o processo, e ele ficou
+# imprimindo para um stdout sem leitor. O relatorio final iria para o vazio. Foram
+# encontrados 16 orfaos assim, alguns com 7 dias.
+#
+# Este vigia corrige a classe inteira do problema:
+#   - vive no cluster (CronJob), nao numa sessao de terminal; sobrevive a restart
+#     do workspace, do pod e do no;
+#   - o resultado vai para um ConfigMap (duravel, inspecionavel com kubectl) e para
+#     o Alertmanager, que ja tem roteamento configurado — nao para um stdout orfao;
+#   - marca `done` no ConfigMap para nao repetir o aviso a cada tick.
+#
+# Tres armadilhas observadas hoje e evitadas de proposito aqui:
+#   1. Selecionar o pod de login por label pega tambem pods Succeeded; o exec falha
+#      e sob `set -eu` o job inteiro morre. Filtra-se por fase no seletor.
+#   2. `comando || echo '[]'` engole falha de ferramenta e vira espera infinita
+#      silenciosa (foi o que travou 6 vigias de `gh pr checks`). Aqui, falha de
+#      sacct e reportada como alerta, nao engolida.
+#   3. `pgrep -f <padrao>` casa com a propria linha de comando do laco. Nao se usa
+#      pgrep aqui; o estado vem do sacct, que e a fonte de verdade.
+#
+# Configurar quais jobs vigiar: env SWEEP_JOBS no CronJob.
+#
+# Aplicar:   kubectl apply -f slurm-sweep-watch.yaml
+# Estado:    kubectl -n slurm-pilot get cm slurm-sweep-watch-state -o yaml
+# Desligar:  kubectl -n slurm-pilot patch cronjob slurm-sweep-watch -p '{"spec":{"suspend":true}}'
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: slurm-sweep-watch
+  namespace: slurm-pilot
+  labels:
+    app: slurm-sweep-watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: slurm-sweep-watch
+  namespace: slurm-pilot
+  labels:
+    app: slurm-sweep-watch
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: slurm-sweep-watch
+  namespace: slurm-pilot
+  labels:
+    app: slurm-sweep-watch
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: slurm-sweep-watch
+subjects:
+  - kind: ServiceAccount
+    name: slurm-sweep-watch
+    namespace: slurm-pilot
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: slurm-sweep-watch
+  namespace: slurm-pilot
+  labels:
+    app: slurm-sweep-watch
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 240
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 86400
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: slurm-sweep-watch
+          tolerations:
+            - effect: NoSchedule
+              key: sounio.dev/pool
+              operator: Exists
+            - effect: NoSchedule
+              key: sounio.dev/compute
+              operator: Exists
+          volumes:
+            - name: script
+              configMap:
+                name: slurm-sweep-watch-script
+                defaultMode: 0555
+          containers:
+            - name: watch
+              image: 192.168.3.207:5003/sounio-lab-beagle-workspace-ssh-20260425-zellij1:stable
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: SWEEP_JOBS
+                  value: "8732,8733,8734"
+                - name: SWEEP_NAME
+                  value: "san-large-gpu-resnet50"
+                - name: ALERTMANAGER
+                  value: "http://darwin-observability-alertmanager.darwin-platform.svc:9093"
+                - name: STATE_CM
+                  value: "slurm-sweep-watch-state"
+              volumeMounts:
+                - name: script
+                  mountPath: /cm
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 96Mi
+                  ephemeral-storage: 64Mi
+                limits:
+                  cpu: 300m
+                  memory: 256Mi
+                  ephemeral-storage: 256Mi
+              command: ["/usr/bin/python3", "/cm/watch.py"]

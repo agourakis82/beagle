@@ -1,0 +1,204 @@
+# Script do slurm-sweep-watch. Ver slurm-sweep-watch.yaml para o porque e o contrato.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slurm-sweep-watch-script
+  namespace: slurm-pilot
+  labels:
+    app: slurm-sweep-watch
+data:
+  watch.py: |
+    #!/usr/bin/env python3
+    """Vigia jobs Slurm e avisa via Alertmanager quando todos ficam terminais.
+
+    Falha alto: se o sacct nao responder ou nao houver pod de login, isso vira
+    alerta, nao silencio. Foi silencio que deixou 16 vigias presos por dias.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+    import urllib.request
+    from datetime import datetime, timedelta, timezone
+
+    NS = "slurm-pilot"
+    JOBS = [j.strip() for j in os.environ.get("SWEEP_JOBS", "").split(",") if j.strip()]
+    SWEEP = os.environ.get("SWEEP_NAME", "slurm-sweep")
+    AM = os.environ["ALERTMANAGER"].rstrip("/")
+    CM = os.environ.get("STATE_CM", "slurm-sweep-watch-state")
+
+    TERMINAL = {"COMPLETED", "FAILED", "TIMEOUT", "CANCELLED", "NODE_FAIL",
+                "OUT_OF_MEMORY", "BOOT_FAIL", "DEADLINE", "PREEMPTED"}
+    BAD = TERMINAL - {"COMPLETED"}
+
+
+    def run(args, timeout=60):
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+
+    def kubectl(*args, **kw):
+        return run(["kubectl", "-n", NS, *args], **kw)
+
+
+    def now():
+        return datetime.now(timezone.utc)
+
+
+    def post_alert(alertname, severity, tier, summary, description):
+        """Posta no Alertmanager. endsAt no futuro para o alerta auto-resolver."""
+        payload = [{
+            "labels": {
+                "alertname": alertname,
+                "domain": "slurm",
+                "namespace": "darwin-platform",
+                "resource_namespace": NS,
+                "notification_tier": tier,
+                "severity": severity,
+                "sweep": SWEEP,
+            },
+            "annotations": {"summary": summary, "description": description[:3000]},
+            "startsAt": now().isoformat(),
+            "endsAt": (now() + timedelta(hours=6)).isoformat(),
+        }]
+        req = urllib.request.Request(
+            AM + "/api/v2/alerts",
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status
+
+
+    def login_pod():
+        # Filtra por fase no seletor: o label casa tambem com pods Succeeded, e o
+        # exec num pod terminado falha. Ver slurm-pilot/k8s/reaper-keeper.yaml.
+        rc, out, _ = kubectl("get", "pod", "-l", "app.kubernetes.io/name=login",
+                             "--field-selector=status.phase=Running",
+                             "--no-headers", "-o", "custom-columns=:.metadata.name")
+        name = out.splitlines()[0].strip() if rc == 0 and out else ""
+        if name:
+            return name
+        rc, out, _ = kubectl("get", "pod", "--no-headers",
+                             "--field-selector=status.phase=Running",
+                             "-o", "custom-columns=:.metadata.name")
+        for line in out.splitlines():
+            if "login-slinky" in line:
+                return line.strip()
+        return ""
+
+
+    def state_get():
+        rc, out, _ = kubectl("get", "cm", CM, "-o", "jsonpath={.data}")
+        if rc != 0 or not out:
+            return {}
+        try:
+            return json.loads(out)
+        except ValueError:
+            return {}
+
+
+    def state_set(**kv):
+        args = ["create", "cm", CM]
+        for k, v in kv.items():
+            args += ["--from-literal=%s=%s" % (k, v)]
+        args += ["--dry-run=client", "-o", "yaml"]
+        rc, manifest, err = kubectl(*args)
+        if rc != 0:
+            print("aviso: nao consegui montar o ConfigMap: %s" % err, file=sys.stderr)
+            return
+        p = subprocess.run(["kubectl", "-n", NS, "apply", "-f", "-"],
+                           input=manifest, capture_output=True, text=True)
+        if p.returncode != 0:
+            print("aviso: apply do ConfigMap falhou: %s" % p.stderr, file=sys.stderr)
+
+
+    def main():
+        if not JOBS:
+            print("SWEEP_JOBS vazio; nada a vigiar")
+            return 0
+
+        st = state_get()
+        if st.get("done") == "true":
+            print("sweep %s ja foi reportado em %s; nada a fazer"
+                  % (SWEEP, st.get("finished_at", "?")))
+            return 0
+
+        pod = login_pod()
+        if not pod:
+            post_alert("DarwinSlurmSweepWatchBroken", "warning", "dev-noise",
+                       "Vigia do sweep %s nao achou pod de login" % SWEEP,
+                       "Nenhum pod de login Running em %s. O sweep %s (jobs %s) "
+                       "ficou sem vigia." % (NS, SWEEP, ",".join(JOBS)))
+            print("sem pod de login; alerta enviado", file=sys.stderr)
+            return 1
+
+        # -X = so o job principal, sem os passos .batch/.extern
+        rc, out, err = kubectl("exec", pod, "-c", "login", "--",
+                               "sacct", "-j", ",".join(JOBS), "-X", "-n", "-P",
+                               "--format=JobID,State,Elapsed,ExitCode", timeout=90)
+        if rc != 0 or not out:
+            post_alert("DarwinSlurmSweepWatchBroken", "warning", "dev-noise",
+                       "Vigia do sweep %s nao conseguiu ler o sacct" % SWEEP,
+                       "sacct falhou no pod %s (rc=%s). stderr: %s" % (pod, rc, err[:500]))
+            print("sacct falhou; alerta enviado", file=sys.stderr)
+            return 1
+
+        states = {}
+        for line in out.splitlines():
+            f = line.split("|")
+            if len(f) >= 4:
+                states[f[0]] = {"state": f[1].split()[0], "elapsed": f[2], "exit": f[3]}
+
+        missing = [j for j in JOBS if j not in states]
+        pend = {j: v for j, v in states.items() if v["state"] not in TERMINAL}
+        resumo = " ".join("%s=%s" % (j, v["state"]) for j, v in sorted(states.items()))
+        print("sweep %s: %s%s" % (SWEEP, resumo,
+                                  " | ausentes: %s" % missing if missing else ""))
+
+        state_set(jobs=",".join(JOBS), states=resumo,
+                  checked_at=now().isoformat(), done="false")
+
+        if pend or missing:
+            return 0
+
+        # todos terminais: monta relatorio e avisa uma unica vez
+        falhos = [j for j, v in states.items() if v["state"] in BAD]
+        linhas = []
+        for j, v in sorted(states.items()):
+            linhas.append("  job %s: %s (elapsed %s, exit %s)"
+                          % (j, v["state"], v["elapsed"], v["exit"]))
+
+        rc, art, _ = kubectl(
+            "exec", pod, "-c", "login", "--", "bash", "-lc",
+            'for f in $(ls /orangefs/training/sounio/kimi-runs/san-large-gpu/*/resnet50-*.out '
+            '2>/dev/null | tail -12); do echo "== $f"; '
+            'grep -E "ledger\\[|latency\\[|VERDICT" "$f" 2>/dev/null | tail -4; done',
+            timeout=90)
+        relatorio = art if rc == 0 and art else "(sem artefatos legiveis)"
+
+        if falhos:
+            sev, tier = "critical", "real-incident"
+            resumo_txt = "Sweep %s terminou com %d job(s) em falha" % (SWEEP, len(falhos))
+        else:
+            sev, tier = "warning", "dev-noise"
+            resumo_txt = "Sweep %s terminou: todos os %d jobs COMPLETED" % (SWEEP, len(states))
+
+        desc = "%s\n\nEstados:\n%s\n\nArtefatos:\n%s" % (
+            resumo_txt, "\n".join(linhas), relatorio)
+        try:
+            post_alert("DarwinSlurmSweepFinished", sev, tier, resumo_txt, desc)
+        except Exception as e:
+            print("ERRO ao postar alerta: %s" % e, file=sys.stderr)
+            return 1
+
+        state_set(jobs=",".join(JOBS), states=resumo, done="true",
+                  finished_at=now().isoformat(), failed=",".join(falhos) or "none",
+                  report=relatorio[:2000])
+        print("sweep terminou; alerta enviado e estado marcado done")
+        return 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())
