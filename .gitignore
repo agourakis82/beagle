@@ -108,3 +108,7 @@ tmp/
 *.bak
 .envrc
 .artifacts/darwin-hpc/
+
+# Segredo do app iOS. O token do cockpit ficou hardcoded em BeagleClient.swift e
+# esteve PÚBLICO no GitHub de 01-jul a 06-ago-2026. Nunca mais em código-fonte.
+beagle-ios/BeagleSuite/Sources/BeagleCockpit/Resources/Secrets.plist

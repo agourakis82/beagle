@@ -30,7 +30,30 @@ public actor BeagleClient {
     // public, not just internal: BeagleCockpit-module screens (e.g. CognitiveRecall.swift)
     // also need it — BeagleCore and BeagleCockpit are separate modules, so `internal` isn't
     // enough.
-    public static let cockpitMobileToken = "63e6190ef59507df275fb3550398bf7012afabc6a8075bb70f3869c8cb9e2f7e"
+    /// Token do cockpit, lido do bundle — NUNCA de um literal no código.
+    ///
+    /// Este valor ficou hardcoded aqui e a branch é publicada: de 01-jul a
+    /// 06-ago-2026 qualquer pessoa podia baixar o arquivo do GitHub sem
+    /// autenticação, conversar com o companion como ele e puxar 19 KB da
+    /// biografia dele por /companion/grounding. Verificado, não suposto.
+    ///
+    /// Agora vem de Secrets.plist, que é gitignored. Secrets.example.plist tem o
+    /// modelo e diz como obter o valor real do cluster.
+    ///
+    /// Vazio quando o arquivo falta: o app compila e as chamadas falham com 401,
+    /// que é ruído honesto — melhor que um token de exemplo parecendo funcionar.
+    public static let cockpitMobileToken: String = {
+        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+              let dados = try? Data(contentsOf: url),
+              let dict = try? PropertyListSerialization.propertyList(from: dados, format: nil) as? [String: Any],
+              let token = dict["COCKPIT_MOBILE_TOKEN"] as? String,
+              !token.isEmpty, !token.hasPrefix("COLE-AQUI")
+        else {
+            print("[BeagleClient] Secrets.plist ausente ou vazio — as chamadas ao cockpit vão dar 401.")
+            return ""
+        }
+        return token
+    }()
 
     public static let shared = BeagleClient()
 
