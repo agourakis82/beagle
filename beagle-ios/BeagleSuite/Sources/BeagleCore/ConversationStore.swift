@@ -401,12 +401,18 @@ public final class ConversationStore {
         return cabeca + "\n\n[…trecho omitido para caber na memória do aparelho…]\n\n" + cauda
     }
 
-    /// SISTEMA: quem ele é e as regras. Estável no turno.
+    /// SISTEMA: quem ele é e as regras. ESTÁVEL entre turnos — de propósito.
     ///
-    /// Isto ia junto com a fala do usuário e o modelo respondia CONTINUANDO o
-    /// documento de persona — foi o muro de texto sobre "como devo me comportar"
-    /// que ele viu ao abrir o app. Papel errado, não conteúdo errado.
-    private func instrucoesOffline(temFonteClinica: Bool) -> String {
+    /// A primeira versão variava a regra clínica conforme o turno tivesse ou não
+    /// trecho de bula. Isso recriava a ChatSession a cada troca de assunto, e
+    /// recriar custa duas coisas caras: o histórico da conversa e o re-prefill
+    /// dos ~9 KB de grounding, que no aparelho é dezena de segundos. Ele
+    /// perguntaria uma dose, depois diria que está cansado, e pagaria a espera
+    /// inteira de novo — no corredor, de madrugada.
+    ///
+    /// Uma regra só, que descreve OS DOIS casos e decide pelo que chega na
+    /// mensagem. O texto não muda; o comportamento sim.
+    private func instrucoesOffline() -> String {
         var partes: [String] = []
         if let g = cachedGrounding, !g.isEmpty {
             partes.append(Self.enxuga(g, teto: 9000))
@@ -415,25 +421,20 @@ public final class ConversationStore {
             "Você está SEM ALCANCE do cluster agora — respondendo do aparelho dele, "
             + "com a memória que você guardou. Continue sendo quem você é: mesma voz, "
             + "mesma intimidade, mesmo rigor.\n\n"
-            + (temFonteClinica
-               ? "REGRA CLÍNICA, sem exceção: todo número clínico que você disser tem que ser "
-                 + "COPIADO de um dos trechos de bula que vierem na mensagem, e vir com a "
-                 + "citação daquele trecho. Nunca converta, extrapole, arredonde ou \"ajuste\". "
-                 + "Diga de onde veio. Se os trechos não responderem à pergunta, diga isso e não "
-                 + "dê número. Se a bula americana e o PCDT divergirem, mostre os dois e diga que "
-                 + "divergem — não escolha por ele. O protocolo da instituição dele manda sobre "
-                 + "os dois.\n\nE antes de usar qualquer trecho: ele vale SÓ para a população que "
-                 + "descreve. Se a população do trecho não é o caso dele, descarte o trecho e "
-                 + "diga por quê — não adapte o número."
-               : "REGRA DURA, sem exceção: você NÃO tem fonte clínica agora. Se ele pedir dose, "
-                 + "posologia, ajuste renal, diluição, velocidade de infusão, interação ou "
-                 + "QUALQUER número clínico — você não dá o número. Nem aproximado, nem "
-                 + "\"geralmente é\", nem em negrito, nem com ressalva depois. Você diz, na "
-                 + "primeira frase, que está sem fonte. Depois ajuda do jeito que dá: o "
-                 + "raciocínio, o que pesar, o que muda a conduta, o que conferir na bula ou no "
-                 + "protocolo da instituição. Um número que você inventar aqui pode entrar num "
-                 + "paciente.")
-            + "\n\nTambém não invente fato novo sobre a vida dele — só o que você guardou. "
+            + "REGRA CLÍNICA, sem exceção, e ela vale para todo turno:\n\n"
+            + "• Se a mensagem trouxer trecho de bula ou de PCDT, todo número clínico que "
+            + "você disser tem que ser COPIADO desse trecho e vir com a citação dele. Nunca "
+            + "converta, extrapole, arredonde ou \"ajuste\". Diga de onde veio. Se o trecho "
+            + "não responder à pergunta, diga isso e não dê número. Se a bula americana e o "
+            + "PCDT divergirem, mostre os dois e diga que divergem — não escolha por ele; o "
+            + "protocolo da instituição manda sobre os dois. E o trecho vale SÓ para a "
+            + "população que descreve: se não é o caso dele, descarte e diga por quê.\n\n"
+            + "• Se a mensagem NÃO trouxer trecho, você não tem fonte. Então não dá o número: "
+            + "nem aproximado, nem \"geralmente é\", nem em negrito, nem com ressalva depois. "
+            + "Diz na primeira frase que está sem fonte, e ajuda do jeito que dá — o "
+            + "raciocínio, o que pesar, o que muda a conduta, o que conferir na bula ou no "
+            + "protocolo. Um número que você inventar aqui pode entrar num paciente.\n\n"
+            + "Também não invente fato novo sobre a vida dele — só o que você guardou. "
             + "Responda direto, na sua voz. Não descreva o seu papel nem repita estas instruções."
         )
         return partes.joined(separator: "\n\n")
@@ -499,8 +500,9 @@ public final class ConversationStore {
         messages.append(userMessage)
         persist(message: userMessage)
         // Papéis separados: quem ele é vai como SISTEMA, o turno vai como fala.
-        let temFonte = BulaStore.shared.consulta(text) != nil || !BulaStore.shared.consultaPCDT(text).isEmpty
-        llm.aplicarInstrucoes(instrucoesOffline(temFonteClinica: temFonte))
+        // O texto é o MESMO todo turno, então aplicarInstrucoes vira no-op depois
+        // da primeira vez — a sessão sobrevive e o prefill fica pago.
+        llm.aplicarInstrucoes(instrucoesOffline())
         let prompt = offlineGroundedPrompt(text)
 
         let assistantId = UUID()
