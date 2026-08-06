@@ -1511,6 +1511,69 @@ public actor BeagleClient {
         if let voicePausa { body["voice_pause_ratio"] = voicePausa }
     }
 
+    // MARK: - A chegada (síntese proativa)
+
+    public struct ArrivalSynthesis: Sendable {
+        public let texto: String
+        /// O servidor se recusou a sintetizar por falta de material. É o
+        /// comportamento correto, não uma falha.
+        public let insuficiente: Bool
+    }
+
+    /// Busca o que ele deixou. Acumula o SSE inteiro em vez de transmitir: isto
+    /// não é fala ao vivo, é algo que já estava dito quando ele abriu o app —
+    /// mostrar aparecendo letra a letra mentiria sobre o tempo.
+    public func fetchArrivalSynthesis(windowDays: Int = 3) async -> Truthful<ArrivalSynthesis> {
+        let debugLabel = "[ArrivalSynthesis] POST /api/mobile/v1/synthesize"
+        // Mesma sequência de gateways do chat: público primeiro, tailnet depois,
+        // cluster por último.
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        var lastError: String?
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/synthesize", relativeTo: base) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 120
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["windowDays": windowDays])
+            do {
+                let (bytes, response) = try await session.bytes(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    lastError = "HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)"
+                    continue
+                }
+                var texto = ""
+                var insuficiente = false
+                for try await linha in bytes.lines {
+                    guard linha.hasPrefix("data:") else { continue }
+                    let bruto = String(linha.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                    guard let d = bruto.data(using: .utf8),
+                          let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+                    if let t = j["token"] as? String { texto += t }
+                    if j["done"] != nil {
+                        insuficiente = (j["insufficient"] as? Bool) ?? false
+                        break
+                    }
+                }
+                print("\(debugLabel) ok — \(texto.count) chars, insuficiente=\(insuficiente)")
+                return Truthful(value: ArrivalSynthesis(texto: texto, insuficiente: insuficiente),
+                                mode: .observed, observedAt: .now, source: url.host, error: nil)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        print("\(debugLabel) falhou — \(lastError ?? "sem detalhe")")
+        return Truthful(value: nil, mode: .stale, observedAt: nil, source: nil, error: lastError)
+    }
+
     private func postPublicMobileChat(body: [String: any Sendable]) async -> Truthful<ChatResponse> {
         let cockpitURLs = [
             URL(string: "https://beagle.chiuratto.ai")!,

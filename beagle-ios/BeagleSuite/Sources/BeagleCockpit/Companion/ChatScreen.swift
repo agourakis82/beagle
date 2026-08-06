@@ -117,6 +117,11 @@ public struct ChatScreen: View {
         return w.band
     }
 
+    /// O que ele deixou. Tipo PRÓPRIO, nunca `store.messages` — a parede da
+    /// síntese é estrutural: não existe caminho de código que transforme isto em
+    /// turno de conversa.
+    @State private var chegada = ArrivalStore()
+
     private var presenceState: PresenceState {
         PresenceResolver(
             isStreaming: store.isStreaming,
@@ -166,6 +171,11 @@ public struct ChatScreen: View {
             // Warm the on-device speech assets now so the first hold doesn't eat the first
             // three words. Fire-and-forget and time-boxed inside the controller.
             voice.prewarm()
+
+            // O que ele deixou. Em Task separada de propósito: a síntese leva
+            // dezenas de segundos e NUNCA pode atrasar a tela abrir. Se falhar,
+            // falha calada — a chegada é um presente, não um requisito.
+            Task { await chegada.buscarSeForHora() }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { voice.handleResignActive() }
@@ -376,10 +386,61 @@ public struct ChatScreen: View {
 
     // MARK: - Conversation (flat content above the mesh)
 
+    /// A CHEGADA — item 7 do desenho: "quando há material, ao abrir o app ele já
+    /// disse algo".
+    ///
+    /// Visualmente distinta da carta de propósito. A fala em resposta tem serifa e
+    /// a marca âmbar no início do turno; isto é um bloco recuado, com filete e uma
+    /// etiqueta que diz QUANDO foi dito. A diferença não é decorativa: sem ela,
+    /// algo escrito antes dele chegar leria como resposta ao que ele acabou de
+    /// dizer — e ele confiaria numa réplica que nunca houve.
+    @ViewBuilder
+    private var aChegada: some View {
+        if chegada.temAlgoADizer {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                HStack(spacing: BeagleSpacing.xxs) {
+                    Text("ENQUANTO VOCÊ NÃO ESTAVA")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .tracking(1.3)
+                        .foregroundStyle(MessageBubble.marcaAmbar.opacity(0.85))
+                    Spacer(minLength: 0)
+                    Button {
+                        withAnimation(BeagleMotion.snappy) { chegada.dispensar() }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .padding(6)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dispensar")
+                }
+                MarkdownText(
+                    text: chegada.texto,
+                    inkColor: BeagleTheme.companionInk.opacity(0.92),
+                    bodyFont: .system(.callout, design: .serif),
+                    lineSpacingPt: 5.5
+                )
+            }
+            .padding(.leading, BeagleSpacing.sm)
+            .padding(.trailing, BeagleSpacing.xs)
+            .padding(.vertical, BeagleSpacing.sm)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(MessageBubble.marcaAmbar.opacity(0.5))
+                    .frame(width: 2)
+            }
+            .frame(maxWidth: 620, alignment: .leading)
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: BeagleSpacing.lg) {
+                    aChegada
                     ForEach(store.messages) { message in
                         MessageBubble(
                             message: message,
