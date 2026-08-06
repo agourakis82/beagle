@@ -1,14 +1,19 @@
-# project-cockpit Deployment — reconciled from the live cluster state
-# (kubectl get deploy project-cockpit -n beagle), pinned to the durable image.
-# This is the authoritative IaC source: live == repo.
-# Notes:
-#  - imagePullPolicy IfNotPresent: in-cluster registry (192.168.3.207:5003) is
-#    plain-HTTP. Nodes honor it via /etc/containerd/certs.d once config_path is
-#    set under the containerd v2 key io.containerd.cri.v1.images.registry.
-#  - project-catalog.json ships baked into the image (single source of truth);
-#    the old catalog-override ConfigMap was retired.
-#  - project-cockpit-remembered ConfigMap holds runtime state (not in git;
-#    volume is optional).
+# project-cockpit — o servidor do companion.
+#
+# REGENERADO do estado VIVO em 06-ago-2026, e o motivo importa: o arquivo
+# anterior tinha `nodeSelector`, `tolerations` e `securityContext` DUPLICADOS no
+# mesmo nível (alguém colou um dump do cluster por cima do manifesto). Em YAML a
+# última ocorrência vence, então todo o bloco de cima — com os comentários de
+# intenção — era decorativo. Aplicar este arquivo derrubou o cockpit:
+# o pod ficou Pending porque herdou o pin de hostname r770-proxmox e perdeu a
+# tolerância de control-plane.
+#
+# Hoje só o t560 carrega o rótulo runtime-role=infra-control, e o t560 é
+# control-plane. Por isso: nodeSelector pelo RÓTULO (não pelo hostname),
+# preferência suave pelo r770, e a tolerância de control-plane é OBRIGATÓRIA.
+#
+# Antes de editar: confira que nenhuma chave aparece duas vezes.
+#   python3 -c "import yaml,sys; yaml.safe_load(open('deployment.yaml'))"
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -17,74 +22,58 @@ metadata:
     app.kubernetes.io/part-of: beagle
   name: project-cockpit
   namespace: beagle
+  annotations:
+    kubernetes.io/change-cause: regenerado do estado vivo em 06-ago-2026
 spec:
+  progressDeadlineSeconds: 600
   replicas: 1
+  revisionHistoryLimit: 10
   selector:
     matchLabels:
       app.kubernetes.io/name: project-cockpit
   strategy:
-    # Recreate, not RollingUpdate: the pod mounts a RWO PVC (/var/lib/cockpit).
-    # RollingUpdate's surge starts the new pod before the old releases the volume;
-    # if it lands on another node → Multi-Attach deadlock. Recreate deletes the old
-    # pod first (releasing the PVC), then starts the new one. ~30-60s downtime, 1 replica.
     type: Recreate
   template:
     metadata:
+      annotations:
+        kubectl.kubernetes.io/restartedAt: '2026-08-06T05:43:13-03:00'
       labels:
         app.kubernetes.io/name: project-cockpit
         app.kubernetes.io/part-of: beagle
     spec:
-      # Home = t560 (infra-control). It has by far the most disk (286G vs r770's chronically-full
-      # 94G), and the cockpit is a light Node proxy (no GPU, proxy-level I/O — unrelated to the
-      # souc builds that once starved etcd; the etcd-ioprio/souc-cap protections cover that). Hard
-      # role pin (not soft affinity) so the RWO PVC always reattaches on the same node — no
-      # Multi-Attach migration. Control-plane toleration + Unconfined (Core Location / kubectl /
-      # node-pty spawns need it) mirror the proven live config.
-      nodeSelector:
-        sounio.dev/runtime-role: infra-control
-      tolerations:
-      - key: sounio.dev/compute
-        operator: Equal
-        value: heavy
-        effect: NoSchedule
-      - key: sounio.dev/pool
-        operator: Equal
-        value: gpu-batch
-        effect: NoSchedule
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
-        effect: NoSchedule
-      securityContext:
-        seccompProfile:
-          type: Unconfined
-        appArmorProfile:
-          type: Unconfined
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - r770-proxmox
+            weight: 100
       containers:
       - env:
         - name: BEAGLE_MEMORY_API_TOKEN
           valueFrom:
             secretKeyRef:
-              name: beagle-core-tokens
               key: operator-token
+              name: beagle-core-tokens
         - name: PROJECT_COCKPIT_AUTH_TOKEN
           valueFrom:
             secretKeyRef:
-              name: cockpit-mobile-auth
               key: PROJECT_COCKPIT_AUTH_TOKEN
-        # A BOCA (xAI realtime). A chave fica AQUI, nunca no app: o token do
-        # cockpit acabou de ser rotacionado por ter vivido cinco semanas num
-        # arquivo público do GitHub. optional para o cockpit subir sem voz.
+              name: cockpit-mobile-auth
         - name: XAI_API_KEY
           valueFrom:
             secretKeyRef:
-              name: beagle-core-secrets
               key: XAI_API_KEY
+              name: beagle-core-secrets
               optional: true
         - name: PROJECT_COCKPIT_INTERNAL_AUTH_TOKEN
           valueFrom:
             secretKeyRef:
-              name: beagle-core-tokens
               key: operator-token
+              name: beagle-core-tokens
         - name: PROJECT_COCKPIT_PORT
           value: '4370'
         - name: PROJECT_COCKPIT_ROOT
@@ -127,33 +116,14 @@ spec:
           value: workspace-agent
         - name: PROJECT_COCKPIT_WORKSPACE_AGENT_TIMEOUT_MS
           value: '12000'
-        # Companion (Pessoal) voice: fast, warm, non-reasoning model that streams
-        # real content (qwen2.5-14b, warm on DGX Spark). glm-air-companion was a
-        # reasoning model → empty stream (503) + 26s latency that broke the cadence.
-        # 2026-07-03: companion voice = Claude Opus (LiteLLM router → t560:9500 claude proxy
-        # → real CLI, $0 on Max). Persona rewritten for his register (elevated peer, not the
-        # beagle-dog folksy voice); qwen read flat. Overridable via kubectl set env if needed.
-        # 2026-08-02: bumped to Opus 5. This name MUST exist as a model_name in the LiteLLM
-        # router config — the router 400s an unknown model, that 503s the voice, and the chat
-        # silently degrades to the FLOOR (canned presence). It read as "the chat went cold"
-        # with nothing broken-looking anywhere. Change both sides together, never just this.
         - name: PROJECT_COCKPIT_PERSONAL_VOICE_MODEL
           value: claude-opus-5
         - name: PROJECT_COCKPIT_PERSONAL_MUSE_MODEL
           value: qwen2.5-14b
-        # Muse creative pre-pass OFF: it added a full non-streaming call before the
-        # voice could stream. Set to 'on' to restore the seed pass.
         - name: PROJECT_COCKPIT_PERSONAL_MUSE
           value: 'off'
-        # 2026-07-13: deep-think agentic path (proxyDeepThinkAgentic) → claude proxy on t560:9500.
-        # Code default was a TAILSCALE IP (100.103.228.8) that can change on re-auth → silent
-        # "fetch failed" 503s. Pinned to the t560 FABRIC node IP (static) for robustness. Set via
-        # kubectl set env on 2026-07-13; captured here so an apply keeps it (durable truth).
         - name: PROJECT_COCKPIT_AGENTIC_PROXY_URL
           value: http://10.100.100.2:9500
-        # Reconciled from live 2026-07-03 (these were set via kubectl and ABSENT from IaC — an
-        # apply would have dropped them). DISCUSSION_LAB/SGLANG point at the sglang glm-5.1
-        # backend (currently down — separate cleanup); captured so the manifest is durable truth.
         - name: PROJECT_COCKPIT_LITELLM_ROUTER_URL
           value: http://router.llm-router.svc.cluster.local:4000
         - name: PROJECT_COCKPIT_DYNAMO_MODEL
@@ -164,26 +134,20 @@ spec:
           value: glm-5.1
         - name: TELEGRAM_VOICE_MODEL
           value: hermes-4
-        # Discussão/ensemble fan-out (consult_ensemble + /api/mobile/v1/ensemble).
-        # FAST RELIABLE trio, each FINGERPRINT-VERIFIED as the real model (2026-07-03) — NOT
-        # a router fallback. Lesson: hermes-4/hunyuan-7b silently fell back to MiniMax-M3
-        # (their vLLM pods were gone) → the "resident trio" was really baichuan+2×MiniMax.
-        #   baichuan-m2-med  → local vLLM r740 RTX8000 (medical, ~1s)
-        #   internlm2.5-7b   → local vLLM r740 (general, ~0.6s)
-        #   minimax-m3       → strong general (cloud, real, fast) — the reliable 3rd voice
-        # Whole fan-out ~50-60s. Phi-4-reasoning (real, Q4, DGX Spark .24) is DEPLOYED but
-        # kept OUT of the always-on set (decision B, 2026-07-03): it is ~9.9 tok/s on the
-        # SHARED Spark and drops under contention. It stays an OPT-IN heavy model — the agent
-        # calls consult_ensemble with models:["phi4-reasoning"] when the depth is worth ~2-3min.
-        # PENDING: dedicate the 2nd Spark (.43) to Phi-4 (decision A, deferred) → then re-add.
-        # All three tunable without rebuild via the envs below.
         - name: PROJECT_COCKPIT_ENSEMBLE_MODELS
           value: baichuan-m2-med,internlm2.5-7b,minimax-m3
         - name: PROJECT_COCKPIT_ENSEMBLE_TIMEOUT_MS
           value: '60000'
         - name: PROJECT_COCKPIT_ENSEMBLE_MAX_TOKENS
           value: '900'
-        image: 192.168.3.207:5003/project-cockpit:reconcile-a1429496
+        envFrom:
+        - secretRef:
+            name: beagle-core-secrets
+            optional: true
+        - secretRef:
+            name: beagle-telegram-secrets
+            optional: true
+        image: 192.168.3.207:5003/project-cockpit:boca-66e291d3
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
@@ -237,10 +201,14 @@ spec:
           name: cockpit-data
       dnsPolicy: ClusterFirst
       nodeSelector:
-        kubernetes.io/hostname: r770-proxmox
+        sounio.dev/runtime-role: infra-control
       restartPolicy: Always
       schedulerName: default-scheduler
-      securityContext: {}
+      securityContext:
+        appArmorProfile:
+          type: Unconfined
+        seccompProfile:
+          type: Unconfined
       serviceAccount: project-cockpit
       serviceAccountName: project-cockpit
       terminationGracePeriodSeconds: 30
@@ -253,6 +221,9 @@ spec:
         key: sounio.dev/pool
         operator: Equal
         value: gpu-batch
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
       volumes:
       - configMap:
           defaultMode: 420
