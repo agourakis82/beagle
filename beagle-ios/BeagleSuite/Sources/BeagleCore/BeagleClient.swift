@@ -1511,6 +1511,57 @@ public actor BeagleClient {
         if let voicePausa { body["voice_pause_ratio"] = voicePausa }
     }
 
+    // MARK: - A boca
+
+    /// Pede ao servidor o áudio de `text`. Devolve o WAV pronto para tocar.
+    ///
+    /// 422 do servidor NÃO é falha a mascarar: é o guarda tendo reprovado a boca
+    /// (ela falou outra coisa) ou a voz indisponível. Nos dois casos o certo é
+    /// cair para texto — a carta já está na tela.
+    public func fetchCompanionVoice(text: String) async -> Truthful<Data> {
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        let debugLabel = "[CompanionVoice] POST /api/mobile/v1/companion/voice"
+        var lastError: String?
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/companion/voice", relativeTo: base) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 60
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
+            do {
+                let (data, response) = try await session.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                guard (200..<300).contains(status) else {
+                    lastError = formatError(statusCode: status, data: data, fallback: "HTTP \(status)")
+                    // 4xx é veredito, não indisponibilidade: não adianta tentar outro gateway.
+                    if (400..<500).contains(status) { break }
+                    continue
+                }
+                struct Env: Decodable { let data: Corpo?; struct Corpo: Decodable { let wav_base64: String } }
+                guard let env = try? decoder.decode(Env.self, from: data),
+                      let b64 = env.data?.wav_base64,
+                      let wav = Data(base64Encoded: b64), !wav.isEmpty else {
+                    lastError = "resposta sem áudio"
+                    continue
+                }
+                print("\(debugLabel) ok — \(wav.count / 1024) KB")
+                return Truthful(value: wav, mode: .observed, observedAt: .now, source: url.host, error: nil)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        print("\(debugLabel) sem voz — \(lastError ?? "sem detalhe")")
+        return Truthful(value: nil, mode: .stale, observedAt: nil, source: nil, error: lastError)
+    }
+
     // MARK: - A chegada (síntese proativa)
 
     public struct ArrivalSynthesis: Sendable {

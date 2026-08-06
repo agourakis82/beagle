@@ -121,6 +121,13 @@ public struct ChatScreen: View {
     /// síntese é estrutural: não existe caminho de código que transforme isto em
     /// turno de conversa.
     @State private var chegada = ArrivalStore()
+    @State private var voz = CompanionVoice()
+    /// O turno atual começou por FALA. É isto que decide se ele responde em voz.
+    ///
+    /// Se ele falou, quer ouvir — está andando, com a tela longe dos olhos, e foi
+    /// essa a queixa que abriu o desenho. Se ele digitou, falar sozinho seria
+    /// intromissão: quem digita está olhando.
+    @State private var turnoVeioDeVoz = false
 
     private var presenceState: PresenceState {
         PresenceResolver(
@@ -176,6 +183,20 @@ public struct ChatScreen: View {
             // dezenas de segundos e NUNCA pode atrasar a tela abrir. Se falhar,
             // falha calada — a chegada é um presente, não um requisito.
             Task { await chegada.buscarSeForHora() }
+        }
+        .onChange(of: store.isStreaming) { antes, agora in
+            // Fim do turno: se ele FALOU, ele ouve de volta.
+            guard antes, !agora, turnoVeioDeVoz else { return }
+            turnoVeioDeVoz = false
+            guard let ultima = store.messages.last,
+                  ultima.role == .assistant,
+                  !ultima.content.isEmpty else { return }
+            Task { await voz.falar(ultima.content, id: ultima.id.uuidString) }
+        }
+        .onDisappear {
+            // Sair da tela cala a boca. Áudio tocando numa tela que ele fechou é
+            // o app falando sozinho.
+            voz.parar()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { voice.handleResignActive() }
@@ -445,7 +466,8 @@ public struct ChatScreen: View {
                         MessageBubble(
                             message: message,
                             isLast: message.id == store.messages.last?.id,
-                            onRegenerate: { Task { await store.regenerateLastResponse() } }
+                            onRegenerate: { Task { await store.regenerateLastResponse() } },
+                            voz: voz
                         )
                         .id(message.id)
                     }
@@ -513,6 +535,7 @@ public struct ChatScreen: View {
             // "não falei" — não "falei normal".
             onVoiceCommit: { falado in
                 store.sinalDeVozDoTurno = voice.sinalDoUltimoTurno
+                turnoVeioDeVoz = true
                 sendText(falado)
             }
         )
@@ -598,6 +621,8 @@ public struct ChatScreen: View {
     /// The single funnel for a turn, typed or spoken. Extracted so the voice commit inherits
     /// the Fundo escalation and the voiceModel routing instead of quietly duplicating them.
     private func sendText(_ raw: String) {
+        // Quem chegou aqui pelo teclado não quer ser interrompido por áudio.
+        if !draft.isEmpty { turnoVeioDeVoz = false }
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         // Fundo = escalate to a full Go-Deeper exploration instead of a chat turn.

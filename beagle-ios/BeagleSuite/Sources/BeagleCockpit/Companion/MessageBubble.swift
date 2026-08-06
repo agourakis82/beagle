@@ -33,6 +33,9 @@ struct MessageBubble: View {
     private var isUser: Bool { message.role == .user }
     /// The text the user actually reads (the companion's note is stripped out) — what we copy,
     /// share, or send to Go-Deeper.
+    /// A boca. Opcional: a bolha existe em telas que não tocam áudio.
+    var voz: CompanionVoice?
+
     private var displayedText: String { isUser ? message.content : parsed.message }
 
     var body: some View {
@@ -68,6 +71,9 @@ struct MessageBubble: View {
     private var messageActions: some View {
         Button { copyText() } label: { Label("Copiar", systemImage: "doc.on.doc") }
         Button { showGoDeep = true } label: { Label("Go Deeper", systemImage: "scope") }
+        if !isUser, isLast, let voz {
+            botaoOuvir(voz)
+        }
         if !isUser, isLast, let onRegenerate {
             Button { onRegenerate() } label: { Label("Regenerar", systemImage: "arrow.clockwise") }
         }
@@ -124,6 +130,36 @@ struct MessageBubble: View {
     // MARK: - Bubble
 
     /// Companion is thinking — request in flight, no text yet.
+    /// Ouvir a última fala dele.
+    ///
+    /// Só na ÚLTIMA e só dele: um botão em cada bolha viraria enfeite, e ouvir
+    /// uma resposta de três turnos atrás não é um gesto que alguém faz.
+    @ViewBuilder
+    private func botaoOuvir(_ voz: CompanionVoice) -> some View {
+        let falando = voz.estaFalando(message.id.uuidString)
+        Button {
+            Task {
+                if falando { voz.parar() }
+                else { await voz.falar(parsed.message, id: message.id.uuidString) }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: falando ? "stop.fill" : "speaker.wave.2")
+                    .font(.system(size: 11, weight: .medium))
+                Text(falando ? "parar" : "ouvir")
+                    .font(BeagleFont.caption2.font)
+            }
+            .foregroundStyle(falando ? Self.marcaAmbar : BeagleTheme.textTertiary)
+            .padding(.vertical, 5)
+            .padding(.horizontal, 9)
+            .contentShape(Rectangle())   // a área toda clicável, não só o glifo
+        }
+        .buttonStyle(.plain)
+        .disabled(voz.buscando)
+        .opacity(voz.buscando && !falando ? 0.45 : 1)
+        .accessibilityLabel(falando ? "Parar de ouvir" : "Ouvir esta resposta")
+    }
+
     private var isThinking: Bool { !isUser && message.isStreaming && message.content.isEmpty }
 
     private var bubble: some View {
