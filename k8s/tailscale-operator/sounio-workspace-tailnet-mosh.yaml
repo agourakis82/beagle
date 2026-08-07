@@ -1,0 +1,53 @@
+# Publica SSH + mosh do workspace num proxy Tailscale STANDALONE.
+#
+# Por que existe um segundo Service, em vez de acrescentar a porta ao
+# sounio-workspace-tailnet-ssh: aquele usa `tailscale.com/proxy-group`, e nesse
+# modo o proxy nao instala regra DNAT — a tabela nat dos pods de ingress esta
+# vazia. O TCP chega porque o tailscaled aceita a conexao e reabre para o
+# ClusterIP, encaminhador que so trata TCP. UDP some sem rastro (medido: rajadas
+# do Mac para o VIP nunca moveram a fila rx do socket no pod).
+#
+# Sem a anotacao proxy-group, o operador cria um StatefulSet dedicado que usa
+# iptables/nftables DNAT de verdade — que e onde o UDP passa. E o caminho que a
+# documentacao do operador descreve para L3 TCP/UDP.
+#
+# O mosh precisa que o UDP volte para o MESMO endereco do SSH, entao este Service
+# expoe as duas portas. Para usar mosh, conecte-se a este hostname:
+#
+#   mosh --experimental-remote-ip=local --ssh="ssh -p 2222" \
+#        openvscode-server@sounio-workspace-mosh.tail21cbc4.ts.net
+#
+# O --experimental-remote-ip=local e obrigatorio: atras do proxy, o
+# $SSH_CONNECTION no pod devolve o IP interno dele (10.0.0.x), e sem a flag o
+# cliente mira esse endereco inalcancavel.
+#
+# Trade-off aceito: proxy standalone e um pod so, sem a alta disponibilidade das
+# 2 replicas do ProxyGroup. Para sessao interativa isso basta. O
+# sounio-workspace-tailnet-ssh continua intacto e e o caminho principal.
+#
+# Aplicar:  kubectl apply -f sounio-workspace-tailnet-mosh.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sounio-workspace-tailnet-mosh
+  namespace: beagle
+  annotations:
+    tailscale.com/hostname: sounio-workspace-mosh
+    tailscale.com/tags: tag:k8s,tag:sounio-workspace
+    # SEM tailscale.com/proxy-group — e justamente essa ausencia que faz o
+    # operador criar um proxy dedicado com DNAT.
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: sounio-workspace-control
+  ports:
+    - name: ssh
+      port: 2222
+      protocol: TCP
+      targetPort: ssh
+    - name: mosh
+      port: 60001
+      protocol: UDP
+      targetPort: 60001

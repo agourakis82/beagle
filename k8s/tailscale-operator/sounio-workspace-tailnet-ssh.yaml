@@ -9,13 +9,20 @@
 # `sounio-workspace-control`. Aplicar o last-applied reverteria o seletor e
 # derrubaria o SSH. O valor correto e o de baixo.
 #
-# A porta 60001/UDP e o mosh. O wrapper em ~/bin/mosh-server no workspace ja
-# forca FORCE_PORT=60001 (instancia unica), entao basta o caminho de rede: sem
-# esta porta o mosh conecta por SSH, sobe o servidor e morre esperando o UDP de
-# volta — "Timed out waiting for server (15 s without contact)".
+# SOMENTE TCP. Nao acrescente porta UDP aqui — ja foi tentado e nao funciona.
 #
-# Nota: nenhum outro Service tailscale deste cluster usa UDP; este e o primeiro.
-# Se a reconciliacao do operador quebrar, remova a porta mosh e o SSH volta.
+# Este Service usa `tailscale.com/proxy-group`, e nesse modo o proxy nao instala
+# regra DNAT nenhuma: a tabela nat dos pods sounio-workspace-ingress-* esta
+# vazia (4 linhas, so as politicas padrao). O TCP/2222 chega porque o proprio
+# tailscaled aceita a conexao e reabre para o ClusterIP — um encaminhador que so
+# trata TCP. UDP nao tem quem o pegue e some sem deixar rastro.
+#
+# Medido em 2026-08-06: com 60001/UDP declarado aqui, o Service reconciliava e o
+# EndpointSlice listava a porta, mas rajadas de UDP do Mac para o VIP
+# (100.124.91.219) nunca moviam a fila rx do socket no pod.
+#
+# Para mosh, veja sounio-workspace-tailnet-mosh.yaml: proxy standalone, sem
+# proxy-group, que usa DNAT de verdade.
 apiVersion: v1
 kind: Service
 metadata:
@@ -40,7 +47,3 @@ spec:
       port: 2222
       protocol: TCP
       targetPort: ssh
-    - name: mosh
-      port: 60001
-      protocol: UDP
-      targetPort: 60001
