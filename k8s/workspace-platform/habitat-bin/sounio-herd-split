@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# sounio-herd-split — a mesma herd de lanes, porém UMA SESSÃO tmux POR LANE.
+#
+# Variante de sounio-herd-tmux. A diferença é só o mapeamento para o cmux:
+#
+#   sounio-herd-tmux    1 sessão, N janelas   → 1 workspace, N abas verticais
+#   sounio-herd-split   N sessões, 1 janela   → N workspaces (1 por agente)
+#
+# O cmux (`cmux ssh-tmux <host>`) lê o SERVIDOR tmux inteiro: cada sessão vira
+# um workspace na sidebar. Então N sessões = N workspaces de topo, cada agente
+# com nome, branch/PR e NOTIFICAÇÃO independente — o que resolve o "quem travou
+# esperando aprovação" sem eu reabrir o Termius.
+#
+# É não-destrutivo: NÃO toca na sessão sounio-dev (a de abas). Dá para rodar as
+# duas e comparar no cmux; se preferir o split, aposente a sounio-dev depois.
+#
+# Uso:
+#   sounio-herd-split            cria as sessões que faltam, revive as mortas
+#   sounio-herd-split --agents   idem, e sobe o agente de cada lane
+#   sounio-herd-split --status   estado de cada sessão/lane
+#   sounio-herd-split --kill     mata SÓ as sessões do split (não a sounio-dev)
+#
+# Do Mac, depois de rodar isto: `lanes` (cmux ssh-tmux) mostra os N workspaces.
+#
+# Cada lane tem HOME próprio em .agents/<lane> e PATH próprio, via sounio-lane-shell.
+set -euo pipefail
+
+BASE_HOME=/workspace/.home/openvscode-server
+REPO=/workspace/sounio
+LANE_SHELL="$BASE_HOME/bin/sounio-lane-shell"
+LANES="repo claude-1 claude-2 claude-3 codex-1 codex-2 codex-3 kimi-cli1 kimi-cli2 grok-cli1 grok-cli2"
+
+# o .zshenv já exporta isto, mas o script pode vir de um bash não-interativo que
+# não o leu. Sem isto, o tmux procura o socket no lugar errado.
+export TMUX_TMPDIR="${TMUX_TMPDIR:-$BASE_HOME/.tmux}"
+mkdir -p "$TMUX_TMPDIR"
+
+# remain-on-exit é window-option e precisa ser GLOBAL: `-t <sessão>` não propaga
+# para a janela (herda o global `off` e o workspace some do cmux quando o agente
+# sai). `-g` cobre todas as sessões/janelas do servidor, atuais e futuras.
+tmux start-server 2>/dev/null || true
+tmux set-option -g remain-on-exit on >/dev/null 2>&1 || true
+
+cmd_for() {
+  case "$1" in
+    claude-*)  echo claude ;;
+    codex-*)   echo codex ;;
+    kimi-cli*) echo kimi ;;
+    grok-cli*) echo grok ;;
+    *)         echo "" ;;   # repo não tem agente
+  esac
+}
+
+has_ses()  { tmux has-session -t "=$1" 2>/dev/null; }
+
+# o painel único da sessão morreu? (remain-on-exit on deixa-o visível, marcado morto)
+# NB: o target leva ':' no fim para forçar o ESCOPO DE SESSÃO — sem ele, "=claude-2"
+# fica ambíguo com a janela claude-2 da sounio-dev e o tmux resolve para nada.
+lane_dead() {
+  [ "$(tmux display-message -p -t "=$1:" '#{pane_dead}' 2>/dev/null || echo 0)" = "1" ]
+}
+
+# um agente já roda? (o comando em primeiro plano deixa de ser shell)
+lane_busy() {
+  local cur
+  cur="$(tmux display-message -p -t "=$1:" '#{pane_current_command}' 2>/dev/null || echo '')"
+  case "$cur" in
+    ''|bash|zsh|sh|-bash|-zsh) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+ensure_sessions() {
+  local lane
+  for lane in $LANES; do
+    if has_ses "$lane"; then
+      # sessão existe mas o painel morreu? revive no lugar, sem perder o workspace
+      if lane_dead "$lane"; then
+        tmux respawn-pane -k -t "=$lane:" "$LANE_SHELL $lane" 2>/dev/null \
+          && echo "  lane revivida: $lane" || echo "  FALHOU ao reviver: $lane" >&2
+      fi
+      continue
+    fi
+    if tmux new-session -d -s "$lane" -n "$lane" -c "$REPO" "$LANE_SHELL $lane" 2>/dev/null; then
+      # remain-on-exit já foi ligado globalmente lá em cima: o painel fica em estado
+      # morto (visível) quando o agente sai, e revive_dead o revive no lugar.
+      echo "  workspace criado: $lane"
+    else
+      echo "  FALHOU ao criar workspace: $lane" >&2
+    fi
+  done
+}
+
+start_agents() {
+  local lane cmd
+  for lane in $LANES; do
+    cmd="$(cmd_for "$lane")"
+    [ -z "$cmd" ] && continue
+    if ! has_ses "$lane"; then echo "  sem workspace para $lane" >&2; continue; fi
+    if lane_dead "$lane"; then
+      tmux respawn-pane -k -t "=$lane:" "$LANE_SHELL $lane" 2>/dev/null \
+        && echo "  lane revivida: $lane" || echo "  FALHOU ao reviver: $lane" >&2
+      continue
+    fi
+    if lane_busy "$lane"; then echo "  já rodando: $lane"; continue; fi
+    tmux send-keys -t "=$lane:" "exec $LANE_SHELL $lane" C-m
+    echo "  agente enviado: $lane ($cmd)"
+  done
+  echo "  (agentes em node levam alguns segundos para aparecer no --status)"
+}
+
+status() {
+  local lane cur dead
+  printf '  %-12s %-14s %s\n' WORKSPACE PROCESSO ESTADO
+  for lane in $LANES; do
+    if ! has_ses "$lane"; then
+      printf '  %-12s %-14s %s\n' "$lane" '-' 'ausente'
+      continue
+    fi
+    cur="$(tmux display-message -p -t "=$lane:" '#{pane_current_command}' 2>/dev/null || echo '?')"
+    if lane_dead "$lane"; then
+      printf '  %-12s %-14s %s\n' "$lane" '(morto)' '<- revive com --agents'
+    else
+      printf '  %-12s %-14s %s\n' "$lane" "$cur" ''
+    fi
+  done
+  echo
+  echo "  cada linha é um WORKSPACE separado no cmux. Rode 'lanes' no Mac para vê-los."
+  echo "  tmux mostra o PROCESSO, não o estado do agente — quem diz 'travado esperando"
+  echo "  aprovação' é o cmux, que reconhece o agente e notifica por workspace."
+}
+
+kill_all() {
+  local lane n=0
+  for lane in $LANES; do
+    if has_ses "$lane"; then
+      tmux kill-session -t "=$lane" 2>/dev/null && { echo "  morto: $lane"; n=$((n+1)); }
+    fi
+  done
+  echo "  $n workspace(s) do split encerrado(s). A sounio-dev não foi tocada."
+}
+
+case "${1:-}" in
+  --kill)   kill_all; exit 0 ;;
+  --status) status;   exit 0 ;;
+esac
+
+ensure_sessions
+if [ "${1:-}" = "--agents" ]; then start_agents; fi
+echo
+status
+echo
+echo "Pronto. No Mac: rode 'lanes' — cada lane aparece como um workspace no cmux."
+echo "(o split NÃO anexa aqui; quem exibe os workspaces é o cmux, lendo o servidor tmux.)"

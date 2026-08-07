@@ -31,6 +31,13 @@ LANES="repo claude-1 claude-2 claude-3 codex-1 codex-2 codex-3 kimi-cli1 kimi-cl
 export TMUX_TMPDIR="${TMUX_TMPDIR:-$BASE_HOME/.tmux}"
 mkdir -p "$TMUX_TMPDIR"
 
+# remain-on-exit precisa ser GLOBAL. É window-option: `set-option -t <sessão>` não
+# propaga para as janelas (herdam o global `off` e somem quando o agente sai — foi
+# o que apagou lanes em 2026-08-07, e o `-t sessão` que eu tinha aqui NÃO corrigiu).
+# `-g` cobre todas as janelas, atuais e futuras, inclusive as que o cmux criar.
+tmux start-server 2>/dev/null || true
+tmux set-option -g remain-on-exit on >/dev/null 2>&1 || true
+
 cmd_for() {
   case "$1" in
     repo)      echo "" ;;
@@ -57,8 +64,7 @@ ensure_session() {
   if has_session; then return 0; fi
   echo "criando sessão $SESSION..."
   tmux new-session -d -s "$SESSION" -n repo -c "$REPO" "$LANE_SHELL repo"
-  # janela não fecha quando o agente sai: assim a lane sobrevive a um crash
-  tmux set-option -t "=$SESSION" remain-on-exit off >/dev/null 2>&1 || true
+  # remain-on-exit já foi ligado globalmente lá em cima; nada a fazer por sessão.
 }
 
 ensure_lanes() {
@@ -70,6 +76,26 @@ ensure_lanes() {
       echo "  lane criada: $lane"
     else
       echo "  FALHOU ao criar lane: $lane" >&2
+    fi
+  done
+}
+
+# o painel morreu? (remain-on-exit on deixa o painel em estado morto, visível)
+lane_dead() {
+  [ "$(tmux display-message -p -t "=$SESSION:$1" '#{pane_dead}' 2>/dev/null || echo 0)" = "1" ]
+}
+
+# revive as lanes cujo painel morreu, no lugar, sem perder a posição da aba
+revive_dead() {
+  local lane
+  for lane in $LANES; do
+    printf '%s\n' "$(windows)" | grep -qx -- "$lane" || continue
+    if lane_dead "$lane"; then
+      if tmux respawn-pane -k -t "=$SESSION:$lane" "$LANE_SHELL $lane" 2>/dev/null; then
+        echo "  lane revivida: $lane"
+      else
+        echo "  FALHOU ao reviver: $lane" >&2
+      fi
     fi
   done
 }
@@ -92,6 +118,11 @@ start_agents() {
     if ! printf '%s\n' "$(windows)" | grep -qx -- "$lane"; then
       echo "  sem lane para $lane" >&2; continue
     fi
+    if lane_dead "$lane"; then
+      tmux respawn-pane -k -t "=$SESSION:$lane" "$LANE_SHELL $lane" 2>/dev/null \
+        && echo "  lane revivida: $lane" || echo "  FALHOU ao reviver: $lane" >&2
+      continue
+    fi
     if lane_busy "$lane"; then
       echo "  já rodando: $lane"
       continue
@@ -105,8 +136,8 @@ start_agents() {
 status() {
   if ! has_session; then echo "  sessão $SESSION não existe"; return; fi
   printf '  %-12s %-14s %s\n' LANE PROCESSO JANELA
-  tmux list-windows -t "=$SESSION" -F '  #{window_name}|#{pane_current_command}|#{window_index}' 2>/dev/null \
-    | awk -F'|' '{ printf "  %-12s %-14s %s\n", $1, $2, $3 }'
+  tmux list-windows -t "=$SESSION" -F '#{window_name}|#{pane_current_command}|#{window_index}|#{pane_dead}' 2>/dev/null \
+    | awk -F'|' '{ printf "  %-12s %-14s %-7s %s\n", $1, ($4 == "1" ? "(morto)" : $2), $3, ($4 == "1" ? "<- revive com --agents" : "") }'
   echo
   echo "  nota: tmux mostra o PROCESSO, não o estado do agente — ele não sabe"
   echo "  dizer quem está bloqueado esperando aprovação. Esse papel é do cmux,"
@@ -126,6 +157,7 @@ esac
 
 ensure_session
 ensure_lanes
+revive_dead
 if [ "${1:-}" = "--agents" ]; then start_agents; fi
 echo
 status

@@ -13,7 +13,7 @@ que executa.
 ```bash
 POD=sounio-workspace-control-0
 NS=beagle
-for s in sounio-herd sounio-herd-tmux; do
+for s in sounio-herd sounio-herd-tmux sounio-herd-split; do
   kubectl cp -n "$NS" -c workspace-ssh "$s" "$POD:/workspace/.home/openvscode-server/bin/$s"
   kubectl -n "$NS" exec "$POD" -c workspace-ssh -- sh -c \
     "chmod +x /workspace/.home/openvscode-server/bin/$s && \
@@ -28,11 +28,26 @@ corrompem o arquivo silenciosamente.
 
 | script | o quê |
 |---|---|
-| `sounio-herd-tmux` | abre a herd das 11 lanes em **tmux** (sessão `sounio-dev`) |
+| `sounio-herd-tmux` | as 11 lanes em **uma** sessão tmux (`sounio-dev`) → 1 workspace, N abas no cmux |
+| `sounio-herd-split` | as 11 lanes em **uma sessão por lane** → N workspaces no cmux (1 por agente) |
 | `sounio-herd` | as mesmas lanes em **herdr**, com estado semântico dos agentes |
 
-Ambos são idempotentes: criam só as lanes que faltam e reconectam na sessão
-existente.
+Todos idempotentes: criam só as lanes que faltam e (nos de tmux) revivem no lugar
+as que morreram.
+
+### tmux vs split — os dois mapeamentos para o cmux
+
+O cmux (`cmux ssh-tmux <host>`) lê o **servidor tmux inteiro**: cada *sessão* vira
+um workspace na sidebar, cada *janela* vira uma aba vertical. Daí os dois modos:
+
+- **`sounio-herd-tmux`** — 1 sessão `sounio-dev` com 11 janelas → **1 workspace,
+  11 abas**. As lanes ficam agrupadas como "o projeto Sounio".
+- **`sounio-herd-split`** — 11 sessões de 1 janela → **11 workspaces de topo**,
+  cada agente com nome, branch/PR e **notificação independente**. Melhor para ver
+  de relance quem travou esperando aprovação.
+
+O split é **não-destrutivo**: não toca na `sounio-dev`. Dá para rodar os dois e
+comparar no cmux; se preferir o split, aposente a `sounio-dev` depois.
 
 ### Por que dois
 
@@ -69,3 +84,12 @@ cmux.
 - **O binário de cada agente mora no HOME da lane** (`.agents/<lane>/.local/bin`,
   `.kimi-code/bin`). Passar só `HOME` sem o `PATH` correspondente faz o
   `agent start` falhar por timeout.
+- **`remain-on-exit` é window-option e precisa ser GLOBAL (`set-option -g`).**
+  `set-option -t <sessão> remain-on-exit on` **não** propaga para as janelas —
+  elas herdam o global `off` e *somem* quando o agente sai (uma atualização de
+  agente apagava a lane inteira do cmux, sem aviso). Com `-g on`, o painel fica em
+  estado morto, visível, e é revivido no lugar por `respawn-pane -k`.
+- **Nome de sessão que colide com nome de janela precisa de `:` no target.** No
+  split, a sessão `claude-2` e a janela `sounio-dev:claude-2` coexistem; um target
+  de pane `"=claude-2"` fica ambíguo e o tmux resolve para *nada* (campos vazios).
+  Force o escopo de sessão com o dois-pontos: `"=claude-2:"`.
