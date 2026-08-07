@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# sounio-herd — abre a herd de lanes no herdr, espelhando o sounio-dev do zellij.
+#
+# Uso:
+#   sounio-herd              cria as lanes que faltam e anexa
+#   sounio-herd --agents     idem, e sobe o agente de cada lane
+#   sounio-herd --status     so imprime o estado dos agentes e sai
+#   sounio-herd --kill       para a sessao
+#
+# As lanes e o HOME por lane seguem o sounio-lane-shell: cada agente tem o seu
+# proprio HOME em .agents/<lane>, que e o que os mantem isolados.
+#
+# Por padrao NAO sobe agentes: criar 10 agentes de uma vez gasta cota e pode
+# esbarrar em login. Use --agents quando quiser a herd inteira de pe.
+set -euo pipefail
+
+BASE_HOME=/workspace/.home/openvscode-server
+REPO=/workspace/sounio
+SESSION="${SOUNIO_HERD_SESSION:-sounio-herd}"
+HERDR="$BASE_HOME/.local/bin/herdr"
+LANES="repo claude-1 claude-2 claude-3 codex-1 codex-2 codex-3 kimi-cli1 kimi-cli2 grok-cli1 grok-cli2"
+
+h() { "$HERDR" --session "$SESSION" "$@"; }
+
+kind_for() {
+  case "$1" in
+    repo)      echo "" ;;
+    claude-*)  echo claude ;;
+    codex-*)   echo codex ;;
+    kimi-cli*) echo kimi ;;
+    grok-cli*) echo grok ;;
+    *)         echo "" ;;
+  esac
+}
+
+home_for() {
+  case "$1" in
+    repo) echo "$BASE_HOME" ;;
+    *)    echo "$BASE_HOME/.agents/$1" ;;
+  esac
+}
+
+# claude e kimi ficam DENTRO do home de cada lane (.agents/<lane>/.local/bin,
+# .kimi-code/bin, .npm-global/bin). Sem isto no PATH do painel, `agent start`
+# nao acha o binario e falha por timeout.
+path_for() {
+  local lh; lh="$(home_for "$1")"
+  printf '%s' "$lh/.local/bin:$lh/.kimi-code/bin:$lh/.npm-global/bin:$BASE_HOME/bin:$BASE_HOME/.local/bin:$BASE_HOME/.local/node-v20.20.2-linux-x64/bin:/usr/local/bin:/usr/bin:/bin"
+}
+
+running() {
+  "$HERDR" session list 2>/dev/null \
+    | awk -v s="$SESSION" '$1 == s && $2 == "running" { found = 1 } END { exit !found }'
+}
+
+ensure_session() {
+  if running; then return 0; fi
+  echo "subindo sessao $SESSION..."
+  # herdr precisa de um pty dimensionado; sem isso o ghostty falha ao alocar aba
+  setsid python3 - "$HERDR" "$SESSION" >/dev/null 2>&1 <<'PYEOF' &
+import fcntl, os, pty, struct, sys, termios
+binario, sessao = sys.argv[1], sys.argv[2]
+pid, fd = pty.fork()
+if pid == 0:
+    os.environ["TERM"] = "xterm-256color"
+    os.environ["COLUMNS"] = "200"
+    os.environ["LINES"] = "50"
+    os.execvp(binario, [binario, "--session", sessao])
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 200, 0, 0))
+while True:
+    try:
+        if not os.read(fd, 65536):
+            break
+    except OSError:
+        break
+PYEOF
+  for _ in $(seq 1 30); do
+    if running; then return 0; fi
+    sleep 1
+  done
+  echo "erro: sessao $SESSION nao subiu" >&2
+  return 1
+}
+
+# imprime "label<TAB>pane_id" de cada aba existente.
+# Os dois JSON vao para arquivos: nao da para canalizar dados no stdin do python
+# e passar o programa pelo stdin ao mesmo tempo — o heredoc vence e o pipe some.
+lane_panes() {
+  local ptmp ttmp
+  ptmp="$(mktemp)"; ttmp="$(mktemp)"
+  h pane list >"$ptmp" 2>/dev/null || true
+  h tab list  >"$ttmp" 2>/dev/null || true
+  python3 - "$ttmp" "$ptmp" <<'PYEOF'
+import json, sys
+# sessao recem-criada pode ainda nao responder; sem abas nao ha nada a mapear
+try:
+    tabs = json.load(open(sys.argv[1]))["result"]["tabs"]
+except Exception:
+    raise SystemExit(0)
+try:
+    panes = json.load(open(sys.argv[2]))["result"]["panes"]
+except Exception:
+    panes = []
+por_tab = {}
+for p in panes:
+    por_tab.setdefault(p.get("tab_id"), p.get("pane_id"))
+for t in tabs:
+    print("%s\t%s" % (t.get("label", ""), por_tab.get(t.get("tab_id"), "")))
+PYEOF
+  rm -f "$ptmp" "$ttmp"
+}
+
+ensure_lanes() {
+  local have lane
+  have="$(lane_panes | cut -f1 || true)"
+  for lane in $LANES; do
+    if printf '%s\n' "$have" | grep -qx -- "$lane"; then continue; fi
+    if h tab create --label "$lane" --cwd "$REPO" \
+         --env "HOME=$(home_for "$lane")" --env "PATH=$(path_for "$lane")" \
+         --no-focus >/dev/null 2>&1; then
+      echo "  lane criada: $lane"
+    else
+      echo "  FALHOU ao criar lane: $lane" >&2
+    fi
+  done
+}
+
+start_agents() {
+  local lane kind pane
+  while IFS=$'\t' read -r lane pane; do
+    kind="$(kind_for "$lane")"
+    [ -z "$kind" ] && continue
+    [ -z "$pane" ] && { echo "  sem pane para $lane" >&2; continue; }
+    # ja tem agente nessa lane?
+    if h agent get "$lane" >/dev/null 2>&1; then
+      echo "  ja rodando: $lane"
+      continue
+    fi
+    if h agent start "$lane" --kind "$kind" --pane "$pane" --timeout 150000 >/dev/null 2>&1; then
+      echo "  agente subiu: $lane ($kind)"
+    else
+      echo "  agente NAO subiu: $lane ($kind) — suba a mao dentro da lane" >&2
+    fi
+  done < <(lane_panes)
+}
+
+status() {
+  h agent list 2>/dev/null | python3 -c '
+import json, sys
+ags = json.load(sys.stdin)["result"]["agents"]
+if not ags:
+    print("  nenhum agente rodando (use --agents para subir)")
+    raise SystemExit
+largura = max(len(a["name"]) for a in ags)
+for a in sorted(ags, key=lambda x: x["name"]):
+    print("  %-*s  %-7s  %s" % (largura, a["name"], a["agent"], a["agent_status"]))
+'
+}
+
+case "${1:-}" in
+  --kill)
+    "$HERDR" session stop "$SESSION" && echo "sessao $SESSION parada"
+    exit 0
+    ;;
+  --status)
+    ensure_session >/dev/null
+    status
+    exit 0
+    ;;
+esac
+
+ensure_session
+ensure_lanes
+if [ "${1:-}" = "--agents" ]; then start_agents; fi
+echo
+status
+echo
+echo "anexando...  (Ctrl+b depois q sai sem matar a sessao)"
+exec "$HERDR" session attach "$SESSION"
