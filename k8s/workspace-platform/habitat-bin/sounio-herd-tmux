@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# sounio-herd-tmux — a mesma herd de lanes, porem em tmux.
+# sounio-herd-tmux — a mesma herd de lanes, porém em tmux.
 #
-# Gemeo do sounio-herd (herdr). Existe por um motivo especifico: o cmux, a GUI
-# nativa de macOS, anexa a sessoes *tmux* remotas. Ele nao enxerga zellij nem
-# herdr. Entao para dirigir as lanes do Mac com GUI e notificacao nativa, o
+# Gêmeo do sounio-herd (herdr). Existe por um motivo específico: o cmux, a GUI
+# nativa de macOS, anexa a sessões *tmux* remotas. Ele não enxerga zellij nem
+# herdr. Então para dirigir as lanes do Mac com GUI e notificação nativa, o
 # multiplexer do servidor precisa ser tmux.
 #
 # Uso:
 #   sounio-herd-tmux              cria as janelas que faltam e anexa
 #   sounio-herd-tmux --agents     idem, e sobe o agente de cada lane
 #   sounio-herd-tmux --status     lista o que roda em cada lane
-#   sounio-herd-tmux --kill       mata a sessao
+#   sounio-herd-tmux --kill       mata a sessão
 #
 # Do Mac, com cmux:  cmux ssh openvscode-server@<host> --transport mosh
-#                    e la dentro: sounio-herd-tmux
+#                    e lá dentro: sounio-herd-tmux
 #
-# Cada lane tem HOME proprio em .agents/<lane> e PATH proprio, porque claude e
+# Cada lane tem HOME próprio em .agents/<lane> e PATH próprio, porque claude e
 # kimi ficam DENTRO do home da lane (.local/bin, .kimi-code/bin, .npm-global/bin).
 set -euo pipefail
 
@@ -25,9 +25,9 @@ SESSION="${SOUNIO_TMUX_SESSION:-sounio-dev}"
 LANE_SHELL="$BASE_HOME/bin/sounio-lane-shell"
 LANES="repo claude-1 claude-2 claude-3 codex-1 codex-2 codex-3 kimi-cli1 kimi-cli2 grok-cli1 grok-cli2"
 
-# o .zshenv ja exporta isto, mas o script pode ser chamado de um shell que nao o
-# leu (bash nao-interativo). Sem isto, o tmux procura o socket no lugar errado —
-# o mesmo tropeco que fez a sessao zellij parecer morta.
+# o .zshenv já exporta isto, mas o script pode ser chamado de um shell que não o
+# leu (bash não-interativo). Sem isto, o tmux procura o socket no lugar errado —
+# o mesmo tropeco que fez a sessão zellij parecer morta.
 export TMUX_TMPDIR="${TMUX_TMPDIR:-$BASE_HOME/.tmux}"
 mkdir -p "$TMUX_TMPDIR"
 
@@ -55,9 +55,9 @@ windows() { tmux list-windows -t "=$SESSION" -F '#{window_name}' 2>/dev/null || 
 
 ensure_session() {
   if has_session; then return 0; fi
-  echo "criando sessao $SESSION..."
+  echo "criando sessão $SESSION..."
   tmux new-session -d -s "$SESSION" -n repo -c "$REPO" "$LANE_SHELL repo"
-  # janela nao fecha quando o agente sai: assim a lane sobrevive a um crash
+  # janela não fecha quando o agente sai: assim a lane sobrevive a um crash
   tmux set-option -t "=$SESSION" remain-on-exit off >/dev/null 2>&1 || true
 }
 
@@ -74,7 +74,7 @@ ensure_lanes() {
   done
 }
 
-# um agente ja roda nessa janela? (o comando em primeiro plano deixa de ser shell)
+# um agente já roda nessa janela? (o comando em primeiro plano deixa de ser shell)
 lane_busy() {
   local cur
   cur="$(tmux display-message -p -t "=$SESSION:$1" '#{pane_current_command}' 2>/dev/null || echo '')"
@@ -93,7 +93,7 @@ start_agents() {
       echo "  sem lane para $lane" >&2; continue
     fi
     if lane_busy "$lane"; then
-      echo "  ja rodando: $lane"
+      echo "  já rodando: $lane"
       continue
     fi
     tmux send-keys -t "=$SESSION:$lane" "exec $LANE_SHELL $lane" C-m
@@ -103,19 +103,19 @@ start_agents() {
 }
 
 status() {
-  if ! has_session; then echo "  sessao $SESSION nao existe"; return; fi
+  if ! has_session; then echo "  sessão $SESSION não existe"; return; fi
   printf '  %-12s %-14s %s\n' LANE PROCESSO JANELA
   tmux list-windows -t "=$SESSION" -F '  #{window_name}|#{pane_current_command}|#{window_index}' 2>/dev/null \
     | awk -F'|' '{ printf "  %-12s %-14s %s\n", $1, $2, $3 }'
   echo
-  echo "  nota: tmux mostra o PROCESSO, nao o estado do agente — ele nao sabe"
-  echo "  dizer quem esta bloqueado esperando aprovacao. Esse papel e do cmux,"
+  echo "  nota: tmux mostra o PROCESSO, não o estado do agente — ele não sabe"
+  echo "  dizer quem está bloqueado esperando aprovação. Esse papel é do cmux,"
   echo "  que reconhece o agente e notifica no sidebar do Mac."
 }
 
 case "${1:-}" in
   --kill)
-    tmux kill-session -t "=$SESSION" 2>/dev/null && echo "sessao $SESSION morta" || echo "sessao $SESSION nao existia"
+    tmux kill-session -t "=$SESSION" 2>/dev/null && echo "sessão $SESSION morta" || echo "sessão $SESSION não existia"
     exit 0
     ;;
   --status)
@@ -130,5 +130,5 @@ if [ "${1:-}" = "--agents" ]; then start_agents; fi
 echo
 status
 echo
-echo "anexando...  (Ctrl+b depois d sai sem matar a sessao)"
+echo "anexando...  (Ctrl+b depois d sai sem matar a sessão)"
 exec tmux attach-session -t "=$SESSION"

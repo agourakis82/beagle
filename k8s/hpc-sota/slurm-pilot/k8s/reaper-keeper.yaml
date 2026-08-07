@@ -61,17 +61,17 @@ data:
   reaper.sh: |
     #!/bin/sh
     # r770 slurm-login reaper (singleton via flock)
-    # Mata APENAS processos comprovadamente em loop de CPU (amostragem), para nao tocar
-    # trabalho legitimo num login node compartilhado:
-    #   - alvos: souc* OU binarios em /tmp (*.elf, run.out, check.out)
-    #   - condicao: idade > MIN_AGE_S  E  CPU sustentada > CPU_FRAC de 1 core durante SAMPLE_S
+    # Mata APENAS processos comprovadamente em loop de CPU (amostragem), para não tocar
+    # trabalho legítimo num login node compartilhado:
+    #   - alvos: souc* OU binários em /tmp (*.elf, run.out, check.out)
+    #   - condição: idade > MIN_AGE_S  E  CPU sustentada > CPU_FRAC de 1 core durante SAMPLE_S
     #   - extra: souc com RSS > RSS_MAX_KB (blowup estilo workspace) morre na hora
     LOCK=/root/.reaper/lock
     exec 9>"$LOCK"; flock -n 9 || exit 0
     MIN_AGE_S=1800        # 30 min - protege compiles/jobs normais
     CPU_FRAC=85           # % de 1 core sustentado durante a amostra
     SAMPLE_S=20
-    INTERVAL=40           # gap entre varreduras (alem da amostra)
+    INTERVAL=40           # gap entre varreduras (além da amostra)
     RSS_MAX_KB=16777216   # 16 GiB
     LOG=/root/.reaper/reaper.log
     HZ=$(getconf CLK_TCK)
@@ -176,12 +176,12 @@ spec:
                 - -c
                 - |
                   set -eu
-                  # O label app.kubernetes.io/name=login casa tambem com pods de login
-                  # ja terminados (Succeeded), e o `head -1` pegava o mais antigo pela
-                  # ordem alfabetica. O exec num pod completo falha, e sob `set -eu` isso
+                  # O label app.kubernetes.io/name=login casa também com pods de login
+                  # já terminados (Succeeded), e o `head -1` pegava o mais antigo pela
+                  # ordem alfabética. O exec num pod completo falha, e sob `set -eu` isso
                   # matava o job inteiro antes do fallback abaixo — o keeper ficou
-                  # quebrado de 2026-08-03 a 2026-08-05 sem ninguem notar, com o daemon
-                  # reaper morto. Filtrar por fase no proprio seletor resolve na origem.
+                  # quebrado de 2026-08-03 a 2026-08-05 sem ninguém notar, com o daemon
+                  # reaper morto. Filtrar por fase no próprio seletor resolve na origem.
                   POD=$(kubectl -n slurm-pilot get pod -l app.kubernetes.io/name=login \
                         --field-selector=status.phase=Running \
                         --no-headers -o custom-columns=:.metadata.name 2>/dev/null | head -1)

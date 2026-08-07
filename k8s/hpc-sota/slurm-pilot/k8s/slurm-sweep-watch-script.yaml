@@ -1,4 +1,4 @@
-# Script do slurm-sweep-watch. Ver slurm-sweep-watch.yaml para o porque e o contrato.
+# Script do slurm-sweep-watch. Ver slurm-sweep-watch.yaml para o porquê e o contrato.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,8 +11,8 @@ data:
     #!/usr/bin/env python3
     """Vigia jobs Slurm e avisa via Alertmanager quando todos ficam terminais.
 
-    Falha alto: se o sacct nao responder ou nao houver pod de login, isso vira
-    alerta, nao silencio. Foi silencio que deixou 16 vigias presos por dias.
+    Falha alto: se o sacct não responder ou não houver pod de login, isso vira
+    alerta, não silêncio. Foi silêncio que deixou 16 vigias presos por dias.
     """
     import json
     import os
@@ -72,7 +72,7 @@ data:
 
 
     def login_pod():
-        # Filtra por fase no seletor: o label casa tambem com pods Succeeded, e o
+        # Filtra por fase no seletor: o label casa também com pods Succeeded, e o
         # exec num pod terminado falha. Ver slurm-pilot/k8s/reaper-keeper.yaml.
         rc, out, _ = kubectl("get", "pod", "-l", "app.kubernetes.io/name=login",
                              "--field-selector=status.phase=Running",
@@ -106,7 +106,7 @@ data:
         args += ["--dry-run=client", "-o", "yaml"]
         rc, manifest, err = kubectl(*args)
         if rc != 0:
-            print("aviso: nao consegui montar o ConfigMap: %s" % err, file=sys.stderr)
+            print("aviso: não consegui montar o ConfigMap: %s" % err, file=sys.stderr)
             return
         p = subprocess.run(["kubectl", "-n", NS, "apply", "-f", "-"],
                            input=manifest, capture_output=True, text=True)
@@ -121,26 +121,26 @@ data:
 
         st = state_get()
         if st.get("done") == "true":
-            print("sweep %s ja foi reportado em %s; nada a fazer"
+            print("sweep %s já foi reportado em %s; nada a fazer"
                   % (SWEEP, st.get("finished_at", "?")))
             return 0
 
         pod = login_pod()
         if not pod:
             post_alert("DarwinSlurmSweepWatchBroken", "warning", "dev-noise",
-                       "Vigia do sweep %s nao achou pod de login" % SWEEP,
+                       "Vigia do sweep %s não achou pod de login" % SWEEP,
                        "Nenhum pod de login Running em %s. O sweep %s (jobs %s) "
                        "ficou sem vigia." % (NS, SWEEP, ",".join(JOBS)))
             print("sem pod de login; alerta enviado", file=sys.stderr)
             return 1
 
-        # -X = so o job principal, sem os passos .batch/.extern
+        # -X = só o job principal, sem os passos .batch/.extern
         rc, out, err = kubectl("exec", pod, "-c", "login", "--",
                                "sacct", "-j", ",".join(JOBS), "-X", "-n", "-P",
                                "--format=JobID,State,Elapsed,ExitCode", timeout=90)
         if rc != 0 or not out:
             post_alert("DarwinSlurmSweepWatchBroken", "warning", "dev-noise",
-                       "Vigia do sweep %s nao conseguiu ler o sacct" % SWEEP,
+                       "Vigia do sweep %s não conseguiu ler o sacct" % SWEEP,
                        "sacct falhou no pod %s (rc=%s). stderr: %s" % (pod, rc, err[:500]))
             print("sacct falhou; alerta enviado", file=sys.stderr)
             return 1
@@ -163,7 +163,7 @@ data:
         if pend or missing:
             return 0
 
-        # todos terminais: monta relatorio e avisa uma unica vez
+        # todos terminais: monta relatório e avisa uma única vez
         falhos = [j for j, v in states.items() if v["state"] in BAD]
         linhas = []
         for j, v in sorted(states.items()):
@@ -176,7 +176,7 @@ data:
             '2>/dev/null | tail -12); do echo "== $f"; '
             'grep -E "ledger\\[|latency\\[|VERDICT" "$f" 2>/dev/null | tail -4; done',
             timeout=90)
-        relatorio = art if rc == 0 and art else "(sem artefatos legiveis)"
+        relatorio = art if rc == 0 and art else "(sem artefatos legíveis)"
 
         if falhos:
             sev, tier = "critical", "real-incident"

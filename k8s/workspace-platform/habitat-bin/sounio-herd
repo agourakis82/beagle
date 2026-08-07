@@ -4,13 +4,13 @@
 # Uso:
 #   sounio-herd              cria as lanes que faltam e anexa
 #   sounio-herd --agents     idem, e sobe o agente de cada lane
-#   sounio-herd --status     so imprime o estado dos agentes e sai
-#   sounio-herd --kill       para a sessao
+#   sounio-herd --status     só imprime o estado dos agentes e sai
+#   sounio-herd --kill       para a sessão
 #
 # As lanes e o HOME por lane seguem o sounio-lane-shell: cada agente tem o seu
-# proprio HOME em .agents/<lane>, que e o que os mantem isolados.
+# próprio HOME em .agents/<lane>, que é o que os mantêm isolados.
 #
-# Por padrao NAO sobe agentes: criar 10 agentes de uma vez gasta cota e pode
+# Por padrão Não sobe agentes: criar 10 agentes de uma vez gasta cota e pode
 # esbarrar em login. Use --agents quando quiser a herd inteira de pe.
 set -euo pipefail
 
@@ -42,7 +42,7 @@ home_for() {
 
 # claude e kimi ficam DENTRO do home de cada lane (.agents/<lane>/.local/bin,
 # .kimi-code/bin, .npm-global/bin). Sem isto no PATH do painel, `agent start`
-# nao acha o binario e falha por timeout.
+# não acha o binário e falha por timeout.
 path_for() {
   local lh; lh="$(home_for "$1")"
   printf '%s' "$lh/.local/bin:$lh/.kimi-code/bin:$lh/.npm-global/bin:$BASE_HOME/bin:$BASE_HOME/.local/bin:$BASE_HOME/.local/node-v20.20.2-linux-x64/bin:/usr/local/bin:/usr/bin:/bin"
@@ -55,17 +55,17 @@ running() {
 
 ensure_session() {
   if running; then return 0; fi
-  echo "subindo sessao $SESSION..."
+  echo "subindo sessão $SESSION..."
   # herdr precisa de um pty dimensionado; sem isso o ghostty falha ao alocar aba
   setsid python3 - "$HERDR" "$SESSION" >/dev/null 2>&1 <<'PYEOF' &
 import fcntl, os, pty, struct, sys, termios
-binario, sessao = sys.argv[1], sys.argv[2]
+binário, sessão = sys.argv[1], sys.argv[2]
 pid, fd = pty.fork()
 if pid == 0:
     os.environ["TERM"] = "xterm-256color"
     os.environ["COLUMNS"] = "200"
     os.environ["LINES"] = "50"
-    os.execvp(binario, [binario, "--session", sessao])
+    os.execvp(binário, [binário, "--session", sessão])
 fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 200, 0, 0))
 while True:
     try:
@@ -78,12 +78,12 @@ PYEOF
     if running; then return 0; fi
     sleep 1
   done
-  echo "erro: sessao $SESSION nao subiu" >&2
+  echo "erro: sessão $SESSION não subiu" >&2
   return 1
 }
 
 # imprime "label<TAB>pane_id" de cada aba existente.
-# Os dois JSON vao para arquivos: nao da para canalizar dados no stdin do python
+# Os dois JSON vão para arquivos: não da para canalizar dados no stdin do python
 # e passar o programa pelo stdin ao mesmo tempo — o heredoc vence e o pipe some.
 lane_panes() {
   local ptmp ttmp
@@ -92,7 +92,7 @@ lane_panes() {
   h tab list  >"$ttmp" 2>/dev/null || true
   python3 - "$ttmp" "$ptmp" <<'PYEOF'
 import json, sys
-# sessao recem-criada pode ainda nao responder; sem abas nao ha nada a mapear
+# sessão recém-criada pode ainda não responder; sem abas não há nada a mapear
 try:
     tabs = json.load(open(sys.argv[1]))["result"]["tabs"]
 except Exception:
@@ -131,15 +131,15 @@ start_agents() {
     kind="$(kind_for "$lane")"
     [ -z "$kind" ] && continue
     [ -z "$pane" ] && { echo "  sem pane para $lane" >&2; continue; }
-    # ja tem agente nessa lane?
+    # já tem agente nessa lane?
     if h agent get "$lane" >/dev/null 2>&1; then
-      echo "  ja rodando: $lane"
+      echo "  já rodando: $lane"
       continue
     fi
     if h agent start "$lane" --kind "$kind" --pane "$pane" --timeout 150000 >/dev/null 2>&1; then
       echo "  agente subiu: $lane ($kind)"
     else
-      echo "  agente NAO subiu: $lane ($kind) — suba a mao dentro da lane" >&2
+      echo "  agente Não subiu: $lane ($kind) — suba a mao dentro da lane" >&2
     fi
   done < <(lane_panes)
 }
@@ -159,7 +159,7 @@ for a in sorted(ags, key=lambda x: x["name"]):
 
 case "${1:-}" in
   --kill)
-    "$HERDR" session stop "$SESSION" && echo "sessao $SESSION parada"
+    "$HERDR" session stop "$SESSION" && echo "sessão $SESSION parada"
     exit 0
     ;;
   --status)
@@ -175,5 +175,5 @@ if [ "${1:-}" = "--agents" ]; then start_agents; fi
 echo
 status
 echo
-echo "anexando...  (Ctrl+b depois q sai sem matar a sessao)"
+echo "anexando...  (Ctrl+b depois q sai sem matar a sessão)"
 exec "$HERDR" session attach "$SESSION"

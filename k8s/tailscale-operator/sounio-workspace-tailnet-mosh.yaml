@@ -2,28 +2,28 @@
 #
 # Por que existe um segundo Service, em vez de acrescentar a porta ao
 # sounio-workspace-tailnet-ssh: aquele usa `tailscale.com/proxy-group`, e nesse
-# modo o proxy nao instala regra DNAT — a tabela nat dos pods de ingress esta
-# vazia. O TCP chega porque o tailscaled aceita a conexao e reabre para o
-# ClusterIP, encaminhador que so trata TCP. UDP some sem rastro (medido: rajadas
+# modo o proxy não instala regra DNAT — a tabela nat dos pods de ingress está
+# vazia. O TCP chega porque o tailscaled aceita a conexão e reabre para o
+# ClusterIP, encaminhador que só trata TCP. UDP some sem rastro (medido: rajadas
 # do Mac para o VIP nunca moveram a fila rx do socket no pod).
 #
 # Sem a anotacao proxy-group, o operador cria um StatefulSet dedicado que usa
-# iptables/nftables DNAT de verdade — que e onde o UDP passa. E o caminho que a
-# documentacao do operador descreve para L3 TCP/UDP.
+# iptables/nftables DNAT de verdade — que é onde o UDP passa. É o caminho que a
+# documentação do operador descreve para L3 TCP/UDP.
 #
-# O mosh precisa que o UDP volte para o MESMO endereco do SSH, entao este Service
+# O mosh precisa que o UDP volte para o MESMO endereco do SSH, então este Service
 # expoe as duas portas. Para usar mosh, conecte-se a este hostname:
 #
 #   mosh --experimental-remote-ip=local --ssh="ssh -p 2222" \
 #        openvscode-server@sounio-workspace-mosh.tail21cbc4.ts.net
 #
-# O --experimental-remote-ip=local e obrigatorio: atras do proxy, o
+# O --experimental-remote-ip=local e obrigatório: atrás do proxy, o
 # $SSH_CONNECTION no pod devolve o IP interno dele (10.0.0.x), e sem a flag o
-# cliente mira esse endereco inalcancavel.
+# cliente mira esse endereco inalcançável.
 #
-# Trade-off aceito: proxy standalone e um pod so, sem a alta disponibilidade das
-# 2 replicas do ProxyGroup. Para sessao interativa isso basta. O
-# sounio-workspace-tailnet-ssh continua intacto e e o caminho principal.
+# Trade-off aceito: proxy standalone é um pod só, sem a alta disponibilidade das
+# 2 replicas do ProxyGroup. Para sessão interativa isso basta. O
+# sounio-workspace-tailnet-ssh continua intacto e é o caminho principal.
 #
 # Aplicar:  kubectl apply -f sounio-workspace-tailnet-mosh.yaml
 apiVersion: v1
@@ -34,7 +34,7 @@ metadata:
   annotations:
     tailscale.com/hostname: sounio-workspace-mosh
     tailscale.com/tags: tag:k8s,tag:sounio-workspace
-    # SEM tailscale.com/proxy-group — e justamente essa ausencia que faz o
+    # SEM tailscale.com/proxy-group — é justamente essa ausência que faz o
     # operador criar um proxy dedicado com DNAT.
 spec:
   type: LoadBalancer

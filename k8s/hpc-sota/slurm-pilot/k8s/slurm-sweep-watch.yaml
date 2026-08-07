@@ -1,25 +1,25 @@
 # slurm-sweep-watch — vigia um conjunto de jobs Slurm e avisa DE VERDADE quando terminam.
 #
 # Motivo: em 2026-08-06 um vigia de sweep rodava como laco de shell dentro de uma
-# sessao de agente. O pai morreu, o init (dropbear) adotou o processo, e ele ficou
-# imprimindo para um stdout sem leitor. O relatorio final iria para o vazio. Foram
-# encontrados 16 orfaos assim, alguns com 7 dias.
+# sessão de agente. O pai morreu, o init (dropbear) adotou o processo, e ele ficou
+# imprimindo para um stdout sem leitor. O relatório final iria para o vazio. Foram
+# encontrados 16 órfãos assim, alguns com 7 dias.
 #
 # Este vigia corrige a classe inteira do problema:
-#   - vive no cluster (CronJob), nao numa sessao de terminal; sobrevive a restart
+#   - vive no cluster (CronJob), não numa sessão de terminal; sobrevive a restart
 #     do workspace, do pod e do no;
-#   - o resultado vai para um ConfigMap (duravel, inspecionavel com kubectl) e para
-#     o Alertmanager, que ja tem roteamento configurado — nao para um stdout orfao;
-#   - marca `done` no ConfigMap para nao repetir o aviso a cada tick.
+#   - o resultado vai para um ConfigMap (durável, inspecionável com kubectl) e para
+#     o Alertmanager, que já tem roteamento configurado — não para um stdout órfão;
+#   - marca `done` no ConfigMap para não repetir o aviso a cada tick.
 #
-# Tres armadilhas observadas hoje e evitadas de proposito aqui:
-#   1. Selecionar o pod de login por label pega tambem pods Succeeded; o exec falha
+# Três armadilhas observadas hoje e evitadas de propósito aqui:
+#   1. Selecionar o pod de login por label pega também pods Succeeded; o exec falha
 #      e sob `set -eu` o job inteiro morre. Filtra-se por fase no seletor.
 #   2. `comando || echo '[]'` engole falha de ferramenta e vira espera infinita
 #      silenciosa (foi o que travou 6 vigias de `gh pr checks`). Aqui, falha de
-#      sacct e reportada como alerta, nao engolida.
-#   3. `pgrep -f <padrao>` casa com a propria linha de comando do laco. Nao se usa
-#      pgrep aqui; o estado vem do sacct, que e a fonte de verdade.
+#      sacct é reportada como alerta, não engolida.
+#   3. `pgrep -f <padrão>` casa com a própria linha de comando do laco. Não se usa
+#      pgrep aqui; o estado vem do sacct, que é a fonte de verdade.
 #
 # Configurar quais jobs vigiar: env SWEEP_JOBS no CronJob.
 #

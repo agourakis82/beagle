@@ -1,21 +1,21 @@
 # Publica o SSH do workspace no tailnet como sounio-workspace-ssh.
 #
-# Este arquivo e referenciado por ops/repair-workspace-tailnet-services.sh
-# (SSH_MANIFEST) mas nao existia no repo — o script de reparo falharia. Criado em
-# 2026-08-06 a partir do servico VIVO, nao do last-applied-configuration.
+# Este arquivo é referenciado por ops/repair-workspace-tailnet-services.sh
+# (SSH_MANIFEST) mas não existia no repo — o script de reparo falharia. Criado em
+# 2026-08-06 a partir do serviço VIVO, não do last-applied-configuration.
 #
-# ATENCAO ao seletor: o last-applied gravado no cluster ainda dizia
-# `sounio-workspace-habitat`, enquanto o servico vivo aponta para
+# Atenção ao seletor: o last-applied gravado no cluster ainda dizia
+# `sounio-workspace-habitat`, enquanto o serviço vivo aponta para
 # `sounio-workspace-control`. Aplicar o last-applied reverteria o seletor e
-# derrubaria o SSH. O valor correto e o de baixo.
+# derrubaria o SSH. O valor correto é o de baixo.
 #
-# SOMENTE TCP. Nao acrescente porta UDP aqui — ja foi tentado e nao funciona.
+# SOMENTE TCP. Não acrescente porta UDP aqui — já foi tentado e não funciona.
 #
-# Este Service usa `tailscale.com/proxy-group`, e nesse modo o proxy nao instala
-# regra DNAT nenhuma: a tabela nat dos pods sounio-workspace-ingress-* esta
-# vazia (4 linhas, so as politicas padrao). O TCP/2222 chega porque o proprio
-# tailscaled aceita a conexao e reabre para o ClusterIP — um encaminhador que so
-# trata TCP. UDP nao tem quem o pegue e some sem deixar rastro.
+# Este Service usa `tailscale.com/proxy-group`, e nesse modo o proxy não instala
+# regra DNAT nenhuma: a tabela nat dos pods sounio-workspace-ingress-* está
+# vazia (4 linhas, só as políticas padrão). O TCP/2222 chega porque o próprio
+# tailscaled aceita a conexão e reabre para o ClusterIP — um encaminhador que só
+# trata TCP. UDP não tem quem o pegue e some sem deixar rastro.
 #
 # Medido em 2026-08-06: com 60001/UDP declarado aqui, o Service reconciliava e o
 # EndpointSlice listava a porta, mas rajadas de UDP do Mac para o VIP

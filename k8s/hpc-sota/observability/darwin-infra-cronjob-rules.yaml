@@ -10,28 +10,28 @@ metadata:
 # Vigia os CronJobs de infraestrutura do cluster.
 #
 # Motivo: em 2026-08-05 o slurm-pilot/reaper-keeper falhou a cada 10 min por
-# ~2 dias (≈288 execucoes) sem acionar nada. O daemon reaper ficou morto num
-# login node compartilhado o tempo todo, e a descoberta so veio de um agente
-# relatando — erradamente — que "o cluster caiu". kube-state-metrics ja expunha
+# ~2 dias (≈288 execuções) sem acionar nada. O daemon reaper ficou morto num
+# login node compartilhado o tempo todo, e a descoberta só veio de um agente
+# relatando — erradamente — que "o cluster caiu". kube-state-metrics já expunha
 # o sinal com reason="BackoffLimitExceeded"; faltava a regra.
 #
 # Estrategia em duas camadas:
 #   1. Falha aguda  — job que estourou o backoff, dispara em minutos. Auto-limpa
-#      porque so considera jobs iniciados na ultima hora (o historico de jobs
+#      porque só considera jobs iniciados na última hora (o histórico de jobs
 #      falhos persiste em failedJobsHistoryLimit e, sozinho, faria o alerta
 #      grudar para sempre depois de corrigido).
-#   2. Sucesso ausente — o CronJob nao completa ha muito mais que seu periodo.
-#      Esta e a rede que teria pego o reaper-keeper: pega falha silenciosa,
-#      job que nunca e agendado, e travamento — nao so job que falha alto.
+#   2. Sucesso ausente — o CronJob não completa há muito mais que seu período.
+#      Esta é a rede que teria pego o reaper-keeper: pega falha silenciosa,
+#      job que nunca é agendado, e travamento — não só job que falha alto.
 #
-# Os limiares da camada 2 sao por cadencia, porque um limiar unico ou berra num
-# CronJob diario ou demora um dia num de 10 min. Ao adicionar um CronJob novo,
-# inclua-o no grupo de cadencia correspondente.
+# Os limiares da camada 2 são por cadência, porque um limiar único ou berra num
+# CronJob diário ou demora um dia num de 10 min. Ao adicionar um CronJob novo,
+# inclua-o no grupo de cadência correspondente.
 #
-# CronJobs suspensos sao excluidos via kube_cronjob_spec_suspend == 0.
+# CronJobs suspensos são excluidos via kube_cronjob_spec_suspend == 0.
 #
-# Limitacao conhecida: kube_cronjob_status_last_successful_time so existe depois
-# do primeiro sucesso. Um CronJob que NUNCA teve sucesso nao dispara a camada 2 —
+# Limitação conhecida: kube_cronjob_status_last_successful_time só existe depois
+# do primeiro sucesso. Um CronJob que NUNCA teve sucesso não dispara a camada 2 —
 # a camada 1 cobre esse caso enquanto ele estiver falhando ativamente.
 spec:
   groups:
@@ -56,13 +56,13 @@ spec:
             severity: warning
           annotations:
             summary: Job de CronJob de infra estourou o backoff
-            description: O job {{ $labels.job_name }} em {{ $labels.resource_namespace }} falhou e excedeu o backoffLimit na ultima hora.
+            description: O job {{ $labels.job_name }} em {{ $labels.resource_namespace }} falhou e excedeu o backoffLimit na última hora.
             dashboard: Darwin HPC Control Room
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
 
-        # --- Camada 2: sucesso ausente, por cadencia ----------------------
-        # Sub-horarios (*/5 a */30). 1h ja e 2x o maior periodo do grupo.
+        # --- Camada 2: sucesso ausente, por cadência ----------------------
+        # Sub-horarios (*/5 a */30). 1h já e 2x o maior período do grupo.
         - alert: DarwinInfraCronJobStaleFrequent
           expr: |
             label_replace(
@@ -82,13 +82,13 @@ spec:
             notification_tier: real-incident
             severity: warning
           annotations:
-            summary: CronJob frequente nao tem sucesso ha mais de 1h
-            description: O CronJob {{ $labels.cronjob }} em {{ $labels.resource_namespace }} roda a cada 30 min ou menos, mas nao completa com sucesso ha mais de uma hora.
+            summary: CronJob frequente não tem sucesso há mais de 1h
+            description: O CronJob {{ $labels.cronjob }} em {{ $labels.resource_namespace }} roda a cada 30 min ou menos, mas não completa com sucesso há mais de uma hora.
             dashboard: Darwin HPC Control Room
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
 
-        # Horario (17 * * * *) e de 6 em 6h (0 */6 * * *). 8h cobre o maior periodo com folga.
+        # Horario (17 * * * *) e de 6 em 6h (0 */6 * * *). 8h cobre o maior período com folga.
         - alert: DarwinInfraCronJobStalePeriodic
           expr: |
             label_replace(
@@ -108,8 +108,8 @@ spec:
             notification_tier: real-incident
             severity: warning
           annotations:
-            summary: CronJob periodico nao tem sucesso ha mais de 8h
-            description: O CronJob {{ $labels.cronjob }} em {{ $labels.resource_namespace }} roda de hora em hora ou de 6 em 6h, mas nao completa com sucesso ha mais de oito horas.
+            summary: CronJob periódico não tem sucesso há mais de 8h
+            description: O CronJob {{ $labels.cronjob }} em {{ $labels.resource_namespace }} roda de hora em hora ou de 6 em 6h, mas não completa com sucesso há mais de oito horas.
             dashboard: Darwin HPC Control Room
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
@@ -134,8 +134,8 @@ spec:
             notification_tier: real-incident
             severity: critical
           annotations:
-            summary: CronJob diario nao tem sucesso ha mais de 26h
-            description: O CronJob {{ $labels.cronjob }} em {{ $labels.resource_namespace }} e diario mas nao completa com sucesso ha mais de 26 horas. Inclui backups (etcd, corpus do cockpit) — tratar como perda de backup ate provar o contrario.
+            summary: CronJob diário não tem sucesso há mais de 26h
+            description: O CronJob {{ $labels.cronjob }} em {{ $labels.resource_namespace }} e diário mas não completa com sucesso há mais de 26 horas. Inclui backups (etcd, corpus do cockpit) — tratar como perda de backup até provar o contrario.
             dashboard: Darwin HPC Control Room
             runbook: /home/devsounio/beagle/k8s/hpc-sota/observability/README.md
             verify: /home/devsounio/beagle/k8s/hpc-sota/observability/verify-darwin-hpc-observability.sh
