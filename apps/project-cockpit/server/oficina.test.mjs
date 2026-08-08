@@ -134,7 +134,7 @@ test("overlapping polls do not stack execs", async () => {
   let calls = 0;
   const p = new OficinaPoller({ kubectl: "k", ns: "n", execFn: () => { calls++; } });
   p.poll(); p.poll();
-  assert.equal(calls, 3, "one sweep = 3 queries, and the second poll is refused");
+  assert.equal(calls, 4, "one sweep = 4 queries (prs, main, head, receipts) and the second poll is refused");
 });
 
 // ── Recibos: a saída real desta linguagem ────────────────────────────────────────────────
