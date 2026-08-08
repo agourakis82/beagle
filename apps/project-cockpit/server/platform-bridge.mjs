@@ -150,6 +150,28 @@ export function parseLanesPeek(stdout) {
   return out;
 }
 
+// ─── OFICINA: read-only dev-status queries on the workspace repo ─────────────────────────
+// Fixed, named, read-only queries — the ONLY dev commands the cockpit may run. No build, no
+// test, no gate: those cost ~61GiB of RAM and minutes, so the Oficina READS receipts and CI
+// verdicts instead of producing them. Each entry is a literal command string; nothing is ever
+// interpolated from a request.
+export const WORKSPACE_QUERIES = {
+  // "Is it green?" — open PRs with their full check rollup.
+  "pr-list": `gh pr list --state open --limit 20 --json number,title,headRefName,isDraft,updatedAt,url,statusCheckRollup`,
+  // "Is main green?" — the latest CI run on the default branch.
+  "main-ci": `gh run list --branch main --limit 8 --json databaseId,name,status,conclusion,createdAt,url,headSha`,
+  // "Where am I?" — the repo's own head, branch and dirty count.
+  "git-head": `printf '%s\\n' "$(git rev-parse --abbrev-ref HEAD)" "$(git log -1 --format=%H%x09%ct%x09%s)" "$(git status --porcelain | wc -l)"`,
+};
+
+export function workspaceQueryArgv(ns, name) {
+  const cmd = Object.prototype.hasOwnProperty.call(WORKSPACE_QUERIES, name) ? WORKSPACE_QUERIES[name] : null;
+  if (!cmd) return null;
+  const lane0 = SESSION_ALLOWLIST[WORKSPACE_LANES[0]];
+  const inner = `sh -c 'cd /workspace/sounio && ${cmd}'`;
+  return ["-n", ns, "exec", "-i", lane0.pod, "-c", lane0.container, "--", ...tmuxSu(lane0, inner)];
+}
+
 // Full kubectl argv given a resolved pod name (caller resolves "@bridge" → real pod).
 export function kubectlArgv(ns, pod, spec, interactive) {
   const c = spec.container ? ["-c", spec.container] : [];

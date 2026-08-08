@@ -22,6 +22,7 @@ import {
 } from "./workspace-routes.mjs";
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerPlatformRoutes } from "./platform-routes.mjs";
+import { OficinaPoller, registerOficinaRoutes } from "./oficina.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
 import { registerAuthBridgeRoutes, fetchOperatorToken, warmCompanionDigests } from "./auth-bridge.mjs";
@@ -14977,6 +14978,15 @@ registerWorkspaceRoutes(app, {
 // ─── Agent scratchpad — shared notepad between agent + iOS ──────────────
 registerScratchpadRoutes(app);
 registerPlatformRoutes(app);
+
+// ─── OFICINA — the dev half: "está verde? o que quebrou? onde estou?" ──────
+// Read-only: it reads CI verdicts and git head, never launches a build/test/gate.
+const oficinaPoller = new OficinaPoller({
+  kubectl: process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl",
+  ns: process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle",
+});
+oficinaPoller.start();
+registerOficinaRoutes(app, oficinaPoller);
 
 // ─── Job routes (cluster batch jobs — canonical escalation path) ───────
 registerJobRoutes(app);
