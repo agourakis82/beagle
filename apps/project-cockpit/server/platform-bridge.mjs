@@ -164,6 +164,14 @@ export const WORKSPACE_QUERIES = {
   // NOTE: no single quotes anywhere. These strings are interpolated INSIDE `sh -c '...'`, so a
   // nested quote silently truncates the command (it mangled this very query in production).
   "git-head": `git rev-parse --abbrev-ref HEAD; git log -1 --format=%H%x09%ct%x09%s; git status --porcelain | wc -l`,
+  // "Quem está onde?" — every lane's actual working directory, to detect the shared-tree hazard
+  // (measured: all 10 lanes sit in /workspace/sounio on one branch with ~53 dirty files).
+  // DOUBLE quotes are mandatory here: unquoted, tmux's "|" would become a shell pipe and "#"
+  // would start a comment. (Double quotes are safe inside the outer `sh -c '…'`; single ones
+  // are not — see the git-head incident above.)
+  "lane-cwds": `tmux list-panes -a -F "#{session_name}|#{pane_current_path}|#{pane_current_command}"`,
+  // The branch of each distinct tree a lane sits in: "<path>\t<branch>" per line.
+  "tree-branches": `for d in $(tmux list-panes -a -F "#{pane_current_path}" | sort -u); do printf "%s\t%s\n" "$d" "$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"; done`,
 };
 
 export function workspaceQueryArgv(ns, name) {

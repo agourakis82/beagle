@@ -4,7 +4,7 @@ import https from "node:https";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { spawn } from "node:child_process";
+import { spawn, execFile as nodeExecFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import pty from "node-pty";
@@ -23,6 +23,8 @@ import {
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerPlatformRoutes } from "./platform-routes.mjs";
 import { OficinaPoller, registerOficinaRoutes } from "./oficina.mjs";
+import { ClaimRegistry, HazardPoller, registerCoordRoutes } from "./coord.mjs";
+import { workspaceQueryArgv as coordQueryArgv } from "./platform-bridge.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
 import { registerAuthBridgeRoutes, fetchOperatorToken, warmCompanionDigests } from "./auth-bridge.mjs";
@@ -14987,6 +14989,19 @@ const oficinaPoller = new OficinaPoller({
 });
 oficinaPoller.start();
 registerOficinaRoutes(app, oficinaPoller);
+
+// ─── COORDENAÇÃO — keep agents out of each other's work (advisory: warns, never blocks) ──
+// Measured hazard: all live lanes share one working tree + branch, so an edit by one is
+// clobberable by all. This surfaces that, and lets a lane declare what it is touching.
+const claimRegistry = new ClaimRegistry();
+const hazardPoller = new HazardPoller({
+  kubectl: process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl",
+  ns: process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle",
+  execFn: nodeExecFile,
+  workspaceQueryArgv: coordQueryArgv,
+});
+hazardPoller.start();
+registerCoordRoutes(app, { registry: claimRegistry, hazards: hazardPoller });
 
 // ─── Job routes (cluster batch jobs — canonical escalation path) ───────
 registerJobRoutes(app);
