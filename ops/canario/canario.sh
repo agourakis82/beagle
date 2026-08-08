@@ -37,8 +37,13 @@ if [ $codigo -ne 0 ] || [ -z "$corpo" ]; then
 else
   # Assinaturas de ERRO chegando como se fossem fala dele. Esta é a classe de
   # falha que mais importa: o caminho vivo falando lixo.
-  for assinatura in "Invalid bearer" "401" "Failed to authenticate" "<html" "502 Bad" "Service Unavailable"; do
-    if grep -qi -- "$assinatura" <<<"$corpo"; then
+  # Assinaturas ESPECÍFICAS. A primeira versão procurava "401" solto e teria
+  # reprovado fala legítima — ele pode perguntar sobre o 401 de ontem e o
+  # companion responder sobre isso. Mesma disciplina do portão de fala: só
+  # condena o que é inequivocamente máquina falando, nunca vocabulário.
+  for assinatura in "Invalid bearer token" "Failed to authenticate" "API Error:" \
+                    "<html" "502 Bad Gateway" "503 Service Unavailable" "ECONNREFUSED"; do
+    if grep -qF -- "$assinatura" <<<"$corpo"; then
       falhas+=("ERRO NA BOCA: resposta contém \"$assinatura\" — isso chegaria na tela dele")
       break
     fi
