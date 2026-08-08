@@ -9,6 +9,8 @@ const TMUX_LIST_FORMAT = "#{session_name}|#{session_attached}|#{session_activity
 export const PEEK_LINES = 25;
 /// Record separator for the batched fleet peek. Chosen to not occur in terminal output.
 export const PEEK_DELIM = "@@LANE:";
+/// Record separator for the batched receipt read.
+export const RECEIPT_DELIM = "@@RECEIPT:";
 
 // pod "@bridge" = resolve the t560 platform-bridge pod at call time; a literal name = that pod.
 // The 11 workspace agent lanes are tmux sessions on the workspace pod's OWN uid-owned socket:
@@ -170,6 +172,10 @@ export const WORKSPACE_QUERIES = {
   // would start a comment. (Double quotes are safe inside the outer `sh -c '…'`; single ones
   // are not — see the git-head incident above.)
   "lane-cwds": `tmux list-panes -a -F "#{session_name}|#{pane_current_path}|#{pane_current_command}"`,
+  // "O que a linguagem PROVOU?" — the newest experiment/gate receipts. Sounio writes a versioned
+  // JSON receipt per proven claim (schema/status/metrics/novel_claims/generated_at), so the
+  // workbench reads EVIDENCE instead of a pass/fail dot. Newest first, bounded.
+  "receipts": `for f in $(find artifacts -name "*.v1.json" -newermt "-60 days" -printf "%T@\t%p\n" 2>/dev/null | sort -rn | head -14 | cut -f2); do echo "@@RECEIPT:$f"; head -c 4000 "$f"; echo; done`,
   // The branch of each distinct tree a lane sits in: "<path>\t<branch>" per line.
   "tree-branches": `for d in $(tmux list-panes -a -F "#{pane_current_path}" | sort -u); do printf "%s\t%s\n" "$d" "$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)"; done`,
 };

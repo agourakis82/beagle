@@ -12,7 +12,7 @@ const check = (name, conclusion, status = "COMPLETED") =>
 
 test("the leash allows only named READ-ONLY queries — no build, no test, no gate, no writes", () => {
   assert.deepEqual(Object.keys(WORKSPACE_QUERIES).sort(),
-    ["git-head", "lane-cwds", "main-ci", "pr-list", "tree-branches"]);
+    ["git-head", "lane-cwds", "main-ci", "pr-list", "receipts", "tree-branches"]);
   for (const [name, q] of Object.entries(WORKSPACE_QUERIES)) {
     assert.doesNotMatch(q, /make |cargo |souc |run_sio_test_suite|_gate\.sh/,
       `${name} must never launch a build/test/gate (61GiB, minutes)`);
@@ -135,4 +135,67 @@ test("overlapping polls do not stack execs", async () => {
   const p = new OficinaPoller({ kubectl: "k", ns: "n", execFn: () => { calls++; } });
   p.poll(); p.poll();
   assert.equal(calls, 3, "one sweep = 3 queries, and the second poll is refused");
+});
+
+// ── Recibos: a saída real desta linguagem ────────────────────────────────────────────────
+import { reduceReceipts } from "./oficina.mjs";
+import { RECEIPT_DELIM } from "./platform-bridge.mjs";
+
+const receipt = (path, obj) => `${RECEIPT_DELIM}${path}\n${JSON.stringify(obj, null, 2)}\n`;
+
+test("um recibo vira evidência: proposição, medição e o par que prova falsificabilidade", () => {
+  // Forma real de artifacts/compiler/madaros_wave15e_global_string_receipt.v1.json
+  const out = reduceReceipts(receipt("artifacts/compiler/madaros_wave15e.v1.json", {
+    schema: "madaros_wave15e_global_string_receipt.v1",
+    status: "pass",
+    residual: "module-level string literal BSS init SEGV",
+    claim: 'let S: string = "hi"; println(S) prints hi under current-source Madaros',
+    gate: "scripts/ci/madaros_global_string_init_gate.sh",
+    measured_stdout: ["hi", "yo"],
+    pre_fix: { run_rc: 139, rodata_hi: false },
+    post_fix: { run_rc: 0, rodata_hi: true },
+    git_sha: "3e7ed9f52946349ac2495f90727510c32e1a7004",
+  }));
+  assert.equal(out.length, 1);
+  const r = out[0];
+  assert.equal(r.family, "compiler");
+  assert.equal(r.status, "pass");
+  assert.match(r.claim, /println\(S\) prints hi/);
+  assert.equal(r.falsifiable, true, "pre_fix + post_fix = o vermelho era alcançável");
+  assert.equal(r.preFix.run_rc, 139);
+  assert.equal(r.gitSha, "3e7ed9f529");
+});
+
+test("um recibo sem par pre/post NÃO é marcado falsificável", () => {
+  const r = reduceReceipts(receipt("artifacts/omega/x.v1.json", {
+    schema: "sounio.claude.operational.contract.v1", status: "pass",
+  }))[0];
+  assert.equal(r.falsifiable, false, "verde sem vermelho alcançável não prova nada");
+});
+
+test("status ausente ou estranho é unknown, nunca assumido bom", () => {
+  assert.equal(reduceReceipts(receipt("artifacts/gpu/a.v1.json", { schema: "s" }))[0].status, "unknown");
+  assert.equal(reduceReceipts(receipt("artifacts/gpu/b.v1.json", { status: "vibing" }))[0].status, "unknown");
+  assert.equal(reduceReceipts(receipt("artifacts/gpu/c.v1.json", { status: "pass_full" }))[0].status, "pass");
+  assert.equal(reduceReceipts(receipt("artifacts/gpu/d.v1.json", { status: "FAIL" }))[0].status, "fail");
+});
+
+test("recibos ilegíveis são descartados, não inventados; os bons ao lado sobrevivem", () => {
+  const mixed = `${RECEIPT_DELIM}artifacts/x/quebrado.v1.json\n{ isso não é json\n` +
+                receipt("artifacts/stdlib/bom.v1.json", { schema: "ok", status: "pass" });
+  const out = reduceReceipts(mixed);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].family, "stdlib");
+  assert.deepEqual(reduceReceipts(""), []);
+});
+
+test("novel_claims — o achado científico — sobrevive ao redutor", () => {
+  const r = reduceReceipts(receipt("artifacts/omega/n.v1.json", {
+    schema: "s", status: "pass",
+    novel_claims: ["v2(D[tri3]) = 3(n-j) com cofator ímpar", "tr(A²) injetiva em g"],
+    metrics: { pass: 16, fail: 0 },
+  }))[0];
+  assert.equal(r.novelClaims.length, 2);
+  assert.match(r.novelClaims[0], /cofator ímpar/);
+  assert.equal(r.metrics.pass, 16);
 });

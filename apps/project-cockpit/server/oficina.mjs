@@ -9,7 +9,7 @@
 // Oficina READS verdicts instead of producing them. Every field carries its observation time so
 // the UI can mark it stale rather than assert a freshness it does not have.
 import { execFile } from "node:child_process";
-import { workspaceQueryArgv } from "./platform-bridge.mjs";
+import { workspaceQueryArgv, RECEIPT_DELIM } from "./platform-bridge.mjs";
 
 /// One check's conclusion → our three-valued verdict. Unknown conclusions are NOT assumed good.
 export function checkVerdict(check) {
@@ -114,7 +114,7 @@ export function registerOficinaRoutes(app, poller) {
     const s = poller.state;
     res.json({
       ok: true,
-      data: { prs: s.prs, main: s.main, head: s.head, observedAt: s.observedAt },
+      data: { prs: s.prs, main: s.main, head: s.head, receipts: s.receipts, observedAt: s.observedAt },
       meta: {
         truthMode: s.error ? "stale" : (s.observedAt ? "observed" : "unknown"),
         error: s.error || null,
@@ -123,11 +123,73 @@ export function registerOficinaRoutes(app, poller) {
   });
 }
 
+/// Sounio writes a versioned JSON RECEIPT for every claim it proves — that is the real output of
+/// this language, not a pass/fail dot. The shapes vary by family (compiler, gpu, stdlib, omega,
+/// audit), so this normalises only what is genuinely common and keeps the rest verbatim: a
+/// workbench for an epistemic language must not flatten away the evidence it exists to show.
+///
+/// The fields below were taken from the 379 receipts on disk, not invented:
+///   schema · status · generated_at(_utc) · metrics · reason · gate · novel_claims
+///   claim / residual / verdict         — the proposition and what was broken
+///   pre_fix / post_fix                 — the measured before/after: proof the red was REACHABLE
+export function reduceReceipts(stdout) {
+  const out = [];
+  let path = null, buf = [];
+  const flush = () => {
+    if (!path) return;
+    let json = null;
+    try { json = JSON.parse(buf.join("\n")); } catch { json = null; }
+    if (json && typeof json === "object") out.push(normaliseReceipt(path, json));
+    path = null; buf = [];
+  };
+  for (const line of String(stdout || "").split("\n")) {
+    if (line.startsWith(RECEIPT_DELIM)) { flush(); path = line.slice(RECEIPT_DELIM.length).trim(); }
+    else if (path) buf.push(line);
+  }
+  flush();
+  return out;
+}
+
+function normaliseReceipt(path, j) {
+  const family = path.split("/")[1] || "?";
+  const claim = j.claim || j.residual || j.showcase_verdict || j.verdict || j.role || "";
+  const pre = j.pre_fix ?? j.before ?? null;
+  const post = j.post_fix ?? j.after ?? null;
+  return {
+    path,
+    family,
+    schema: String(j.schema || ""),
+    // "pass"/"fail"/"ok" vary by family; an absent status is UNKNOWN, never assumed good.
+    status: normaliseStatus(j.status ?? j.verdict ?? j.showcase_verdict),
+    claim: String(claim).slice(0, 400),
+    reason: String(j.reason || "").slice(0, 400),
+    gate: String(j.gate || j.gate_sentinel || ""),
+    metrics: (j.metrics && typeof j.metrics === "object") ? j.metrics : null,
+    novelClaims: Array.isArray(j.novel_claims) ? j.novel_claims.slice(0, 8) : [],
+    // The pair that proves the claim can FAIL. A green whose red was never reachable proves
+    // nothing — the same invariant the CI rollup enforces, and the one Sounio itself encodes
+    // with its twin manifests.
+    falsifiable: Boolean(pre && post),
+    preFix: pre, postFix: post,
+    generatedAt: j.generated_at_utc || j.generated_at || j.date || null,
+    gitSha: String(j.git_sha || "").slice(0, 10) || null,
+  };
+}
+
+function normaliseStatus(raw) {
+  const v = String(raw ?? "").toLowerCase();
+  if (!v) return "unknown";
+  if (/^(pass|ok|green|success|pass_full)$/.test(v)) return "pass";
+  if (/^(fail|red|error|failure)$/.test(v)) return "fail";
+  if (/partial|degrad|warn/.test(v)) return "partial";
+  return "unknown";
+}
+
 export class OficinaPoller {
   constructor({ kubectl, ns, intervalMs = 60000, execFn = execFile, now = () => Date.now() }) {
     this._kubectl = kubectl; this._ns = ns; this._intervalMs = intervalMs;
     this._exec = execFn; this._now = now;
-    this._state = { prs: [], main: { verdict: "unknown", runs: [] }, head: null, observedAt: null, error: null };
+    this._state = { prs: [], main: { verdict: "unknown", runs: [] }, head: null, receipts: [], observedAt: null, error: null };
     this._timer = null; this._inFlight = false;
   }
 
@@ -156,8 +218,8 @@ export class OficinaPoller {
     if (this._inFlight) return false;
     this._inFlight = true;
     try {
-      const [prs, main, head] = await Promise.all([
-        this._run("pr-list"), this._run("main-ci"), this._run("git-head"),
+      const [prs, main, head, receipts] = await Promise.all([
+        this._run("pr-list"), this._run("main-ci"), this._run("git-head"), this._run("receipts"),
       ]);
       const now = this._now();
       if (prs === null && main === null && head === null) {
@@ -168,6 +230,7 @@ export class OficinaPoller {
         prs: prs === null ? this._state.prs : reducePRs(prs),
         main: main === null ? this._state.main : reduceMainCI(main),
         head: head === null ? this._state.head : reduceGitHead(head),
+        receipts: receipts === null ? this._state.receipts : reduceReceipts(receipts),
         observedAt: now,
         error: null,
       };
