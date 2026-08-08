@@ -147,7 +147,7 @@ spec:
         - secretRef:
             name: beagle-telegram-secrets
             optional: true
-        image: 192.168.3.207:5003/project-cockpit:boca-66e291d3
+        image: 192.168.3.207:5003/project-cockpit:l2tune-503cbb6f
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
