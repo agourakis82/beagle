@@ -1,0 +1,7 @@
+[Unit]
+Description=Canário externo do companion (sonda a URL pública de fora do cluster)
+Documentation=https://github.com/sounio-lang
+
+[Service]
+Type=oneshot
+ExecStart=/home/devsounio/.beagle/canario/canario.sh
