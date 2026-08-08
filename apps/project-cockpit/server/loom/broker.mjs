@@ -8,11 +8,12 @@ let _seq = 0;
 const nextSid = (kind) => `${kind}-${++_seq}`;
 
 export class Broker {
-  constructor({ sessionFactory }) {
+  constructor({ sessionFactory, laneStates = null }) {
     this._factory = sessionFactory;      // (sid, kind) -> session
     this._sessions = new Map();          // sid -> session
     this._clients = new Set();           // sockets
     this._subs = new Map();              // socket -> Set(sid)
+    this._laneStates = laneStates;       // LanePoller-like: get(sid) -> verdict | null
   }
   addSeed(session) { this._sessions.set(session.sid, session); this._wire(session); }
   // Advertise an existing attachable session; it attaches (materializes) on first subscribe.
@@ -29,20 +30,42 @@ export class Broker {
     session.onData((d) => this._toSubscribers(session.sid, { t: "data", sid: session.sid, bytes: d }));
     session.onExit(() => { this._broadcastState(session.sid); this._broadcastSessions(); });
   }
+  /// A polled lane verdict (real screen read) beats any stream-derived guess — it is true even
+  /// for lanes nobody is watching. Returns null when we have never observed the lane.
+  _observed(sid) { return this._laneStates?.get?.(sid) || null; }
+
   _stateOf(session) {
-    if (session.lazyPending) return "idle";      // seeded but not yet attached
+    const obs = this._observed(session.sid);
+    if (obs) return obs.state;
+    if (session.lazyPending) return "unknown";   // seeded, never attached, never peeked
     const m = session.meta;
     return classify({ alive: m.alive, lastOutputAt: m.lastOutputAt, now: Date.now() });
   }
   _sessionsSnapshot() {
     return [...this._sessions.values()].map((s) => {
       const m = s.meta;
-      return { sid: m.sid, title: m.title || m.sid, kind: m.kind, source: m.source, state: this._stateOf(s), detail: "", cols: m.cols, rows: m.rows };
+      const obs = this._observed(m.sid);
+      return {
+        sid: m.sid, title: m.title || m.sid, kind: m.kind, source: m.source,
+        state: this._stateOf(s),
+        // The evidence for the verdict — the UI quotes this instead of asserting a bare state.
+        detail: obs?.detail || "",
+        peek: obs?.peek || [],
+        approveKey: obs?.approveKey || null,
+        // Truth-mode metadata: when this was actually observed (null = we are guessing).
+        observedAt: obs?.observedAt || null,
+        cols: m.cols, rows: m.rows,
+      };
     });
   }
   _send(sock, msg) { try { sock.send(encodeServer(msg)); } catch { /* closed */ } }
   _broadcastSessions() { const snap = this._sessionsSnapshot(); for (const c of this._clients) this._send(c, { t: "sessions", sessions: snap }); }
-  _broadcastState(sid) { const s = this._sessions.get(sid); if (!s) return; for (const c of this._clients) this._send(c, { t: "state", sid, state: this._stateOf(s), detail: "" }); }
+  _broadcastState(sid) {
+    const s = this._sessions.get(sid); if (!s) return;
+    const obs = this._observed(sid);
+    const msg = { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", observedAt: obs?.observedAt || null };
+    for (const c of this._clients) this._send(c, msg);
+  }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }
   _subscriberCount(sid) { let n = 0; for (const set of this._subs.values()) if (set.has(sid)) n++; return n; }
   // When the last viewer of a lazy (attached) session leaves, detach its real client so it

@@ -1,6 +1,38 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isT560Kind, deckExec, kubectlArgv, parseDeckSession } from "./platform-bridge.mjs";
+import {
+  isT560Kind, deckExec, kubectlArgv, parseDeckSession,
+  lanesPeekArgv, parseLanesPeek, WORKSPACE_LANES, PEEK_DELIM,
+} from "./platform-bridge.mjs";
+
+test("peek is read-only (capture-pane), su-wrapped, and never attaches a client", () => {
+  const p = deckExec("claude-1", "peek");
+  assert.match(p.argv[5], /exec tmux capture-pane -p -t claude-1 -S -\d+$/);
+  assert.doesNotMatch(p.argv[5], /attach/, "peek must not attach — it would resize his real pane");
+  assert.equal(deckExec("t560-beagle", "peek").argv.join(" ").includes("capture-pane"), true);
+});
+
+test("batched fleet peek: one exec, all 11 lanes, delimited, no request input", () => {
+  const argv = lanesPeekArgv("beagle");
+  assert.deepEqual(argv.slice(0, 8),
+    ["-n", "beagle", "exec", "-i", "sounio-workspace-control-0", "-c", "workspace-ssh", "--"]);
+  const body = argv[argv.length - 1];
+  for (const lane of WORKSPACE_LANES) {
+    assert.ok(body.includes(`${PEEK_DELIM}${lane}`), `missing delimiter for ${lane}`);
+    assert.ok(body.includes(`capture-pane -p -t ${lane}`), `missing capture for ${lane}`);
+  }
+  assert.match(body, /TMUX_TMPDIR=\/workspace\/\.home\/openvscode-server\/\.tmux/);
+  assert.doesNotMatch(body, /attach|kill-session|send-keys/);
+});
+
+test("parseLanesPeek splits by lane and drops unknown labels", () => {
+  const out = parseLanesPeek(
+    `${PEEK_DELIM}claude-1\nhello\nworld\n${PEEK_DELIM}evil-lane\nrm -rf\n${PEEK_DELIM}repo\n$ ls\n`,
+  );
+  assert.deepEqual(Object.keys(out).sort(), ["claude-1", "repo"]);
+  assert.equal(out["claude-1"], "hello\nworld");
+  assert.match(out["repo"], /\$ ls/);
+});
 
 test("allowlist: only known deck kinds; injection refused", () => {
   assert.equal(isT560Kind("t560-beagle"), true);

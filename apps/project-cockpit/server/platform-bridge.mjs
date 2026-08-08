@@ -5,6 +5,10 @@
 
 const SOCK = (s) => `/tmp/tmux-1000/${s}`;
 const TMUX_LIST_FORMAT = "#{session_name}|#{session_attached}|#{session_activity}|#{window_name}";
+/// How many rows of scrollback a "peek" reads. Enough for a state verdict + a quoted question.
+export const PEEK_LINES = 25;
+/// Record separator for the batched fleet peek. Chosen to not occur in terminal output.
+export const PEEK_DELIM = "@@LANE:";
 
 // pod "@bridge" = resolve the t560 platform-bridge pod at call time; a literal name = that pod.
 // The 11 workspace agent lanes are tmux sessions on the workspace pod's OWN uid-owned socket:
@@ -66,6 +70,8 @@ export function deckExec(kind, action, param) {
       if (action === "attach") inner = `tmux attach -t ${s.target}`;
       else if (action === "list") inner = `tmux list-sessions -F '${TMUX_LIST_FORMAT}'`;
       else if (action === "kill") inner = `tmux kill-session -t ${s.target}`;
+      // Read-only screen read: no attach, no client, so it cannot resize or disturb his lane.
+      else if (action === "peek") inner = `tmux capture-pane -p -t ${s.target} -S -${PEEK_LINES}`;
       else return null;
       return { pod: s.pod, container: s.container || null, argv: tmuxSu(s, inner) };
     }
@@ -74,6 +80,7 @@ export function deckExec(kind, action, param) {
     if (action === "attach") cmd = ["tmux", "-S", SOCK(s.socket), "attach", "-t", s.target];
     else if (action === "list") cmd = ["tmux", "-S", SOCK(s.socket), "list-sessions", "-F", TMUX_LIST_FORMAT];
     else if (action === "kill") cmd = ["tmux", "-S", SOCK(s.socket), "kill-session", "-t", s.target];
+    else if (action === "peek") cmd = ["tmux", "-S", SOCK(s.socket), "capture-pane", "-p", "-t", s.target, "-S", `-${PEEK_LINES}`];
     else return null;
     return { pod: s.pod, container: null, argv: cmd };
   }
@@ -109,6 +116,38 @@ export function zellijCleanupArgv(kind, ns) {
     `pc=$(ps -o args= -p "$pp" 2>/dev/null); ` +
     `case "$pc" in *"su -s /bin/bash ${s.user}"*) kill -9 "$z" "$pp" 2>/dev/null;; esac; done`;
   return ["-n", ns, "exec", s.pod, "-c", s.container, "--", "sh", "-c", script];
+}
+
+// ONE kubectl exec that read-only-peeks EVERY workspace lane, delimited per lane. This is what
+// lets the Frota show a TRUE state for all 11 lanes without attaching to any of them (attaching
+// 11 clients would resize his real panes). The lane list is the allowlist constant — never
+// request input — so the interpolated loop carries no injection surface. Read-only by
+// construction: capture-pane cannot write to a pane.
+export function lanesPeekArgv(ns) {
+  const lane0 = SESSION_ALLOWLIST[WORKSPACE_LANES[0]];
+  const script = WORKSPACE_LANES
+    .map((l) => `echo "${PEEK_DELIM}${l}"; tmux capture-pane -p -t ${l} -S -${PEEK_LINES} 2>/dev/null`)
+    .join("; ");
+  const inner = `sh -c '${script}'`;
+  return ["-n", ns, "exec", "-i", lane0.pod, "-c", lane0.container, "--", ...tmuxSu(lane0, inner)];
+}
+
+// Split the batched peek stdout into { lane: screenText }. Unknown labels are dropped.
+export function parseLanesPeek(stdout) {
+  const out = {};
+  let cur = null, buf = [];
+  for (const line of String(stdout || "").split("\n")) {
+    if (line.startsWith(PEEK_DELIM)) {
+      if (cur) out[cur] = buf.join("\n");
+      const name = line.slice(PEEK_DELIM.length).trim();
+      cur = WORKSPACE_LANES.includes(name) ? name : null;
+      buf = [];
+    } else if (cur) {
+      buf.push(line);
+    }
+  }
+  if (cur) out[cur] = buf.join("\n");
+  return out;
 }
 
 // Full kubectl argv given a resolved pod name (caller resolves "@bridge" → real pod).

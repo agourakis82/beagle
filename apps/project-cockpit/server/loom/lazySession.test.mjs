@@ -30,7 +30,7 @@ test("LazySession does not attach until materialize; then delegates", () => {
   assert.equal(ls.snapshot(), "REAL:beagle");   // now delegates to the real session
 });
 
-test("broker: a lazy seed shows as idle, attaches on subscribe, streams data", () => {
+test("broker: a lazy seed shows as unknown, attaches on subscribe, streams data", () => {
   let built = 0; let real;
   const broker = new Broker({ sessionFactory: () => { throw new Error("no create in this test"); } });
   broker.addLazySeed("beagle", "t560-beagle", () => { built++; real = fakeReal("beagle"); return real; }, { title: "beagle" });
@@ -40,7 +40,10 @@ test("broker: a lazy seed shows as idle, attaches on subscribe, streams data", (
   const first = sock.sent[0];
   assert.equal(first.t, "sessions");
   assert.equal(first.sessions[0].title, "beagle");
-  assert.equal(first.sessions[0].state, "idle");   // seeded, not attached
+  // Seeded, never attached AND never peeked → "unknown", not a comfortable-looking "idle".
+  // A board that guesses "idle" for lanes it has not observed teaches the operator to distrust it.
+  assert.equal(first.sessions[0].state, "unknown");
+  assert.equal(first.sessions[0].observedAt, null);
   assert.equal(built, 0);
 
   sock.recv({ t: "subscribe", sid: "beagle" });

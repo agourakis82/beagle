@@ -9,6 +9,7 @@ import { OwnedPtySession } from "./ownedSession.mjs";
 import { AdaptedSession } from "./adaptedSession.mjs";
 import { recipeFor } from "./catalog.mjs";
 import { isT560Kind, zellijCleanupArgv, WORKSPACE_LANES } from "../platform-bridge.mjs";
+import { LanePoller } from "./lanePoller.mjs";
 
 const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
 const NS = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
@@ -48,7 +49,9 @@ const SEED_SESSIONS = [
 export function mountLoom() {
   const podResolver = syncBridgePodResolver;
   const sessionFactory = makeSessionFactory({ kubectl: KUBECTL, ns: NS, podResolver });
-  const broker = new Broker({ sessionFactory });
+  // Real per-lane state for the Frota, including lanes nobody is watching (read-only peek).
+  const lanePoller = new LanePoller({ kubectl: KUBECTL, ns: NS });
+  const broker = new Broker({ sessionFactory, laneStates: lanePoller });
   for (const { kind, title } of SEED_SESSIONS) {
     broker.addLazySeed(kind, kind, () => new AdaptedSession(kind, kind, { kubectl: KUBECTL, ns: NS, podResolver }), { title });
   }
@@ -57,6 +60,8 @@ export function mountLoom() {
     const cargv = zellijCleanupArgv(kind, NS);
     if (cargv) { try { execFileSync(KUBECTL, cargv, { stdio: "ignore", timeout: 8000 }); } catch { /* best effort */ } }
   }
+  lanePoller.start();
+  broker.lanePoller = lanePoller;   // exposed for /api introspection + shutdown
   broker.startStatePump();
   return broker;
 }

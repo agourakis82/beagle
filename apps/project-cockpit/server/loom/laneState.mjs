@@ -1,0 +1,160 @@
+// laneState.mjs — read an agent lane's terminal tail and answer the one operational question
+// the Mission Control exists to answer: **who needs you?**
+//
+// Pure + unit-tested against REAL captured output from the 11 live lanes (Claude Code, Codex,
+// Kimi/GLM, Grok, plain shell). Heuristics only — so every verdict carries the evidence line
+// that produced it (`detail`), and the UI must quote that instead of asserting a bare state.
+// Nothing here is a substitute for the agent telling us; it is the best honest read of a TTY.
+
+const ANSI = /\[[0-9;?]*[A-Za-z]|\][^]*(|\\)/g;
+// Box-drawing + block chrome the TUIs paint their frames with.
+const BOX = /[─-╿▀-▟]/g;
+
+/// Footer/status lines: real chrome, never content. Measured across the four CLI families.
+const CHROME = [
+  /esc to interrupt/i,
+  /shift\+tab to cycle/i,
+  /ctrl\+[a-z] to /i,
+  /auto mode on|bypass permissions on|always-approve|\byolo\b/i,
+  /context: ?\d+%/i,
+  /^\s*(gpt|claude|grok|kimi|glm)[\w.\- ]*(medium|high|low|thinking)/i,
+  /for agents\s*$/i,
+  /to show tasks/i,
+  /press ctrl\+u to restart|Update: v?[\d.]+ available/i,
+  /^\s*\/\w+: /,                       // "/web: use the Web UI ..."
+  /Goal achieved/i,
+  /^\s*[›❯>]\s*(Explain this codebase|Find and fix a bug)/i,   // CLI placeholder hints
+];
+
+/// The agent is actively burning tokens/CPU. `esc to interrupt` is the strongest cross-family
+/// signal (Claude Code + Codex both print it only while a turn is in flight).
+/// Deliberately NOT here: the spinner verbs ("Cooked for", "Worked for"). They are ambiguous
+/// ACROSS families — Claude paints "Cooked for 2m" as a live spinner while Codex prints
+/// "─ Worked for 5m 33s ─" as a *finished-turn* separator. Measured; cost a failing test.
+const WORKING = [
+  /esc to interrupt/i,
+  /\[\s*\d+ tasks? running\s*\]/i,
+  /\d+ (background )?(terminals?|shells?) (still )?running/i,
+  /Waiting for background terminal/i,
+];
+
+/// Explicit at-rest markers: the turn finished and the agent is not mid-flight.
+const AT_REST = [
+  /Goal achieved/i,
+  /^\s*Worked for .*$/im,   // NOTE: /m is load-bearing — matched against the joined tail.
+];
+
+/// Explicit "may I?" gates — the classic approval the FAROL shelf materializes a button for.
+const APPROVAL = [
+  /Do you want to (proceed|continue|make this edit|create)/i,
+  /^\s*[❯>]?\s*1\.\s*Yes\b/im,          // Claude Code's numbered permission dialog
+  /\(y\/n\)|\[y\/N\]|\[Y\/n\]/i,
+  /Allow (this|the) (command|edit|tool)/i,
+  /Approve\?|Press enter to (approve|confirm)/i,
+  /Waiting for your (approval|confirmation)/i,
+];
+
+/// A highlighted selectable option (permission dialog or an open modal menu) = a choice is owed.
+const SELECTION = /^\s*[❯>]\s*\d+\.\s+\S/m;
+
+/// An empty input box (`>` / `❯` with nothing typed) or a bare shell prompt.
+const EMPTY_PROMPT = /^\s*[❯>]\s*$/;
+const SHELL_PROMPT = /[%$#]\s*$/;
+/// An input box that is ACCEPTING input — empty or with text already typed. Its presence means
+/// the agent is not mid-turn: the box only renders between turns.
+const PROMPT_LINE = /^\s*[❯>›]\s/;
+
+function isChrome(line) {
+  return CHROME.some((re) => re.test(line));
+}
+
+/// Strip escapes + frame chrome, keep the visible text of each row.
+export function normalizeLines(text) {
+  return String(text || "")
+    .replace(ANSI, "")
+    .split("\n")
+    .map((l) => l.replace(BOX, "").replace(/\s+$/, ""))
+    .filter((l) => l.trim().length > 0);
+}
+
+/// The last line that is actual agent/user content (not a frame or status footer).
+export function lastContentLine(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (isChrome(l)) continue;
+    if (EMPTY_PROMPT.test(l)) continue;
+    if (SHELL_PROMPT.test(l) && l.trim().length < 40) continue;   // bare shell prompt
+    if (l.trim().length < 2) continue;
+    return l.trim();
+  }
+  return "";
+}
+
+/// Classify one lane from its terminal tail.
+/// Returns { state, detail, question, working, atPrompt, awaitingInput, approveKey }.
+/// `detail` is ALWAYS the evidence for the verdict — the UI quotes it rather than asserting.
+export function classifyLane({
+  text = "",
+  lastOutputAt = 0,
+  now = 0,
+  alive = true,
+  stuckAfterMs = 600000,   // 10min of silence while NOT working and NOT at a prompt
+} = {}) {
+  const lines = normalizeLines(text);
+  const tail = lines.slice(-14);
+  const tailText = tail.join("\n");
+  const footer = lines.slice(-6).join("\n");
+
+  const working = WORKING.some((re) => re.test(footer)) || WORKING.some((re) => re.test(tailText));
+  const approvalHit = APPROVAL.find((re) => re.test(tailText)) ? tailText.match(APPROVAL.find((re) => re.test(tailText))) : null;
+  const selectionHit = SELECTION.test(tailText);
+  const awaitingInput = Boolean(approvalHit) || selectionHit;
+
+  const atRest = AT_REST.some((re) => re.test(tailText));
+  const atPrompt = tail.some((l) => EMPTY_PROMPT.test(l))
+    || atRest
+    || (!working && tail.some((l) => PROMPT_LINE.test(l) && !isChrome(l) && !/^\s*[❯>]\s*\d+\./.test(l)))
+    || (!working && tail.some((l) => SHELL_PROMPT.test(l) && l.trim().length < 40));
+
+  const last = lastContentLine(lines);
+  // A question the agent left ON SCREEN with nothing running and an open input box is a
+  // question addressed to the operator — the "needs you" case the shelf is built for.
+  const question = /\?\s*$/.test(last) ? last : "";
+
+  if (!alive) {
+    return { state: "exited", detail: last, question: "", working: false, atPrompt: false, awaitingInput: false, approveKey: null };
+  }
+
+  let state, detail, approveKey = null;
+  if (awaitingInput) {
+    state = "waiting";
+    // Quote the dialog line itself so the card shows exactly what is being asked.
+    const dialogLine = tail.slice().reverse().find((l) => APPROVAL.some((re) => re.test(l)) || /^\s*[❯>]\s*\d+\./.test(l));
+    detail = (dialogLine || last).trim().slice(0, 240);
+    approveKey = /\(y\/n\)|\[y\/N\]|\[Y\/n\]/i.test(tailText) ? "y" : "enter";
+  } else if (!working && question && atPrompt) {
+    state = "waiting";
+    detail = question.slice(0, 240);
+    approveKey = null;              // an open question — needs a real answer, not a keystroke
+  } else if (working) {
+    state = "running";
+    detail = last.slice(0, 240);
+  } else if (atPrompt) {
+    state = "idle";
+    detail = last.slice(0, 240);
+  } else if (now && lastOutputAt && now - lastOutputAt >= stuckAfterMs) {
+    state = "stuck";
+    detail = last.slice(0, 240);
+  } else {
+    state = "running";
+    detail = last.slice(0, 240);
+  }
+
+  return { state, detail, question, working, atPrompt, awaitingInput, approveKey };
+}
+
+/// The last N content lines — the opaque 2-line terminal peek on a Frota card.
+export function peekLines(text, n = 2) {
+  const lines = normalizeLines(text).filter((l) => !isChrome(l) && !EMPTY_PROMPT.test(l));
+  return lines.slice(-n).map((l) => l.trim().slice(0, 160));
+}

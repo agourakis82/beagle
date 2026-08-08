@@ -15,5 +15,5 @@ test("encodeServer round-trips a data frame and a state frame", () => {
     '{"t":"data","sid":"a","bytes":"hi"}');
   const s = JSON.parse(encodeServer({ t: "state", sid: "a", state: "running", detail: "" }));
   assert.equal(s.state, "running");
-  assert.deepEqual(STATES, ["running", "idle", "waiting", "stuck", "exited"]);
+  assert.deepEqual(STATES, ["running", "idle", "waiting", "stuck", "exited", "unknown"]);
 });

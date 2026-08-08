@@ -1,5 +1,7 @@
 // protocol.mjs — the fixed client<->broker message set. The swap boundary.
-export const STATES = ["running", "idle", "waiting", "stuck", "exited"];
+// "unknown" = advertised but never observed. It exists so a card can say "I don't know yet"
+// instead of defaulting to a comfortable-looking "idle" it has not earned.
+export const STATES = ["running", "idle", "waiting", "stuck", "exited", "unknown"];
 export const CLIENT_TYPES = new Set(["hello", "list", "subscribe", "unsubscribe", "input", "resize", "create", "kill", "reset"]);
 export const SERVER_TYPES = new Set(["sessions", "scrollback", "data", "state", "exit", "error"]);
 
