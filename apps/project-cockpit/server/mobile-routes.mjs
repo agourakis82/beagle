@@ -1197,13 +1197,23 @@ async function completeChatRequest(req, deps, options = {}) {
         body: JSON.stringify({
           model: modelo,
           messages: [
-            ...(effectiveSystem ? [{ role: "system", content: effectiveSystem }] : []),
+            // Grounding ENXUTO para o L2. O modelo daqui é menor e mais lento que
+            // o cérebro: 19 KB de prefill mais 700 tokens estourou 45s no primeiro
+            // drill e o L2 morreu sem servir nada. Cabeça e cauda preservam quem
+            // ele é e o ## Agora; o meio é o que menos falta num turno de crise.
+            ...(effectiveSystem
+              ? [{ role: "system", content: effectiveSystem.length > 9000
+                    ? effectiveSystem.slice(0, 6000) + "\n\n[...]\n\n" + effectiveSystem.slice(-3000)
+                    : effectiveSystem }]
+              : []),
             { role: "user", content: prompt }
           ],
-          max_tokens: 700,
+          max_tokens: 400,
           temperature: 0.7
         }),
-        signal: AbortSignal.timeout(Number(process.env.PROJECT_COCKPIT_L2_TIMEOUT_MS || 45000))
+        // 90s: o chão é instantâneo, então o L2 merece chance real de servir. Curto
+        // demais e ele nunca entrega; longo demais e ele espera duas vezes.
+        signal: AbortSignal.timeout(Number(process.env.PROJECT_COCKPIT_L2_TIMEOUT_MS || 90000))
       });
       if (!r.ok) { console.error(`[L2] router HTTP ${r.status}`); return null; }
       const j = await r.json();
