@@ -24,6 +24,7 @@ import UIKit
 
 public struct FrotaView: View {
     @State private var fleet = FleetStateClient()
+    @State private var coord = CoordClient()
     @State private var answering: LaneSnapshot?
     @State private var answerText: String = ""
     @Environment(\.scenePhase) private var scenePhase
@@ -43,6 +44,7 @@ public struct FrotaView: View {
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
+                if !coord.state.hazards.isEmpty || !coord.state.conflicts.isEmpty { coordSection }
                 if !fleet.shelf.isEmpty { shelfSection }
                 restSection
                 linkFooter
@@ -52,12 +54,82 @@ public struct FrotaView: View {
         }
         .background(Self.canvas.ignoresSafeArea())
         .navigationTitle("Frota")
-        .onAppear { fleet.connect() }
+        .onAppear { fleet.connect(); coord.start() }
+        .onDisappear { coord.stop() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { fleet.connect(); fleet.refresh() }
+            if phase == .active { fleet.connect(); fleet.refresh(); Task { await coord.refresh() } }
         }
         .background(approveShortcut)
         .sheet(item: $answering) { lane in answerSheet(lane) }
+    }
+
+    // MARK: - Coordination: what is about to ruin whose work
+
+    /// Shown ONLY when there is something real to warn about — an always-on banner becomes
+    /// wallpaper and stops being read. Advisory: it states the risk, it does not block anything.
+    private var coordSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(coord.state.hazards) { tree in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.2").foregroundStyle(.orange)
+                        Text("\(tree.lanes.count) lanes na mesma árvore")
+                            .font(.system(.subheadline, weight: .semibold)).foregroundStyle(.white)
+                        Spacer()
+                        if coord.state.isStale {
+                            Text("leitura antiga").font(.caption2).foregroundStyle(.orange)
+                        }
+                    }
+                    Text("Uma edição de qualquer uma pode ser sobrescrita pelas outras — sem conflito de git para avisar.")
+                        .font(.caption).foregroundStyle(.white.opacity(0.75))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(tree.cwd)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.6))
+                        if !tree.branch.isEmpty {
+                            Text(tree.branch)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.45))
+                                .lineLimit(1).truncationMode(.middle)
+                        }
+                        Text(tree.lanes.joined(separator: " · "))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.32)))
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .farolGlass(tint: .orange.opacity(0.6), frosted: false)
+            }
+
+            ForEach(coord.state.conflicts) { c in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.red)
+                        Text(c.lanes.joined(separator: " ↔ "))
+                            .font(.system(.subheadline, weight: .semibold)).foregroundStyle(.white)
+                        Spacer()
+                    }
+                    ForEach(Array(c.overlaps.enumerated()), id: \.offset) { _, path in
+                        Text(path)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                    // Both agents' own words, so he can judge who should yield.
+                    ForEach(Array(c.notes.enumerated()), id: \.offset) { _, note in
+                        Text("“\(note)”")
+                            .font(.system(.caption, design: .serif))
+                            .foregroundStyle(.white.opacity(0.65))
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .farolGlass(tint: .red.opacity(0.55), frosted: false)
+            }
+        }
     }
 
     // MARK: - The shelf: PRECISA DE VOCÊ
