@@ -195,6 +195,9 @@ public struct FrotaView: View {
 
     /// Errors are legible and actionable — never a bare "Error".
     private var linkExplanation: String {
+        // A missing token is not a network fault, and saying "reconectando" forever would send
+        // him hunting the wrong problem.
+        if CockpitToken.resolve() == nil { return CockpitToken.missingReason }
         switch fleet.link {
         case .failed(let why): return "O broker não respondeu: \(why). Tailnet ativa? Cockpit no ar?"
         case .reconnecting: return "Reconectando ao broker…"

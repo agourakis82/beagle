@@ -45,7 +45,9 @@ public final class FleetStateClient {
     public func connect() {
         guard link != .live && link != .connecting else { return }
         guard let request = endpoint.loomRequest() else { link = .failed("bad endpoint"); return }
+        closedByCaller = false
         link = (retries == 0) ? .connecting : .reconnecting
+        trace("connect -> \(request.url?.absoluteString ?? "?") token=\(endpoint.token == nil ? "nil" : "sim")")
         let t = session.webSocketTask(with: request)
         task = t
         t.resume()
@@ -54,10 +56,18 @@ public final class FleetStateClient {
     }
 
     public func disconnect() {
+        // Order matters: cancel the receive loop FIRST. Cancelling the task while the loop is
+        // still awaiting `receive()` makes it throw, which used to run the drop path and
+        // resurrect a client the caller had deliberately closed.
         loop?.cancel(); loop = nil
+        closedByCaller = true
         task?.cancel(with: .goingAway, reason: nil); task = nil
         link = .idle; retries = 0
+        trace("disconnect (pedido pelo chamador)")
     }
+
+    /// Set by `disconnect()` so a late error from the socket cannot schedule a reconnect.
+    private var closedByCaller = false
 
     /// Clear a waiting lane in one gesture. Returns false when the lane needs a typed answer —
     /// the UI must not present a button we cannot honestly fulfil.
@@ -79,6 +89,14 @@ public final class FleetStateClient {
 
     private func send(_ frame: String) { task?.send(.string(frame)) { _ in } }
 
+    /// DEBUG-only breadcrumb on stderr. A board that silently fails to connect is the worst
+    /// possible outcome — it looks like "the fleet is quiet" instead of "I am blind".
+    private func trace(_ message: String) {
+        #if DEBUG
+        FileHandle.standardError.write(Data("[loom] \(message)\n".utf8))
+        #endif
+    }
+
     private func startLoop() {
         loop?.cancel()
         loop = Task { [weak self] in
@@ -87,7 +105,7 @@ public final class FleetStateClient {
                 guard let t = self.task else { break }
                 do {
                     let msg = try await t.receive()
-                    if self.link != .live { self.link = .live; self.retries = 0 }
+                    if self.link != .live { self.link = .live; self.retries = 0; self.trace("live") }
                     switch msg {
                     case .string(let s): self.handle(s)
                     case .data(let d): self.handle(String(decoding: d, as: UTF8.self))
@@ -113,6 +131,7 @@ public final class FleetStateClient {
         case "sessions":
             guard let arr = obj["sessions"] as? [[String: Any]] else { return }
             lanes = arr.compactMap(LaneSnapshot.init(loom:))
+            trace("sessions: \(lanes.count) lanes, \(shelf.count) na prateleira")
         case "state":
             // A single lane changed; patch it in place so the board does not reflow.
             guard let sid = obj["sid"] as? String,
@@ -135,6 +154,8 @@ public final class FleetStateClient {
 
     private func drop(_ error: Error) {
         task = nil
+        if closedByCaller { trace("socket fechou após disconnect — sem reconexão"); return }
+        trace("drop: \(error.localizedDescription)")
         // Deliberately keep `lanes`: stale-but-labelled beats an empty board.
         guard retries < maxRetries else { link = .failed(error.localizedDescription); return }
         retries += 1

@@ -46,6 +46,9 @@ public final class OficinaClient {
     public func stop() { timer?.cancel(); timer = nil }
 
     public func refresh() async {
+        guard CockpitToken.resolve() != nil else {
+            fetchError = CockpitToken.missingReason; return
+        }
         guard var req = endpoint.oficinaRequest() else {
             fetchError = "endpoint inválido"; return
         }

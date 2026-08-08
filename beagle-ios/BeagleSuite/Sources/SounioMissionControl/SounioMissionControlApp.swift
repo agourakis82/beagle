@@ -42,8 +42,10 @@ extension Notification.Name {
 /// outside an .app bundle.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        setbuf(stdout, nil)   // a GUI process redirected to a file would buffer away its own logs
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        Task { await Selftest.run() }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
@@ -85,8 +87,11 @@ struct MissionControlWindow: View {
 
     var body: some View {
         NavigationSplitView {
-            List(Section.allCases, selection: $section) { s in
-                NavigationLink(value: s) {
+            // `List(data, selection:)` binds the DATA'S ID (a String here), so binding it to a
+            // `Section?` silently mismatched and the sidebar drove nothing. The ForEach + .tag
+            // form is the one that selects by value.
+            List(selection: $section) {
+                ForEach(Section.allCases) { s in
                     Label {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(s.title).font(.body)
@@ -97,6 +102,7 @@ struct MissionControlWindow: View {
                     } icon: {
                         Image(systemName: s.icon)
                     }
+                    .tag(s)
                 }
             }
             .navigationSplitViewColumnWidth(min: 210, ideal: 230, max: 300)

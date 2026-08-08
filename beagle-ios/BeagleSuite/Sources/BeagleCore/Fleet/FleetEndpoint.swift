@@ -39,12 +39,11 @@ public struct FleetEndpoint: Sendable {
         // keystrokes into live sessions, so the cockpit stopped accepting the forgeable
         // `tailscale-user-login` header alone on write paths. Empty stays empty, so a missing
         // Secrets.plist fails loudly with 401 instead of looking like a network problem.
-        if let token {
-            self.token = token
-        } else {
-            let shared = BeagleClient.cockpitMobileToken
-            self.token = shared.isEmpty ? nil : shared
-        }
+        // Resolved across every source a client might have: explicit → the iOS bundle's
+        // Secrets.plist → BEAGLE_COCKPIT_TOKEN → ~/.beagle/cockpit-token. The macOS app is a
+        // package executable with no bundle, so without the last two it would 401 forever and
+        // look like a network fault. Nil stays nil so the UI can say WHY.
+        self.token = CockpitToken.resolve(explicit: token)
     }
 
     public static func isKnownAgent(_ agent: String) -> Bool {
