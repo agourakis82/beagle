@@ -207,3 +207,27 @@ test("every verdict carries its evidence (never a bare state)", () => {
     assert.ok(r.detail.length > 0, `no evidence for state=${r.state}`);
   }
 });
+
+test("quote the last MESSAGE, not the last line (fragments read like noise)", () => {
+  // Real shapes seen live: the tail of a wrapped paragraph gave "local." and
+  // "ultracode or ask Claude to use a workflow directly." — true text, useless as evidence.
+  const claude = [
+    "● Reescrevi o lowering do IR e o gate passou; falta medir o custo em",
+    "  memória, que hoje estoura em máquinas sem 64G e por isso não roda",
+    "  local.",
+    "  ⏵⏵ auto mode on · esc to interrupt",
+  ].join("\n");
+  assert.equal(classifyLane({ text: claude }).detail,
+    "● Reescrevi o lowering do IR e o gate passou; falta medir o custo em");
+
+  // A tip under a tree glyph is still a tip.
+  const tip = "● A prova fecha por indução.\n  ⎿  Tip: Connect Claude to your IDE · /ide\n  ⏵⏵ esc to interrupt";
+  assert.equal(classifyLane({ text: tip }).detail, "● A prova fecha por indução.");
+
+  // His own typed prompt still wins when it is the newest thing on screen.
+  const typed = "● Terminei o merge.\n❯ mergeie o 1685\n  ⏵⏵ auto mode on · ← for agents";
+  assert.equal(classifyLane({ text: typed }).detail, "❯ mergeie o 1685");
+
+  // A plain shell has no message markers at all — fall back, don't return nothing.
+  assert.match(classifyLane({ text: "$ make test\nok 12 passed\nuser@host%" }).detail, /ok 12 passed/);
+});

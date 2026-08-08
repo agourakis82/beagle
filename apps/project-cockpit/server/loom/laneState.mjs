@@ -24,7 +24,7 @@ const CHROME = [
   /^\s*\/\w+: /,                       // "/web: use the Web UI ..."
   /Goal achieved/i,
   /^\s*[›❯>]\s*(Explain this codebase|Find and fix a bug)/i,   // CLI placeholder hints
-  /^\s*Tip: /i,                                  // Claude Code's rotating usage tips
+  /^[\s⎿└├│─]*Tip: /i,                           // rotating usage tips (often under a tree glyph)
   /\[(stable|beta|alpha|dev)\]\s*$/i,            // grok's host/status footer
   /^\s*(Grok Build|Select '|New worktree|Resume session|Changelog|Quit)\b/i,  // grok launcher menu
 ];
@@ -97,6 +97,24 @@ export function normalizeLines(text) {
     .filter((l) => l.trim().length > 0);
 }
 
+/// Every CLI marks where a MESSAGE begins: Claude uses ●/✻, Codex ›/•, kimi ○. Quoting the last
+/// LINE lands mid-paragraph and yields fragments like "local." or "ultracode or ask Claude to…",
+/// which read like noise on a card. Quoting the last message start gives the topic sentence.
+const MESSAGE_START = /^\s*[●○•✻✽▸›]\s+\S/;
+
+/// The last thing the agent (or he) actually SAID: the most recent message, preferred over the
+/// most recent line. Falls back to the last content line when no message marker is present
+/// (plain shells have none).
+export function lastMessage(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i];
+    if (isChrome(l)) continue;
+    if (MESSAGE_START.test(l)) return l.trim();
+    if (/^\s*[❯>]\s+\S/.test(l) && !isChrome(l)) return l.trim();   // his own typed prompt
+  }
+  return lastContentLine(lines);
+}
+
 /// The last line that is actual agent/user content (not a frame or status footer).
 export function lastContentLine(lines) {
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -136,10 +154,14 @@ export function classifyLane({
     || (!working && tail.some((l) => PROMPT_LINE.test(l) && !isChrome(l) && !/^\s*[❯>]\s*\d+\./.test(l)))
     || (!working && tail.some((l) => SHELL_PROMPT.test(l) && l.trim().length < 40));
 
-  const last = lastContentLine(lines);
-  // A question the agent left ON SCREEN with nothing running and an open input box is a
-  // question addressed to the operator — the "needs you" case the shelf is built for.
-  const question = /\?\s*$/.test(last) ? last : "";
+  // Two different reads, on purpose:
+  //  * evidence = the last MESSAGE (topic sentence), so a card never quotes a fragment;
+  //  * question = the last LINE, because an agent's closing question is usually the tail of a
+  //    wrapped paragraph and carries no message marker of its own. Using the message read here
+  //    made the shelf quote the bullet above the question instead of the question.
+  const last = lastMessage(lines);
+  const lastLine = lastContentLine(lines);
+  const question = /\?\s*$/.test(lastLine) ? lastLine : "";
 
   if (!alive) {
     return { state: "exited", detail: last, question: "", working: false, atPrompt: false, awaitingInput: false, approveKey: null };
@@ -159,7 +181,7 @@ export function classifyLane({
     approveKey = /\(y\/n\)|\[y\/N\]|\[Y\/n\]/i.test(tailText) ? "y" : "enter";
   } else if (!working && question && atPrompt) {
     state = "waiting";
-    detail = question.slice(0, 240);
+    detail = question.slice(0, 240);   // quote the question itself, never the line above it
     approveKey = null;              // an open question — needs a real answer, not a keystroke
   } else if (working) {
     state = "running";
