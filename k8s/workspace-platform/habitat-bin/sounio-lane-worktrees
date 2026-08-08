@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# sounio-lane-worktrees — give each agent lane its OWN git worktree + branch, so two agents
+# physically cannot clobber the same file.
+#
+# WHY: measured 2026-08-08 — all 10 live lanes sat in the SAME tree (/workspace/sounio) on the
+# SAME branch with ~53 uncommitted files. Two kimi lanes showed divergent diff counts minutes
+# apart: they were overwriting each other's edits, with no merge conflict to warn anyone.
+#
+# SAFETY, by construction:
+#   * `git worktree add` is ADDITIVE. It creates a NEW directory and a NEW branch. It does not
+#     touch, stash, checkout over, or clean the shared tree — the uncommitted work stays exactly
+#     where it is.
+#   * DRY RUN IS THE DEFAULT. Nothing happens without --apply.
+#   * It refuses to remove anything. Ever. Teardown is a manual, deliberate act.
+#   * It never restarts a lane: moving an agent into its worktree interrupts work in flight,
+#     so that stays the operator's decision (see --print-move).
+#
+# USAGE
+#   sounio-lane-worktrees                 # dry run: show exactly what WOULD be created
+#   sounio-lane-worktrees --apply         # create the worktrees + branches
+#   sounio-lane-worktrees --print-move    # print the commands to move lanes in (does NOT run)
+#   sounio-lane-worktrees --status        # what exists today
+#
+# ENV
+#   SOUNIO_REPO   default /workspace/sounio
+#   WT_ROOT       default /workspace/.wt
+#   LANE_SLUG     default the current date (branch = lane/<lane>/<slug>)
+
+set -euo pipefail
+
+REPO="${SOUNIO_REPO:-/workspace/sounio}"
+WT_ROOT="${WT_ROOT:-/workspace/.wt}"
+SLUG="${LANE_SLUG:-$(date +%Y%m%d)}"
+LANES=(claude-1 claude-2 claude-3 codex-1 codex-2 codex-3 kimi-cli1 kimi-cli2 grok-cli1 grok-cli2)
+
+MODE="dry"
+case "${1:-}" in
+  --apply)      MODE="apply" ;;
+  --print-move) MODE="print-move" ;;
+  --status)     MODE="status" ;;
+  ""|--dry-run) MODE="dry" ;;
+  *) echo "unknown option: $1" >&2; exit 2 ;;
+esac
+
+[ -d "$REPO/.git" ] || { echo "not a git repo: $REPO" >&2; exit 1; }
+
+BASE_SHA="$(git -C "$REPO" rev-parse HEAD)"
+BASE_BRANCH="$(git -C "$REPO" rev-parse --abbrev-ref HEAD)"
+DIRTY="$(git -C "$REPO" status --porcelain | wc -l | tr -d ' ')"
+
+echo "repo:        $REPO"
+echo "base:        $BASE_BRANCH @ ${BASE_SHA:0:10}"
+echo "uncommitted: $DIRTY file(s)  <- left untouched; worktrees branch from the COMMIT, not the tree"
+echo "wt root:     $WT_ROOT"
+echo
+
+if [ "$MODE" = "status" ]; then
+  git -C "$REPO" worktree list | grep -F "$WT_ROOT" || echo "(no lane worktrees yet)"
+  exit 0
+fi
+
+if [ "$MODE" = "print-move" ]; then
+  echo "# Move each lane into its worktree. This RESTARTS the agent in that pane —"
+  echo "# only do it for lanes whose work you are willing to interrupt."
+  for lane in "${LANES[@]}"; do
+    echo "tmux send-keys -t ${lane} \"cd ${WT_ROOT}/${lane}\" C-m   # then restart the agent there"
+  done
+  exit 0
+fi
+
+created=0 skipped=0
+for lane in "${LANES[@]}"; do
+  wt="$WT_ROOT/$lane"
+  branch="lane/$lane/$SLUG"
+
+  if [ -d "$wt" ]; then
+    echo "skip   $lane  (worktree already exists: $wt)"
+    skipped=$((skipped + 1))
+    continue
+  fi
+  if git -C "$REPO" show-ref --verify --quiet "refs/heads/$branch"; then
+    echo "skip   $lane  (branch already exists: $branch)"
+    skipped=$((skipped + 1))
+    continue
+  fi
+
+  if [ "$MODE" = "dry" ]; then
+    echo "WOULD  git -C $REPO worktree add $wt -b $branch $BASE_SHA"
+  else
+    mkdir -p "$WT_ROOT"
+    git -C "$REPO" worktree add "$wt" -b "$branch" "$BASE_SHA" >/dev/null
+    echo "create $lane  ->  $wt  [$branch]"
+  fi
+  created=$((created + 1))
+done
+
+echo
+if [ "$MODE" = "dry" ]; then
+  echo "DRY RUN — nothing was created. Re-run with --apply to do it."
+  echo "would create: $created   already present: $skipped"
+else
+  echo "created: $created   already present: $skipped"
+  echo
+  echo "NEXT (deliberate, not automatic):"
+  echo "  1. Commit or stash the $DIRTY uncommitted files in $REPO if they should travel with a lane."
+  echo "  2. sounio-lane-worktrees --print-move   # see how to move lanes in, one at a time"
+  echo "  3. Integrate only via PR/rebase onto main — never by editing another lane's tree."
+fi

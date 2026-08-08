@@ -10,11 +10,18 @@ import { workspaceQueryArgv, WORKSPACE_QUERIES } from "./platform-bridge.mjs";
 const check = (name, conclusion, status = "COMPLETED") =>
   ({ name, conclusion, status, workflowName: "CI", detailsUrl: `https://gh/${name}` });
 
-test("the leash only allows the three named read-only queries — no build, no gate", () => {
-  assert.deepEqual(Object.keys(WORKSPACE_QUERIES).sort(), ["git-head", "main-ci", "pr-list"]);
-  for (const q of Object.values(WORKSPACE_QUERIES)) {
+test("the leash allows only named READ-ONLY queries — no build, no test, no gate, no writes", () => {
+  assert.deepEqual(Object.keys(WORKSPACE_QUERIES).sort(),
+    ["git-head", "lane-cwds", "main-ci", "pr-list", "tree-branches"]);
+  for (const [name, q] of Object.entries(WORKSPACE_QUERIES)) {
     assert.doesNotMatch(q, /make |cargo |souc |run_sio_test_suite|_gate\.sh/,
-      "the Oficina must never launch a build/test/gate (61GiB, minutes)");
+      `${name} must never launch a build/test/gate (61GiB, minutes)`);
+    // Read-only by construction: nothing here may mutate a tree, a ref, or a remote.
+    assert.doesNotMatch(q, /\b(git (add|commit|checkout|switch|reset|clean|push|rebase|merge)|rm |mv |tee |send-keys)\b/,
+      `${name} must not mutate anything`);
+    // Discarding stderr is fine; writing anywhere else is not.
+    const withoutDevNull = q.replace(/\d?>\s*\/dev\/null/g, "");
+    assert.doesNotMatch(withoutDevNull, />/, `${name} must not redirect into a file`);
   }
   // A nested single quote silently truncates the command — it mangled `git-head` in production.
   for (const [name, q] of Object.entries(WORKSPACE_QUERIES)) {
