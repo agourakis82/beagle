@@ -160,8 +160,10 @@ export const WORKSPACE_QUERIES = {
   "pr-list": `gh pr list --state open --limit 20 --json number,title,headRefName,isDraft,updatedAt,url,statusCheckRollup`,
   // "Is main green?" — the latest CI run on the default branch.
   "main-ci": `gh run list --branch main --limit 8 --json databaseId,name,status,conclusion,createdAt,url,headSha`,
-  // "Where am I?" — the repo's own head, branch and dirty count.
-  "git-head": `printf '%s\\n' "$(git rev-parse --abbrev-ref HEAD)" "$(git log -1 --format=%H%x09%ct%x09%s)" "$(git status --porcelain | wc -l)"`,
+  // "Where am I?" — branch, then sha/time/subject, then dirty count: one line each.
+  // NOTE: no single quotes anywhere. These strings are interpolated INSIDE `sh -c '...'`, so a
+  // nested quote silently truncates the command (it mangled this very query in production).
+  "git-head": `git rev-parse --abbrev-ref HEAD; git log -1 --format=%H%x09%ct%x09%s; git status --porcelain | wc -l`,
 };
 
 export function workspaceQueryArgv(ns, name) {

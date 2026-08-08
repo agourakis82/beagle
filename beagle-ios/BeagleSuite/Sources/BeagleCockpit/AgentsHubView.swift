@@ -17,6 +17,7 @@ struct AgentsHubView: View {
 
     enum AgentsHubSegment: String, CaseIterable, Identifiable {
         case frota = "Frota"
+        case oficina = "Oficina"
         case work = "Work"
         case fleet = "Terminals"
         var id: String { rawValue }
@@ -49,6 +50,9 @@ struct AgentsHubView: View {
                         openLane = lane
                         selection.wrappedValue = .fleet
                     })
+                case .oficina:
+                    // The dev half: is it green, what broke, where am I.
+                    OficinaView()
                 case .work:
                     WorkView(bootError: $bootError)
                 case .fleet:

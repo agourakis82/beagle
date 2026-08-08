@@ -61,6 +61,20 @@ public struct FleetEndpoint: Sendable {
         return req
     }
 
+    /// The Oficina reading: `http(s)://<host>/api/mobile/v1/oficina`, same auth posture as the
+    /// Loom socket (tailnet header, or the cockpit token via the public gateway).
+    public func oficinaRequest() -> URLRequest? {
+        var c = URLComponents()
+        c.scheme = (scheme == "wss") ? "https" : "http"
+        c.host = host
+        c.path = "/api/mobile/v1/oficina"
+        guard let url = c.url else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token, !token.isEmpty { req.setValue(token, forHTTPHeaderField: "x-cockpit-token") }
+        return req
+    }
+
     // MARK: - Loom client frames (see server/loom/protocol.mjs CLIENT_TYPES)
 
     /// Attach to a lane: server replies `{t:"scrollback"}` then streams `{t:"data"}`.

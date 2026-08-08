@@ -16,6 +16,10 @@ test("the leash only allows the three named read-only queries — no build, no g
     assert.doesNotMatch(q, /make |cargo |souc |run_sio_test_suite|_gate\.sh/,
       "the Oficina must never launch a build/test/gate (61GiB, minutes)");
   }
+  // A nested single quote silently truncates the command — it mangled `git-head` in production.
+  for (const [name, q] of Object.entries(WORKSPACE_QUERIES)) {
+    assert.doesNotMatch(q, /'/, `${name} must not contain a single quote (nested inside sh -c '…')`);
+  }
   assert.equal(workspaceQueryArgv("beagle", "rm -rf /"), null);
   assert.equal(workspaceQueryArgv("beagle", "pr-list").includes("sounio-workspace-control-0"), true);
 });
