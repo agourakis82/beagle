@@ -49,6 +49,7 @@ import { ingestPersonalTurn, handleIngestRequest, captureProvenanced } from "./m
 import { buildTemporalContext, formatAgora, stampMemories, filterTrustedMemories, resolveTimezone } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 import { falar } from "./voice-mouth.mjs";
+import { avaliarFala, avaliarParcial } from "./portao-de-fala.mjs";
 // O app fala com o cockpit; a importação assistida mora no beagle-core. Sem esta
 // ponte o app recebia 404 e enfileirava o turno num outbox que nunca esvaziava.
 const BEAGLE_INTERNAL_URL =
@@ -1163,6 +1164,68 @@ async function completeChatRequest(req, deps, options = {}) {
     generatedAt: new Date().toISOString(),
   });
 
+  // NÍVEL L2 — as GPUs dele, antes do chão.
+  //
+  // O cérebro (proxy OAuth → assinatura Max) é singular por construção: a
+  // credencial não replica, e duas instâncias brigariam pelo refresh do token.
+  // Então a redundância não é outro proxy — é outro MODELO, nas máquinas que já
+  // estão aqui. Em 07-ago o proxy passou horas devolvendo 401 e a única coisa
+  // abaixo dele era presença enlatada; o cluster tinha GPU ociosa o tempo todo.
+  //
+  // Não é o mesmo companion: é um modelo menor, sem a mesma finura. Mas é uma
+  // resposta ao que ele perguntou, com o grounding dele, em vez de uma frase de
+  // consolo genérica. Entre as duas, essa ganha.
+  //
+  // Orçamento curto de propósito: se o L2 também estiver ruim, é melhor cair
+  // logo para o chão do que fazê-lo esperar duas vezes.
+  const tentarL2 = async (motivo) => {
+    const url = process.env.PROJECT_COCKPIT_LITELLM_ROUTER_URL;
+    const modelo = process.env.PROJECT_COCKPIT_L2_MODEL || "qwen2.5-14b";
+    if (!url || chatSpace !== "personal") return null;
+    try {
+      const r = await fetch(`${url}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: modelo,
+          messages: [
+            ...(effectiveSystem ? [{ role: "system", content: effectiveSystem }] : []),
+            { role: "user", content: prompt }
+          ],
+          max_tokens: 700,
+          temperature: 0.7
+        }),
+        signal: AbortSignal.timeout(Number(process.env.PROJECT_COCKPIT_L2_TIMEOUT_MS || 45000))
+      });
+      if (!r.ok) { console.error(`[L2] router HTTP ${r.status}`); return null; }
+      const j = await r.json();
+      const texto = cleanString(j?.choices?.[0]?.message?.content);
+      // O portão vale para o L2 também: um fallback que devolve lixo é pior que
+      // o chão, porque parece resposta.
+      const v = avaliarFala(texto);
+      if (!v.ok) { console.error(`[L2] barrado pelo portao: ${v.motivo}`); return null; }
+      console.log(`[L2] respondeu via ${modelo} (motivo da queda: ${motivo})`);
+      return {
+        response: texto,
+        presence: "",
+        state: agoraState,
+        degraded: true,          // é degradação honesta: não é a voz inteira dele
+        model: modelo,
+        provider: "l2-local",
+        tier: "L2",
+        source: "gpu-local",
+        grounded: Boolean(effectiveSystem),
+        fellBackFrom: motivo
+      };
+    } catch (e) {
+      console.error(`[L2] falhou: ${e?.message}`);
+      return null;
+    }
+  };
+
+  /** L0 falhou: tenta o L2 e só então o chão. */
+  const quedaControlada = async (motivo) => (await tentarL2(motivo)) || floorNow(motivo);
+
   let result;
   try {
   if (deepThink) {
@@ -1291,12 +1354,12 @@ async function completeChatRequest(req, deps, options = {}) {
     // The voice couldn't be reached (proxy down, timeout, aborted stream). For the
     // intimate companion this must NOT surface as an error envelope / spinner —
     // degrade onto the floor. Non-personal spaces keep failing loudly.
-    if (chatSpace === "personal") return floorNow(cleanString(voiceErr?.message));
+    if (chatSpace === "personal") return await quedaControlada(cleanString(voiceErr?.message));
     throw voiceErr;
   }
 
   if (result.status < 200 || result.status >= 300) {
-    if (chatSpace === "personal") return floorNow(`voice status ${result.status}`);
+    if (chatSpace === "personal") return await quedaControlada(`voice status ${result.status}`);
     const errorMessage =
       cleanString(result.payload?.error) ||
       cleanString(result.payload?.message) ||
@@ -1308,7 +1371,7 @@ async function completeChatRequest(req, deps, options = {}) {
     result.payload?.text || result.payload?.answer || result.payload?.response
   );
   if (!responseText) {
-    if (chatSpace === "personal") return floorNow("empty completion");
+    if (chatSpace === "personal") return await quedaControlada("empty completion");
     throw contractFailure(ErrorCode.INTERNAL, "empty completion response");
   }
 
@@ -1342,6 +1405,23 @@ async function completeChatRequest(req, deps, options = {}) {
         ingestToken: process.env.MEMORY_PG_INGEST_TOKEN
       }
     ).catch(() => {});
+  }
+
+  // O PORTÃO DE FALA. Última coisa antes de virar bolha na tela dele.
+  //
+  // Em 07-ago o proxy autenticou com um placeholder e "Failed to authenticate.
+  // API Error: 401 Invalid bearer token" chegou na tela COM A TIPOGRAFIA DA
+  // CARTA, como se fosse ele falando. Erro de categoria: falha de transporte
+  // renderizada como fala. Passou por todas as defesas porque elas checam
+  // ausência de resposta, não qualidade dela.
+  const veredito = avaliarFala(responseText);
+  if (!veredito.ok) {
+    console.error(`[portao] resposta barrada (${veredito.motivo}) model=${model}`);
+    const piso = buildPersonalFloor({
+      state: agoraState,
+      reason: `portao:${veredito.motivo}`,
+    });
+    return { ...piso, model: "floor", degraded: true, blockedBy: veredito.motivo };
   }
 
   return {
@@ -2279,8 +2359,25 @@ export function registerMobileRoutes(app, deps) {
         safeWrite({ event: "phase", phase: "alive" });
       }, 10000);
 
+      // O portão também no stream. Aqui o risco é maior que no /chat: os tokens
+      // vão para a tela ENQUANTO chegam, então uma verificação só no fim chega
+      // tarde — ele já leu. Acumula-se o início e, se abrir com assinatura de
+      // erro, corta antes da bolha. O 401 do incidente tinha 59 caracteres e
+      // vinha inteiro de uma vez.
+      let inicio = "";
+      let barrado = null;
       const completion = await completeChatRequest(req, deps, {
         onToken(token) {
+          if (barrado) return;
+          if (inicio.length < 220) {
+            inicio += token;
+            const v = avaliarParcial(inicio);
+            if (!v.ok) {
+              barrado = v.motivo;
+              console.error(`[portao] stream barrado (${v.motivo})`);
+              return;
+            }
+          }
           streamed = true;
           if (!firstToken) { firstToken = true; stopHeartbeat(); }
           writeEvent({ token });
@@ -2294,8 +2391,22 @@ export function registerMobileRoutes(app, deps) {
       // Floor / non-streamed path: when the voice degrades to the floor it produces no
       // tokens via onToken. Emit the text now so a streaming client shows presence+state
       // instead of an empty bubble (the void this whole change exists to prevent).
+      // O portão barrou: nada do que chegou vira fala. Cai para o chão, que é o
+      // único outro tipo que este canal aceita.
+      if (barrado) {
+        const piso = buildPersonalFloor({ state: completion.state || "", reason: `portao:${barrado}` });
+        writeEvent({ token: piso.presence });
+        writeEvent({ done: true, degraded: true, presence: "", state: completion.state || "",
+                     grounded: completion.grounded === true, model: "floor", source: "floor",
+                     blocked_by: barrado });
+        res.end();
+        return;
+      }
+      // Chão / caminho não-transmitido: quando a voz degrada não há tokens.
       if (!streamed && completion.response) {
-        writeEvent({ token: completion.response });
+        const v = avaliarFala(completion.response);
+        writeEvent({ token: v.ok ? completion.response
+                                 : buildPersonalFloor({ state: completion.state || "", reason: `portao:${v.motivo}` }).presence });
       }
       writeEvent({
         done: true,
