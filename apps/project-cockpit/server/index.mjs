@@ -24,6 +24,7 @@ import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerPlatformRoutes } from "./platform-routes.mjs";
 import { OficinaPoller, registerOficinaRoutes } from "./oficina.mjs";
 import { ClaimRegistry, HazardPoller, registerCoordRoutes } from "./coord.mjs";
+import { classifyAuth } from "./auth-gate.mjs";
 import { workspaceQueryArgv as coordQueryArgv } from "./platform-bridge.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
@@ -10275,18 +10276,34 @@ app.param("slug", (req, res, next, slug) => {
   next();
 });
 
-// Auth gate: skip health probes + OPTIONS; require token on everything else.
+// Auth gate. Two holes were found and closed here on 2026-08-08 (both PROVEN live from another
+// pod in the cluster, which is exactly the position the worm had):
+//
+//   1. FAIL-OPEN on a missing secret. `tokens.size === 0 → next()` meant that an empty or
+//      unmounted PROJECT_COCKPIT_AUTH_TOKEN silently opened the ENTIRE control plane. Now it
+//      fails CLOSED unless the operator opts in explicitly with PROJECT_COCKPIT_ALLOW_OPEN=1.
+//
+//   2. FORGEABLE IDENTITY HEADER. `tailscale-user-login` is injected by the tailnet proxy, but
+//      nothing stopped any in-cluster caller from simply sending it. Measured: a curl from the
+//      workspace pod with a made-up header got 200 on reads AND successfully POSTed a write.
+//      The header cannot be authenticated here (the tailnet arrives via a LoadBalancer, not a
+//      loopback sidecar), so it is now treated as what it is: a CONVENIENCE FOR READS ONLY.
+//      Anything that changes state requires a real token. Read access over the tailnet keeps
+//      working exactly as before — the operator is not locked out of his own cockpit.
+const ALLOW_OPEN = /^(1|true|yes)$/i.test(process.env.PROJECT_COCKPIT_ALLOW_OPEN || "");
+
 app.use((req, res, next) => {
-  const p = req.path;
-  if (p === "/livez" || p === "/healthz" || req.method === "OPTIONS") return next();
-  if (COCKPIT_AUTH_TOKENS.size === 0) return next(); // no token configured = open (dev mode)
-  const bearer = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-  const headerToken = req.headers["x-cockpit-token"] || "";
-  if (COCKPIT_AUTH_TOKENS.has(bearer) || COCKPIT_AUTH_TOKENS.has(headerToken)) return next();
-  // Allow Tailscale-authenticated requests (operator sidecar sets this header)
-  const tsUser = req.headers["tailscale-user-login"];
-  if (tsUser) return next();
-  return res.status(401).json({ error: "unauthorized", truthMode: "stale" });
+  const verdict = classifyAuth({
+    method: req.method,
+    path: req.path,
+    bearer: (req.headers.authorization || "").replace(/^Bearer\s+/i, ""),
+    headerToken: req.headers["x-cockpit-token"] || "",
+    tsUser: req.headers["tailscale-user-login"],
+    tokens: COCKPIT_AUTH_TOKENS,
+    allowOpen: ALLOW_OPEN,
+  });
+  if (verdict.allow) return next();
+  return res.status(401).json({ error: "unauthorized", detail: verdict.reason, truthMode: "stale" });
 });
 
 app.get("/livez", (_req, res) => {
@@ -15157,9 +15174,16 @@ server.on("upgrade", (req, socket, head) => {
     // public gateway too, not only over the tailnet (tailscale-user-login) path.
     const headerToken = req.headers["x-cockpit-token"] || "";
     const tsUser = req.headers["tailscale-user-login"];
-    if (token !== COCKPIT_AUTH_TOKEN && headerToken !== COCKPIT_AUTH_TOKEN && !tsUser) {
+    const hasToken = token === COCKPIT_AUTH_TOKEN || headerToken === COCKPIT_AUTH_TOKEN;
+    // Every terminal socket carries keystrokes INTO a live session — it is a write path, not a
+    // read. So the forgeable `tailscale-user-login` header alone is no longer enough here (see
+    // auth-gate.mjs: an in-cluster caller can simply send it). A real token is required.
+    if (!hasToken) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
+      if (tsUser) {
+        console.warn(`[auth] refused WS upgrade for ${req.url}: tailnet identity is not sufficient for a terminal (write path)`);
+      }
       return;
     }
   }
