@@ -34,7 +34,17 @@ public struct FleetEndpoint: Sendable {
     ) {
         self.host = host
         self.scheme = scheme
-        self.token = token
+        // Default to the app's canonical cockpit token (Secrets.plist, gitignored — same source
+        // every other cockpit call uses). A token is now REQUIRED for the Loom socket: it carries
+        // keystrokes into live sessions, so the cockpit stopped accepting the forgeable
+        // `tailscale-user-login` header alone on write paths. Empty stays empty, so a missing
+        // Secrets.plist fails loudly with 401 instead of looking like a network problem.
+        if let token {
+            self.token = token
+        } else {
+            let shared = BeagleClient.cockpitMobileToken
+            self.token = shared.isEmpty ? nil : shared
+        }
     }
 
     public static func isKnownAgent(_ agent: String) -> Bool {

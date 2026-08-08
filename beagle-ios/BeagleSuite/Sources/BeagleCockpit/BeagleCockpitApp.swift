@@ -70,7 +70,7 @@ struct BeagleCockpitApp: App {
                     }
                 }
                 .preferredColorScheme(.dark)
-                .tint(BeagleTheme.truthObserved)
+        .tint(BeagleTheme.truthObserved)
             } else {
                 OnboardingView(isComplete: $hasCompletedOnboarding)
                     .preferredColorScheme(.dark)
@@ -143,6 +143,9 @@ struct BeagleCockpitApp: App {
         // beagle://project/{slug}
         // beagle://project/{slug}/agent/{kind}
         guard url.scheme == "beagle" else { return }
+        // beagle://frota | beagle://oficina | beagle://work — parked for whichever layout can
+        // present them (iPhone drawer sheet vs iPad sidebar). See DeepLinkRouter.
+        if DeepLinkRouter.shared.open(url) { return }
         let components = url.pathComponents.filter { $0 != "/" }
 
         if components.count >= 2, components[0] == "project" {
@@ -395,6 +398,8 @@ struct RootView: View {
     @State private var sidebarSelection: SidebarItem? = .mind
     /// Set when the Frota hands a lane to the Terminals screen ("open this one").
     @State private var openLane: String?
+    /// A deep link parked by `onOpenURL` (Live Activity, Shortcut, notification tap).
+    private let deepLink = DeepLinkRouter.shared
 
     private var iPadLayout: some View {
         NavigationSplitView {
@@ -436,6 +441,14 @@ struct RootView: View {
                         SpatialDeskMissionControlView()
                     }
                 }
+            }
+        }
+        .onChange(of: deepLink.pending) { _, _ in
+            guard let d = deepLink.consume() else { return }
+            switch d {
+            case .frota:   sidebarSelection = .frota
+            case .oficina: sidebarSelection = .oficina
+            case .work:    sidebarSelection = .work
             }
         }
         .tint(BeagleTheme.truthObserved)

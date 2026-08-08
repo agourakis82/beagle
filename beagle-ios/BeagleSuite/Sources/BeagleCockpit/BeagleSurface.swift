@@ -31,6 +31,10 @@ struct BeagleSurface: View {
     @State private var metacogNudge: MetacognitiveObservation?
     @State private var serendipityProvocation: SerendipityProvocation?
 
+    /// A deep link parked by `onOpenURL` — the path a Live Activity or lock-screen tap takes
+    /// to land straight on the Frota.
+    private let deepLink = DeepLinkRouter.shared
+
     private enum SurfaceSheet: String, Identifiable {
         case settings
         case cognitiveState
@@ -51,6 +55,15 @@ struct BeagleSurface: View {
 
     var body: some View {
         surfaceRoot
+            .onChange(of: deepLink.pending) { _, _ in
+                guard let d = deepLink.consume() else { return }
+                switch d {
+                case .frota:   activeSheet = .frota
+                case .oficina: activeSheet = .oficina
+                case .work:    activeSheet = .work
+                }
+            }
+            .task { deepLink.applyLaunchArgumentIfPresent() }
             .task {
                 await bootstrapSurface()
             }
