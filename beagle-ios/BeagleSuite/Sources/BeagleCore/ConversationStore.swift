@@ -573,7 +573,9 @@ public final class ConversationStore {
         } catch {
             if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
                 if messages[idx].content.isEmpty {
-                    messages[idx].content = "Local model error: \(error.localizedDescription)"
+                    // O chão, não a string de erro. "Local model error: ..." já apareceu
+                    // na bolha dele, em inglês, com a tipografia da carta.
+                    messages[idx].content = PisoLocal.frase(.modeloLocal)
                 }
             }
         }
@@ -728,7 +730,13 @@ public final class ConversationStore {
 
         if !streamedText.isEmpty {
             if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
-                messages[idx].content = stripReasoning(streamedText)
+                // Portão da última milha. O app fala com quatro gateways e com o
+                // modelo local; nem todo caminho passa pelo portão do cockpit, e
+                // esta é sempre a última parada antes da bolha.
+                let limpo = stripReasoning(streamedText)
+                messages[idx].content = PisoLocal.ehFala(limpo)
+                    ? limpo
+                    : PisoLocal.frase(PisoLocal.motivo(de: streamErr, temRede: NetworkMonitor.shared.isOnline))
                 messages[idx].isStreaming = false
                 messages[idx].source = "cloud-stream"
                 persist(message: messages[idx])
@@ -804,7 +812,11 @@ public final class ConversationStore {
                     )
                 }
             } else {
-                messages[idx].content = result.error ?? streamErr?.localizedDescription ?? "No response received."
+                // O CHÃO DO APARELHO. O chão do servidor não cobre servidor
+                // inalcançável — foi exatamente o que aconteceu em 07-ago, e o
+                // que sobrava aqui era a mensagem crua do erro virando fala.
+                let motivo = PisoLocal.motivo(de: streamErr, temRede: NetworkMonitor.shared.isOnline)
+                messages[idx].content = PisoLocal.frase(motivo)
                 messages[idx].isStreaming = false
                 persist(message: messages[idx])
                 onCompanionTurnEnd?(nil)
