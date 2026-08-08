@@ -12,6 +12,7 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+import BeagleWorkbenchKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -42,6 +43,8 @@ struct BeagleSurface: View {
         case memory  // "o que eu lembro de ti" — warm biography read, NOT the memoryLens debug console
         case dreamInsights  // overnight Dream Synthesis reader — only surfaced consumer of DreamSynthesisEngine
         case work  // agent deck (WorkView) — was iPad-sidebar-only until this session's audit
+        case frota    // Mission Control: who needs you (was iPad-sidebar-only too)
+        case oficina  // dev half: is it green / what broke / where am I
 
         var id: String { rawValue }
     }
@@ -106,7 +109,9 @@ struct BeagleSurface: View {
                 onOpenMemory: { activeSheet = .memory },
                 onOpenDreamInsights: { activeSheet = .dreamInsights },
                 unreadDreamInsightCount: DreamSynthesisEngine.shared.unreadCount,
-                onOpenWork: { activeSheet = .work }
+                onOpenWork: { activeSheet = .work },
+                onOpenFrota: { activeSheet = .frota },
+                onOpenOficina: { activeSheet = .oficina }
             )
         }
     }
@@ -166,6 +171,10 @@ struct BeagleSurface: View {
             dreamInsightsSheet
         case .work:
             workSheet
+        case .frota:
+            frotaSheet
+        case .oficina:
+            oficinaSheet
         }
     }
 
@@ -183,6 +192,28 @@ struct BeagleSurface: View {
     private var workSheet: some View {
         NavigationStack {
             WorkView(bootError: $bootError)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { activeSheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var frotaSheet: some View {
+        NavigationStack {
+            FrotaView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { activeSheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var oficinaSheet: some View {
+        NavigationStack {
+            OficinaView()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Fechar") { activeSheet = nil }

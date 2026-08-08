@@ -41,6 +41,11 @@ public struct ChatScreen: View {
     /// audit found it had zero entry point on iPhone despite being the richest single
     /// feature in the app. Drawer footer.
     var onOpenWork: (() -> Void)?
+    /// Opens the Frota (Mission Control: who needs you). Same trap as Work — it existed only in
+    /// the iPad sidebar, i.e. unreachable on the device he actually carries.
+    var onOpenFrota: (() -> Void)?
+    /// Opens the Oficina (is it green / what broke / where am I).
+    var onOpenOficina: (() -> Void)?
     @State private var draft = ""
     /// Última vez que o usuário mexeu em alguma coisa. `nil` → ainda não mexeu nesta
     /// sessão, e nesse caso a presença NÃO adormece (abrir o app e ficar lendo não é
@@ -81,7 +86,9 @@ public struct ChatScreen: View {
                 onOpenMemory: (() -> Void)? = nil,
                 onOpenDreamInsights: (() -> Void)? = nil,
                 unreadDreamInsightCount: Int = 0,
-                onOpenWork: (() -> Void)? = nil) {
+                onOpenWork: (() -> Void)? = nil,
+                onOpenFrota: (() -> Void)? = nil,
+                onOpenOficina: (() -> Void)? = nil) {
         self.store = store
         self.breath = breath
         self.weather = weather
@@ -93,6 +100,8 @@ public struct ChatScreen: View {
         self.onOpenDreamInsights = onOpenDreamInsights
         self.unreadDreamInsightCount = unreadDreamInsightCount
         self.onOpenWork = onOpenWork
+        self.onOpenFrota = onOpenFrota
+        self.onOpenOficina = onOpenOficina
     }
 
     /// Estado da presença. Toda a regra vive em `PresenceResolver` (puro, testado em
@@ -216,7 +225,7 @@ public struct ChatScreen: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork)
+                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenFrota: onOpenFrota, onOpenOficina: onOpenOficina)
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
             }
@@ -680,6 +689,11 @@ struct ConversationDrawer: View {
     var onOpenDreamInsights: (() -> Void)?
     var unreadDreamInsightCount: Int = 0
     var onOpenWork: (() -> Void)?
+    /// Opens the Frota (Mission Control: who needs you). Same trap as Work — it existed only in
+    /// the iPad sidebar, i.e. unreachable on the device he actually carries.
+    var onOpenFrota: (() -> Void)?
+    /// Opens the Oficina (is it green / what broke / where am I).
+    var onOpenOficina: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var reloadToken = 0
 
@@ -758,6 +772,18 @@ struct ConversationDrawer: View {
                     if onOpenData != nil {
                         Button { dismiss(); onOpenData?() } label: {
                             Label("Dados", systemImage: "chart.xyaxis.line")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
+                    if onOpenFrota != nil {
+                        Button { dismiss(); onOpenFrota?() } label: {
+                            Label("Frota", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
+                    if onOpenOficina != nil {
+                        Button { dismiss(); onOpenOficina?() } label: {
+                            Label("Oficina", systemImage: "wrench.and.screwdriver")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
                     }
