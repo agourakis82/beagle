@@ -1,8 +1,17 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // URLSession/URLSessionWebSocketTask live here on non-Apple platforms
+#endif
 import Observation
 
-/// One persistent PTY WebSocket to a single fleet agent (P0 `/pty/<agent>`).
-/// Main-actor isolated: it feeds bytes straight into the main-actor SwiftTerm view.
+/// One view onto a single fleet agent over the **Loom** broker (`/ws/loom`).
+/// Each client owns its own multiplexed connection and `subscribe`s to exactly one lane sid,
+/// demultiplexing only that sid's frames. Main-actor isolated: it feeds bytes straight into the
+/// main-actor SwiftTerm view. The public surface is unchanged from the old `/pty` client, so the
+/// store/view layers keep working — only the transport swapped.
+///
+/// (A single shared connection for the whole fleet is the Phase 2 refactor; per-client
+/// connections keep this repoint minimal and the broker handles many clients cleanly.)
 @MainActor
 @Observable
 public final class PTYClient {
@@ -13,7 +22,7 @@ public final class PTYClient {
     public private(set) var state: State = .idle
     /// Monotonic counter bumped on every output chunk — drives unread/activity badges.
     public private(set) var activity: Int = 0
-    /// Set by the view: receives raw PTY output bytes (already on the main actor).
+    /// Set by the view: receives raw lane output bytes (already on the main actor).
     public var onBytes: (([UInt8]) -> Void)?
 
     public let agent: String
@@ -23,6 +32,9 @@ public final class PTYClient {
     private var receiveLoop: Task<Void, Never>?
     private var retries = 0
     private let maxRetries = 8
+    /// Last viewport we told the lane — replayed after each (re)subscribe so tmux repaints.
+    private var lastCols = 0
+    private var lastRows = 0
 
     public init(agent: String, endpoint: FleetEndpoint = FleetEndpoint()) {
         self.agent = agent
@@ -32,13 +44,18 @@ public final class PTYClient {
 
     public func connect() {
         guard state != .connected && state != .connecting else { return }
-        guard let url = endpoint.ptyURL(agent: agent) else {
+        guard let request = endpoint.loomRequest() else {
             state = .failed("bad endpoint"); return
         }
         state = (retries == 0) ? .connecting : .reconnecting
-        let t = session.webSocketTask(with: url)
+        let t = session.webSocketTask(with: request)
         task = t
         t.resume()
+        // Frames queue until the socket opens; subscribe immediately, then replay the size.
+        sendRaw(FleetEndpoint.subscribeFrame(sid: agent))
+        if lastCols > 0 && lastRows > 0 {
+            sendRaw(FleetEndpoint.resizeFrame(sid: agent, cols: lastCols, rows: lastRows))
+        }
         startReceiveLoop()
     }
 
@@ -55,8 +72,8 @@ public final class PTYClient {
                         self.retries = 0
                     }
                     switch msg {
-                    case .data(let d): self.activity &+= 1; self.onBytes?([UInt8](d))
-                    case .string(let s): self.activity &+= 1; self.onBytes?([UInt8](Data(s.utf8)))
+                    case .string(let s): self.handleFrame(s)
+                    case .data(let d): self.handleFrame(String(decoding: d, as: UTF8.self))
                     @unknown default: break
                     }
                 } catch {
@@ -64,6 +81,34 @@ public final class PTYClient {
                     break
                 }
             }
+        }
+    }
+
+    /// Parse one Loom server frame and act only on those addressed to this lane's sid.
+    private func handleFrame(_ raw: String) {
+        guard
+            let data = raw.data(using: .utf8),
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let t = obj["t"] as? String
+        else { return }
+
+        switch t {
+        case "scrollback", "data":
+            guard (obj["sid"] as? String) == agent else { return }
+            if let bytes = obj["bytes"] as? String {
+                if t == "data" { activity &+= 1 }
+                onBytes?([UInt8](Data(bytes.utf8)))
+            }
+        case "exit":
+            guard (obj["sid"] as? String) == agent else { return }
+            state = .failed("lane exited")
+        case "error":
+            // A lane-scoped error (e.g. failed to attach); a connection-scoped one has no sid.
+            if let sid = obj["sid"] as? String, sid == agent {
+                state = .failed((obj["message"] as? String) ?? "loom error")
+            }
+        default:
+            break   // "sessions" / "state" — not needed for a single-lane terminal view.
         }
     }
 
@@ -81,16 +126,23 @@ public final class PTYClient {
         }
     }
 
+    private func sendRaw(_ frame: String) {
+        task?.send(.string(frame)) { _ in }
+    }
+
+    /// Keyboard/stdin → lane, wrapped in a Loom `input` frame.
     public func send(_ data: Data) {
-        task?.send(.data(data)) { _ in }
+        sendRaw(FleetEndpoint.inputFrame(sid: agent, data: String(decoding: data, as: UTF8.self)))
     }
 
     public func resize(cols: Int, rows: Int) {
-        task?.send(.string(FleetEndpoint.resizeFrame(cols: cols, rows: rows))) { _ in }
+        lastCols = cols; lastRows = rows
+        sendRaw(FleetEndpoint.resizeFrame(sid: agent, cols: cols, rows: rows))
     }
 
     public func disconnect() {
         receiveLoop?.cancel(); receiveLoop = nil
+        sendRaw(FleetEndpoint.unsubscribeFrame(sid: agent))   // detach without killing the lane
         task?.cancel(with: .goingAway, reason: nil); task = nil
         state = .idle; retries = 0
     }
