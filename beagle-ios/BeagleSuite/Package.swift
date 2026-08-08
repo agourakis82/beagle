@@ -36,6 +36,15 @@ let package = Package(
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.0"),
     ],
     targets: [
+        // The macOS Mission Control app — a workshop window for Sounio development.
+        // Kept OUT of BeagleSuite.xcodeproj on purpose: that project builds the Companion iOS app
+        // and is actively edited by another agent; a package target needs no surgery on a file we
+        // both touch.
+        .executableTarget(
+            name: "SounioMissionControl",
+            dependencies: ["BeagleCore", "BeagleWorkbenchKit"],
+            path: "Sources/SounioMissionControl"
+        ),
         // Shared core: API client, truth system, models, Tailnet resolver,
         // Observation-framework data stores, on-device LLM engine.
         // No UI. Platform-agnostic (except watchOS excludes MLX).
