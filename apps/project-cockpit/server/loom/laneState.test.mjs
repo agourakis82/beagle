@@ -134,6 +134,14 @@ test("stuck only when silent AND not working AND not at a prompt", () => {
   );
 });
 
+test("a blank screen is unknown, never a confident running (found live on codex-3)", () => {
+  for (const blank of ["", "\n\n", "   \n  \n", "────────\n────────"]) {
+    const r = classifyLane({ text: blank });
+    assert.equal(r.state, "unknown", `blank=${JSON.stringify(blank)}`);
+    assert.equal(r.detail, "");
+  }
+});
+
 test("exited when the session is gone", () => {
   assert.equal(classifyLane({ text: SHELL_IDLE, alive: false }).state, "exited");
 });

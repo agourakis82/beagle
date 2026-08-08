@@ -14,7 +14,10 @@ public struct FleetTerminalsView: View {
     @State private var showSwitcher = false
     @Environment(\.scenePhase) private var scenePhase
 
-    public init() {}
+    /// A lane to jump straight to (the Frota handing over "open this one"). Nil = last active.
+    private let initialAgent: String?
+
+    public init(initialAgent: String? = nil) { self.initialAgent = initialAgent }
 
     private static let canvas = Color(red: 0.106, green: 0.078, blue: 0.149)   // #1b1426
     private static let amber  = Color(red: 1.0, green: 0.76, blue: 0.27)
@@ -30,7 +33,8 @@ public struct FleetTerminalsView: View {
             terminals
         }
         .background(Self.canvas)
-        .onAppear { store.open(store.activeAgent) }
+        .onAppear { store.open(initialAgent ?? store.activeAgent) }
+        .onChange(of: initialAgent) { _, lane in if let lane { store.open(lane) } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { store.reconnectStale() }
         }

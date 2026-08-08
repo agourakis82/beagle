@@ -124,6 +124,11 @@ export function classifyLane({
   if (!alive) {
     return { state: "exited", detail: last, question: "", working: false, atPrompt: false, awaitingInput: false, approveKey: null };
   }
+  // A blank screen tells us nothing. Found live on codex-3, which reported "running" with no
+  // evidence at all — exactly the confident-but-empty verdict this vocabulary exists to avoid.
+  if (lines.length === 0) {
+    return { state: "unknown", detail: "", question: "", working: false, atPrompt: false, awaitingInput: false, approveKey: null };
+  }
 
   let state, detail, approveKey = null;
   if (awaitingInput) {

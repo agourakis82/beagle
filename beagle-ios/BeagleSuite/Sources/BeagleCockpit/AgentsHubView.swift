@@ -12,8 +12,11 @@ import BeagleWorkbenchKit
 struct AgentsHubView: View {
     @Binding var bootError: String?
     @AppStorage("agentsHubSelection") private var selectionRaw: String = AgentsHubSegment.work.rawValue
+    /// Set when the Frota hands a lane over to the Terminals segment ("jump to that lane").
+    @State private var openLane: String?
 
     enum AgentsHubSegment: String, CaseIterable, Identifiable {
+        case frota = "Frota"
         case work = "Work"
         case fleet = "Terminals"
         var id: String { rawValue }
@@ -40,10 +43,16 @@ struct AgentsHubView: View {
 
             Group {
                 switch selection.wrappedValue {
+                case .frota:
+                    // Mission Control: who needs you. Tapping a lane jumps to its terminal.
+                    FrotaView(onOpenLane: { lane in
+                        openLane = lane
+                        selection.wrappedValue = .fleet
+                    })
                 case .work:
                     WorkView(bootError: $bootError)
                 case .fleet:
-                    FleetTerminalsView()
+                    FleetTerminalsView(initialAgent: openLane)
                 }
             }
         }
