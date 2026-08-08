@@ -24,6 +24,9 @@ const CHROME = [
   /^\s*\/\w+: /,                       // "/web: use the Web UI ..."
   /Goal achieved/i,
   /^\s*[›❯>]\s*(Explain this codebase|Find and fix a bug)/i,   // CLI placeholder hints
+  /^\s*Tip: /i,                                  // Claude Code's rotating usage tips
+  /\[(stable|beta|alpha|dev)\]\s*$/i,            // grok's host/status footer
+  /^\s*(Grok Build|Select '|New worktree|Resume session|Changelog|Quit)\b/i,  // grok launcher menu
 ];
 
 /// The agent is actively burning tokens/CPU. `esc to interrupt` is the strongest cross-family
@@ -68,12 +71,29 @@ function isChrome(line) {
   return CHROME.some((re) => re.test(line));
 }
 
+/// Braille blocks — CLIs draw spinners and ASCII-art logos with these. Never content.
+const BRAILLE = /[⠀-⣿]/g;
+
+/// A row that is MOSTLY frame is a separator, not a line of text. This matters because CLIs
+/// embed labels inside their rules (`──── ir-instruction-struct-arrays ────`), and stripping the
+/// box characters used to leave a bare branch name that looked exactly like agent output — it
+/// was being quoted as "evidence" on the Frota card. Measured: that separator is ~75% box
+/// characters, while a real bordered line (`│ text │`) is under 10%.
+function isFrameRow(raw) {
+  const trimmed = String(raw).trim();
+  if (!trimmed) return true;
+  const box = (trimmed.match(BOX) || []).length;
+  const braille = (trimmed.match(BRAILLE) || []).length;
+  return (box + braille) / trimmed.length > 0.4;
+}
+
 /// Strip escapes + frame chrome, keep the visible text of each row.
 export function normalizeLines(text) {
   return String(text || "")
     .replace(ANSI, "")
     .split("\n")
-    .map((l) => l.replace(BOX, "").replace(/\s+$/, ""))
+    .filter((l) => !isFrameRow(l))
+    .map((l) => l.replace(BOX, "").replace(BRAILLE, "").replace(/\s+$/, ""))
     .filter((l) => l.trim().length > 0);
 }
 

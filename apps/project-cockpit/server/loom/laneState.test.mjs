@@ -134,6 +134,53 @@ test("stuck only when silent AND not working AND not at a prompt", () => {
   );
 });
 
+test("a rule with a label inside it is a separator, not evidence (seen on the Frota card)", () => {
+  // Real: Claude Code draws `──── <branch> ────`. Stripping the box characters used to leave the
+  // bare branch name, which the card then quoted as if the agent had said it.
+  const text = [
+    "● Mergeado. origin/main é agora 43e4e76f7f Merge pull request #1681.",
+    "✻ Cogitated for 15m 50s",
+    "─────────────────────────────────────────── ir-instruction-struct-arrays ──",
+    "❯ mergeie o 1685",
+    "───────────────────────────────────────────────────────────────────────────",
+    "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
+  ].join("\n");
+  const lines = normalizeLines(text);
+  assert.equal(lines.some((l) => l.trim() === "ir-instruction-struct-arrays"), false,
+    "the separator must not survive as a content line");
+  assert.equal(lastContentLine(lines), "❯ mergeie o 1685");
+  assert.equal(classifyLane({ text }).detail, "❯ mergeie o 1685");
+});
+
+test("a real bordered line survives — only MOSTLY-frame rows are dropped", () => {
+  const lines = normalizeLines("│ A pergunta: rodo o pré-registro? │\n╰──────────────────────────────────╯");
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /A pergunta: rodo o pré-registro\?/);
+});
+
+test("braille art and launcher chrome are not evidence (grok splash)", () => {
+  const text = [
+    "   ⠀⠀⠀⠀⠀⠀⣀⣀⡀⠀⠀⠀⢀⠄   Grok Build Beta  0.2.11",
+    "   ⠀⠀⣼⡟⠁⠀⠀⠀⢀⡴⠻⣿⡀⠀   New worktree",
+    "   Resume session",
+    "   Quit",
+    "● o divisor de zero aparece no nível 4 da torre",
+    "  Sounio-Language    [stable]",
+  ].join("\n");
+  assert.equal(classifyLane({ text }).detail, "● o divisor de zero aparece no nível 4 da torre");
+});
+
+test("a rotating usage tip is chrome, not the agent's last word", () => {
+  const text = [
+    "● Compus a prova em seis linhas; falta o passo indutivo.",
+    "  Tip: Double-tap esc to rewind the code and/or conversation",
+    "  ⏵⏵ auto mode on · esc to interrupt",
+  ].join("\n");
+  const r = classifyLane({ text });
+  assert.equal(r.state, "running");
+  assert.equal(r.detail, "● Compus a prova em seis linhas; falta o passo indutivo.");
+});
+
 test("a blank screen is unknown, never a confident running (found live on codex-3)", () => {
   for (const blank of ["", "\n\n", "   \n  \n", "────────\n────────"]) {
     const r = classifyLane({ text: blank });
