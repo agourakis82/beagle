@@ -1179,8 +1179,16 @@ async function completeChatRequest(req, deps, options = {}) {
   // Orçamento curto de propósito: se o L2 também estiver ruim, é melhor cair
   // logo para o chão do que fazê-lo esperar duas vezes.
   const tentarL2 = async (motivo) => {
-    const url = process.env.PROJECT_COCKPIT_LITELLM_ROUTER_URL;
-    const modelo = process.env.PROJECT_COCKPIT_L2_MODEL || "qwen2.5-14b";
+    // Endpoint PRÓPRIO do L2, não o router compartilhado.
+    //
+    // O primeiro drill (08-ago) apontou para o router LiteLLM e levou 500 em
+    // todos os modelos — o L2 disparou certinho e não tinha o que servir. Uma
+    // rede de segurança que compartilha destino com a infraestrutura comum não
+    // é rede: cai junto. Aponta direto para o Ollama do Spark, que é outro
+    // processo, em outra máquina, sem o router no caminho.
+    const url = process.env.PROJECT_COCKPIT_L2_URL
+      || process.env.PROJECT_COCKPIT_LITELLM_ROUTER_URL;
+    const modelo = process.env.PROJECT_COCKPIT_L2_MODEL || "qwen2.5:14b";
     if (!url || chatSpace !== "personal") return null;
     try {
       const r = await fetch(`${url}/v1/chat/completions`, {
