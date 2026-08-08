@@ -97,6 +97,7 @@ public final class PTYClient {
             guard (obj["sid"] as? String) == agent else { return }
             if let bytes = obj["bytes"] as? String {
                 if t == "data" { activity &+= 1 }
+                if activity <= 3 || t == "scrollback" { trace("\(t) \(bytes.utf8.count) bytes") }
                 onBytes?([UInt8](Data(bytes.utf8)))
             }
         case "exit":
@@ -124,6 +125,14 @@ public final class PTYClient {
             try? await Task.sleep(for: .milliseconds(delayMs))
             self?.connect()
         }
+    }
+
+    /// DEBUG breadcrumb on stderr — a terminal that attaches to nothing looks identical to a
+    /// quiet agent, and the difference matters.
+    private func trace(_ m: String) {
+        #if DEBUG
+        FileHandle.standardError.write(Data("[pty:\(agent)] \(m)\n".utf8))
+        #endif
     }
 
     private func sendRaw(_ frame: String) {

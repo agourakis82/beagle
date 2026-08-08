@@ -126,6 +126,16 @@ struct MissionControlWindow: View {
         .onReceive(NotificationCenter.default.publisher(for: .missionControlGo)) { note in
             if let s = note.object as? Section { section = s }
         }
+        .task {
+            // `-beagleOpen <seção>` abre direto numa tela: é como um screenshot ou um smoke test
+            // alcança uma seção sem depender de clique.
+            #if DEBUG
+            if let raw = UserDefaults.standard.string(forKey: "beagleOpen"),
+               let s = Section(rawValue: raw.lowercased()) {
+                section = s
+            }
+            #endif
+        }
     }
 }
 #endif
