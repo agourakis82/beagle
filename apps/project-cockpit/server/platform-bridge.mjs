@@ -7,12 +7,26 @@ const SOCK = (s) => `/tmp/tmux-1000/${s}`;
 const TMUX_LIST_FORMAT = "#{session_name}|#{session_attached}|#{session_activity}|#{window_name}";
 
 // pod "@bridge" = resolve the t560 platform-bridge pod at call time; a literal name = that pod.
+// The 11 workspace agent lanes are tmux sessions on the workspace pod's OWN uid-owned socket:
+// the herd runs them under TMUX_TMPDIR=<home>/.tmux (NOT /tmp/tmux-1000), so they resolve the
+// socket via TMUX_TMPDIR and run as the non-root workspace user (`su`-wrapped, like sounio-dev).
+export const WORKSPACE_LANES = [
+  "claude-1", "claude-2", "claude-3", "codex-1", "codex-2", "codex-3",
+  "kimi-cli1", "kimi-cli2", "grok-cli1", "grok-cli2", "repo",
+];
+const WORKSPACE_LANE = (target) => ({
+  type: "tmux", pod: "sounio-workspace-control-0", container: "workspace-ssh",
+  user: "openvscode-server", home: "/workspace/.home/openvscode-server",
+  tmuxTmpdir: "/workspace/.home/openvscode-server/.tmux", target,
+});
+
 export const SESSION_ALLOWLIST = {
   "t560-beagle":     { type: "tmux", pod: "@bridge", socket: "default", target: "beagle" },
   "t560-darwin-ops": { type: "tmux", pod: "@bridge", socket: "default", target: "darwin-ops" },
   "t560-clops":      { type: "tmux", pod: "@bridge", socket: "clops",   target: "clops" },
   "sounio-dev":      { type: "zellij", pod: "sounio-workspace-control-0", container: "workspace-ssh",
                        user: "openvscode-server", home: "/home/openvscode-server", session: "sounio-dev" },
+  ...Object.fromEntries(WORKSPACE_LANES.map((l) => [l, WORKSPACE_LANE(l)])),
 };
 
 // Any allowlisted deck session (name kept isT560Kind for the existing import sites).
@@ -28,6 +42,14 @@ function zellijSu(s, inner) {
   return ["su", "-s", "/bin/bash", s.user, "-c", body];
 }
 
+// Workspace tmux lanes run as the non-root user under their own TMUX_TMPDIR (NOT /tmp/tmux-1000).
+// Same `su`-wrap discipline as zellij; the socket is resolved by TMUX_TMPDIR so no `-S` is needed.
+// user/home/tmuxTmpdir/target come ONLY from the allowlist — never from request input.
+function tmuxSu(s, inner) {
+  const body = `export HOME=${s.home}; export TMUX_TMPDIR=${s.tmuxTmpdir}; exec ${inner}`;
+  return ["su", "-s", "/bin/bash", s.user, "-c", body];
+}
+
 // Returns { pod, container, argv } — the part AFTER `kubectl -n <ns> exec -i[t] <pod> [-c <c>] --`
 // — or null if kind/action is not allowlisted. pod may be "@bridge".
 // Tab names are injection-safe only if they match this charset (no shell metacharacters);
@@ -38,6 +60,16 @@ export function deckExec(kind, action, param) {
   const s = SESSION_ALLOWLIST[kind];
   if (!s) return null;
   if (s.type === "tmux") {
+    // Workspace lanes (s.user set): non-root, own TMUX_TMPDIR, `su`-wrapped, socket via env.
+    if (s.user) {
+      let inner;
+      if (action === "attach") inner = `tmux attach -t ${s.target}`;
+      else if (action === "list") inner = `tmux list-sessions -F '${TMUX_LIST_FORMAT}'`;
+      else if (action === "kill") inner = `tmux kill-session -t ${s.target}`;
+      else return null;
+      return { pod: s.pod, container: s.container || null, argv: tmuxSu(s, inner) };
+    }
+    // @bridge sessions: root on the platform-bridge pod, explicit -S socket, no user wrap.
     let cmd;
     if (action === "attach") cmd = ["tmux", "-S", SOCK(s.socket), "attach", "-t", s.target];
     else if (action === "list") cmd = ["tmux", "-S", SOCK(s.socket), "list-sessions", "-F", TMUX_LIST_FORMAT];

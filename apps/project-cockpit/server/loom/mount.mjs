@@ -8,7 +8,7 @@ import { Broker } from "./broker.mjs";
 import { OwnedPtySession } from "./ownedSession.mjs";
 import { AdaptedSession } from "./adaptedSession.mjs";
 import { recipeFor } from "./catalog.mjs";
-import { isT560Kind, zellijCleanupArgv } from "../platform-bridge.mjs";
+import { isT560Kind, zellijCleanupArgv, WORKSPACE_LANES } from "../platform-bridge.mjs";
 
 const KUBECTL = process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl";
 const NS = process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle";
@@ -41,6 +41,8 @@ const SEED_SESSIONS = [
   { kind: "t560-darwin-ops", title: "darwin-ops" },
   { kind: "t560-clops",      title: "clops" },
   { kind: "sounio-dev",      title: "sounio-dev" },
+  // The 11 real workspace agent lanes (tmux on the workspace pod) — served over /ws/loom.
+  ...WORKSPACE_LANES.map((lane) => ({ kind: lane, title: lane })),
 ];
 
 export function mountLoom() {

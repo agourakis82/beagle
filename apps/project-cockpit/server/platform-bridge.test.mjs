@@ -18,6 +18,36 @@ test("tmux attach/list/kill argv is exact (t560 via @bridge)", () => {
   assert.equal(deckExec("t560-beagle", "exec"), null);
 });
 
+test("workspace lane: tmux su-wrapped with TMUX_TMPDIR (measured socket, not /tmp/tmux-1000)", () => {
+  assert.equal(isT560Kind("claude-1"), true);
+  assert.equal(isT560Kind("repo"), true);
+  assert.equal(isT560Kind("claude-code"), false); // family prefix alone is NOT a lane
+  const a = deckExec("claude-1", "attach");
+  assert.equal(a.pod, "sounio-workspace-control-0");
+  assert.equal(a.container, "workspace-ssh");
+  assert.deepEqual(a.argv.slice(0, 5), ["su", "-s", "/bin/bash", "openvscode-server", "-c"]);
+  const body = a.argv[5];
+  assert.match(body, /export TMUX_TMPDIR=\/workspace\/\.home\/openvscode-server\/\.tmux;/);
+  assert.match(body, / exec tmux attach -t claude-1$/);
+  assert.doesNotMatch(body, /\/tmp\/tmux-1000/); // must NOT use the wrong default socket path
+  // list quotes the -F format so the pipe isn't a shell pipe
+  const l = deckExec("codex-2", "list");
+  assert.match(l.argv[5], /exec tmux list-sessions -F '#\{session_name\}\|#\{session_attached\}\|/);
+  assert.equal(deckExec("grok-cli1", "kill").argv[5].endsWith("exec tmux kill-session -t grok-cli1"), true);
+  assert.equal(deckExec("claude-1", "exec"), null); // unknown action refused
+});
+
+test("all 11 workspace lanes are allowlisted and target the workspace pod as the workspace user", () => {
+  const lanes = ["claude-1","claude-2","claude-3","codex-1","codex-2","codex-3","kimi-cli1","kimi-cli2","grok-cli1","grok-cli2","repo"];
+  for (const lane of lanes) {
+    assert.equal(isT560Kind(lane), true, lane);
+    const a = deckExec(lane, "attach");
+    assert.equal(a.pod, "sounio-workspace-control-0", lane);
+    assert.equal(a.argv[3], "openvscode-server", lane);
+    assert.match(a.argv[5], new RegExp(`exec tmux attach -t ${lane}$`), lane);
+  }
+});
+
 test("zellij attach targets the workspace pod + user, no free-form input", () => {
   const a = deckExec("sounio-dev", "attach");
   assert.equal(a.pod, "sounio-workspace-control-0");
