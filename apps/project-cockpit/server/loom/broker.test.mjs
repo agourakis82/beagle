@@ -80,3 +80,93 @@ test("broker: factory throw on reset sends error frame, does not crash, old sess
   const finalSessMsg = sock.sent.filter((m) => m.t === "sessions").at(-1);
   assert.equal(finalSessMsg.sessions.length, 0);        // old session killed+deleted, respawn failed
 });
+
+// ─── O CONTRASTE: medido no protocolo vs. lido da tela, no MESMO frame ───────────────────────
+
+// Um LanePoller de mentira com as DUAS fontes: `get` é a tela raspada, `loomdAll/loomdTruth` é
+// o supervisor. Mesma interface do LanePoller real.
+function fakeLaneStates({ peeked = {}, loomd = new Map(), truth = null } = {}) {
+  return {
+    get: (sid) => peeked[sid] || null,
+    loomdAll: () => loomd,
+    loomdTruth: () => truth || { mode: loomd.size ? "observed" : "down", truthMode: loomd.size ? "observed" : "unknown",
+      observedAt: 1000, readAt: 1000, lanes: loomd.size, lost: [], error: loomd.size ? null : "loomd não respondeu" },
+  };
+}
+const exactCard = (sid, over = {}) => ({
+  sid, title: sid, kind: sid, source: "loomd", truthSource: "loomd", confidence: "exact",
+  state: "waiting", loomdKind: "awaiting_approval", detail: "posso escrever em src/main.rs?",
+  peek: [], approveKey: null, pendingApproval: { id: "7", method: "item/fileChange/requestApproval" },
+  hasDiff: false, turns: 3, session: "t1", atShell: false, observedAt: 1000, cols: null, rows: null, ...over,
+});
+
+test("um único frame mostra loom-1 `exact` ao lado das lanes de tela `inferred`", () => {
+  // Este é o produto da fatia, e a exigência é de UM frame só: duas capturas em momentos
+  // diferentes provariam que as duas coisas existem, não que o operador as vê lado a lado.
+  const broker = new Broker({
+    sessionFactory: fakeSession,
+    laneStates: fakeLaneStates({
+      peeked: { "claude-1": { state: "running", detail: "● lowering the IR", peek: ["● lowering the IR"], observedAt: 999 } },
+      loomd: new Map([["loom-1", exactCard("loom-1")]]),
+    }),
+  });
+  broker.addSeed(fakeSession("claude-1", "claude-1"));
+  broker.addSeed(fakeSession("codex-1", "codex-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  const frame = sock.sent.find((m) => m.t === "sessions");
+  const byId = Object.fromEntries(frame.sessions.map((s) => [s.sid, s]));
+  assert.equal(byId["loom-1"].confidence, "exact");
+  assert.equal(byId["loom-1"].state, "waiting");
+  assert.equal(frame.sessions.filter((s) => s.confidence === "inferred").length, 2);
+  assert.equal(byId["claude-1"].truthSource, "capture-pane");
+  assert.equal(frame.loomd.mode, "observed");
+});
+
+test("sem loomd, NINGUÉM é exact, nenhum card some, e o frame diz que a fonte boa caiu", () => {
+  // A degradação tem de ser visível: todo mundo inferred sem aviso é indistinguível do sucesso.
+  const broker = new Broker({
+    sessionFactory: fakeSession,
+    laneStates: fakeLaneStates({ loomd: new Map(), truth: { mode: "down", truthMode: "unknown", observedAt: 1000,
+      readAt: 1000, lanes: 0, lost: ["loom-1"], error: "loomd não respondeu em 127.0.0.1:4400" } }),
+  });
+  broker.addSeed(fakeSession("claude-1", "claude-1"));
+  broker.addSeed(fakeSession("codex-1", "codex-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  const frame = sock.sent.find((m) => m.t === "sessions");
+  assert.equal(frame.sessions.filter((s) => s.confidence === "exact").length, 0);
+  assert.equal(frame.sessions.length, 2, "o board não encolhe abaixo das lanes de tela");
+  assert.equal(frame.loomd.mode, "down");
+  assert.deepEqual(frame.loomd.lost, ["loom-1"], "a lane perdida é nomeada no frame");
+});
+
+test("um broker sem leitor loomd nenhum é o board de ontem mais o rótulo `inferred`", () => {
+  // Degradação para o lado seguro: quem nunca ouviu falar de loomd não ganha nenhum exact.
+  const broker = new Broker({ sessionFactory: fakeSession });
+  broker.addSeed(fakeSession("claude-1", "claude-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+  const frame = sock.sent.find((m) => m.t === "sessions");
+  assert.equal(frame.sessions[0].confidence, "inferred");
+  assert.equal(frame.loomd.mode, "unknown");
+});
+
+test("o patch de lane única também carrega `confidence` — senão o rótulo congela no cliente", () => {
+  const loomd = new Map([["codex-1", exactCard("codex-1", { state: "idle", loomdKind: "idle" })]]);
+  const broker = new Broker({ sessionFactory: fakeSession, laneStates: fakeLaneStates({ loomd }) });
+  broker.addSeed(fakeSession("claude-1", "claude-1"));
+  broker.addSeed(fakeSession("codex-1", "codex-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  sock.recv({ t: "kill", sid: "claude-1" });        // onExit → _broadcastState
+  sock.recv({ t: "kill", sid: "codex-1" });
+  const patches = sock.sent.filter((m) => m.t === "state");
+  assert.equal(patches.find((m) => m.sid === "claude-1").confidence, "inferred");
+  const exact = patches.find((m) => m.sid === "codex-1");
+  assert.equal(exact.confidence, "exact");
+  assert.equal(exact.state, "idle", "o veredito do protocolo, não o do stream");
+});

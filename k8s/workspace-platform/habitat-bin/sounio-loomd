@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# sounio-loomd — mantém o loomd de pé dentro do pod do workspace.
+#
+# O loomd é o supervisor de sessões que NÃO raspa tela: ele fala JSON-RPC com o
+# `codex app-server` e recebe hooks HTTP do Claude Code, então o estado que ele
+# publica vem do protocolo (`confidence: exact`), não de regex sobre pixels
+# (`inferred`, que é o que o LanePoller do cockpit produz hoje).
+#
+# ESTE SCRIPT NÃO EXPÕE NADA NA REDE. O loomd continua em 127.0.0.1:4400, dentro
+# do netns do pod. Quem o alcança é o `kubectl exec` que o cockpit já dispara a
+# cada 12 s para o peek das lanes — mesmo exec, mesmo container, zero RBAC novo.
+# Motivo medido: o loomd não tem NENHUMA autenticação nas suas 1030 linhas, e o
+# namespace beagle não tem NENHUMA NetworkPolicy. `POST /v2/lanes/:lane/prompt`
+# aberto para a rede do cluster, para ganhar 100 ms num board de 12 s, é mau
+# negócio. Se um dia virar Service, a autenticação vem ANTES.
+#
+# USO
+#   sounio-loomd --ensure    sobe se não estiver de pé (idempotente)
+#   sounio-loomd --status    o que está de pé, medido de três formas
+#   sounio-loomd --stop      derruba (usado para exercer a degradação do board)
+#   sounio-loomd --seed      força um turno na lane, para ela aparecer no /v2/state
+#
+# NÃO TOCA nas 11 lanes. Sessão tmux DEDICADA `loomd`, no mesmo servidor tmux —
+# nenhum `kill-session` fora dela, nenhum `send-keys` para lane nenhuma.
+set -euo pipefail
+
+BASE_HOME=/workspace/.home/openvscode-server
+LOOMD_DIR=/workspace/.loomd
+BIN="$LOOMD_DIR/target/release/loomd"
+SES=loomd
+LANE=loom-1
+PORT=4400
+# 4400 em hexadecimal, do jeito que /proc/net/tcp escreve a porta local.
+PORT_HEX=1130
+
+# ---------------------------------------------------------------------------
+# Rodar como o dono das sessões. `kubectl exec` entra como root, e o socket do
+# tmux é por UID: como root, `tmux ls` não enxerga NADA e uma frota viva parece
+# morta. Re-executa como openvscode-server antes de qualquer coisa.
+if [ "$(id -u)" -eq 0 ]; then
+  exec su openvscode-server -s /bin/bash -c "$(printf '%q ' "$0" "$@")"
+fi
+
+# ---------------------------------------------------------------------------
+# Ambiente FIXADO aqui, nunca herdado. Duas armadilhas medidas em 09-ago-2026:
+#
+#  1. `su - openvscode-server` dá HOME=/home/openvscode-server, que NÃO é o home
+#     do workspace: lá não existe `.codex/auth.json`. O codex sobe, responde ao
+#     `initialize` e falha no primeiro turno — o supervisor ficaria de pé
+#     supervisionando um agente deslogado. HOME é declarado, não descoberto.
+#  2. Shell não-interativo não lê o .zshenv, então TMUX_TMPDIR viria vazio e o
+#     tmux procuraria o socket no lugar errado — criando um SEGUNDO servidor
+#     tmux, vazio, ao lado das 11 lanes.
+export HOME="$BASE_HOME"
+export CODEX_HOME="$BASE_HOME/.codex"
+export TMUX_TMPDIR="$BASE_HOME/.tmux"
+export PATH="$BASE_HOME/.local/node-v20.20.2-linux-x64/bin:$BASE_HOME/bin:$PATH"
+
+# O codex por caminho ABSOLUTO e pinado no node-v20: é o que as lanes usam. Pelo
+# PATH, o resolvido seria o do nvm v22 (`readlink -f` mostra codex.js), e trocar
+# o runtime do agente por acidente de PATH é o tipo de diferença que só aparece
+# num erro estranho três horas depois.
+export LOOMD_ADDR="127.0.0.1:$PORT"
+export LOOMD_TRAMA="$LOOMD_DIR/trama.jsonl"
+export LOOMD_CODEX_BIN="$BASE_HOME/.local/node-v20.20.2-linux-x64/bin/codex"
+export LOOMD_CODEX_LANES="$LANE"
+export LOOMD_CWD="/workspace/.wt/$LANE"
+
+BASE="http://127.0.0.1:$PORT"
+
+# ---------------------------------------------------------------------------
+# Vivacidade: SEMPRE pelo /livez, JAMAIS por ps/pgrep.
+#
+# Dois motivos medidos, ambos custaram um falso-positivo hoje:
+#   * os 5 containers do pod compartilham o netns, então "tem processo aqui" e
+#     "tem alguém na 4400" são perguntas diferentes — um `--help` acidental no
+#     container workspace-ide já respondeu /livez para o workspace-ssh;
+#   * `pkill -f`/`pgrep -f` casam a PRÓPRIA linha de comando. Um `pkill -f
+#     .../loomd` disparado de dentro de um `su -c` matou o próprio su.
+# Este script não contém nenhum pgrep, nenhum pkill e nenhum `ss` (que não
+# existe neste container: `ss | grep 4400` sai 1 por ENOENT, e um olho distraído
+# lê isso como "porta livre").
+alive() { [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$BASE/livez" 2>/dev/null)" = "200" ]; }
+
+# Segunda opinião independente do curl: quem está de fato em LISTEN na 4400,
+# lido do kernel. Se as duas discordarem, o operador precisa saber — não se
+# escolhe a medição conveniente.
+listening() {
+  python3 - "$PORT_HEX" <<'PY'
+import sys
+hexport = sys.argv[1].upper()
+for f in ("/proc/net/tcp", "/proc/net/tcp6"):
+    try:
+        rows = open(f).read().splitlines()[1:]
+    except OSError:
+        continue
+    for r in rows:
+        c = r.split()
+        if c[3] == "0A" and c[1].split(":")[1].upper() == hexport:
+            print(f"{f} LISTEN inode={c[9]}")
+PY
+}
+
+# QUAL binário atende na 4400 — amarrado pelo inode do socket, não pelo nome do
+# processo. "tem um processo chamado loomd" e "é ele quem está na 4400" são
+# afirmações diferentes, e o netns compartilhado pelos 5 containers do pod torna
+# a diferença real: um loomd subido por engano em outro container responderia.
+#
+# Roda como openvscode-server (o script já se re-executa assim) DE PROPÓSITO:
+# root aqui NÃO tem CAP_SYS_PTRACE, então `readlink /proc/<pid>/exe` de um
+# processo de outro UID devolve EACCES e o campo sai VAZIO — indistinguível de
+# "não há processo". Como o dono, o mesmo readlink resolve.
+who_serves() {
+  python3 - <<'PY'
+import os, glob, re
+inodes = set()
+for f in ("/proc/net/tcp", "/proc/net/tcp6"):
+    try:
+        rows = open(f).read().splitlines()[1:]
+    except OSError:
+        continue
+    for r in rows:
+        c = r.split()
+        if c[3] == "0A" and c[1].split(":")[1].upper() == "1130":
+            inodes.add(c[9])
+if not inodes:
+    raise SystemExit(0)
+for p in glob.glob("/proc/[0-9]*"):
+    try:
+        fds = os.listdir(p + "/fd")
+    except OSError:
+        continue
+    for fd in fds:
+        try:
+            m = re.fullmatch(r"socket:\[(\d+)\]", os.readlink(f"{p}/fd/{fd}"))
+        except OSError:
+            continue
+        if m and m.group(1) in inodes:
+            pid = p.rsplit("/", 1)[1]
+            try:
+                exe = os.readlink(p + "/exe")
+            except OSError:
+                exe = "(sem permissão: rode como o dono do processo)"
+            print(f"pid={pid} exe={exe}")
+            break
+PY
+}
+
+has_ses() { tmux has-session -t "=$SES" 2>/dev/null; }
+ses_dead() { [ "$(tmux display-message -p -t "=$SES:" '#{pane_dead}' 2>/dev/null || echo 0)" = "1" ]; }
+
+# A linha que o pane executa. `exec` para que o loomd SEJA o processo do pane:
+# assim `pane_dead` fala do daemon, e não de um shell que sobreviveu a ele.
+pane_cmd() {
+  printf 'exec env %q=%q %q=%q %q=%q %q=%q %q=%q %q=%q %q=%q %q\n' \
+    HOME "$HOME" CODEX_HOME "$CODEX_HOME" \
+    LOOMD_ADDR "$LOOMD_ADDR" LOOMD_TRAMA "$LOOMD_TRAMA" \
+    LOOMD_CODEX_BIN "$LOOMD_CODEX_BIN" LOOMD_CODEX_LANES "$LOOMD_CODEX_LANES" \
+    LOOMD_CWD "$LOOMD_CWD" "$BIN"
+}
+
+lane_known() {
+  curl -s --max-time 3 "$BASE/v2/state" 2>/dev/null \
+    | python3 -c 'import json,sys
+try: d=json.load(sys.stdin)
+except Exception: sys.exit(1)
+sys.exit(0 if any(l.get("lane")==sys.argv[1] for l in d.get("lanes",[])) else 1)' "$LANE"
+}
+
+# ---------------------------------------------------------------------------
+# Semear a lane.
+#
+# Por que isto existe: o estado do loomd é uma REDUÇÃO sobre a trama, e a trama
+# começa vazia — `Trama::open` não relê o arquivo. Medido: com o daemon de pé e
+# o codex conectado, `/v2/state` responde `{"lanes":[]}`, porque nada ACONTECEU
+# ainda. Uma lane que nunca falou não é uma lane sobre a qual se possa afirmar
+# coisa alguma, e inventar uma entrada "ociosa" seria exatamente a mentira que o
+# loomd existe para não contar.
+#
+# Então o seed não fabrica evento: ele MANDA UM TURNO DE VERDADE. O que aparece
+# no board é a consequência observada dele. Se o codex estiver deslogado ou sem
+# rede, o que aparece é um `error` — também verdade, e também `exact`.
+seed() {
+  curl -s --max-time 5 -X POST -H 'content-type: application/json' \
+    -d '{"text":"Você é a lane supervisionada pelo loomd. Responda apenas: pronto"}' \
+    "$BASE/v2/lanes/$LANE/prompt" >/dev/null 2>&1 || true
+  local i
+  for i in $(seq 1 20); do
+    lane_known && return 0
+    sleep 1
+  done
+  return 1
+}
+
+ensure() {
+  [ -x "$BIN" ] || {
+    echo "ERRO: binário ausente: $BIN" >&2
+    echo "      Construa DENTRO do pod: cd $LOOMD_DIR && cargo build --release" >&2
+    echo "      (este script nunca compila: um build --release come RAM que é das lanes," >&2
+    echo "       e 'cargo test' NÃO atualiza target/release/loomd)" >&2
+    exit 1
+  }
+  mkdir -p "$LOOMD_CWD" "$LOOMD_DIR" "$TMUX_TMPDIR"
+
+  if alive; then
+    echo "  loomd: já de pé (/livez 200) — nada a fazer"
+  else
+    tmux start-server 2>/dev/null || true
+    # 🚨 NÃO mexer em `remain-on-exit` aqui. É opção GLOBAL de janela do MESMO servidor tmux
+    # que hospeda as 11 lanes vivas — escrevê-la por conveniência do supervisor é alterar
+    # estado compartilhado do trabalho dele. Quem cuida dessa opção é o `sounio-herd-split`,
+    # dono do herd, e ela já está `on` (medido 09-ago). Se estiver `off`, o certo é falhar
+    # ruidosamente e chamar o herd, não consertar por baixo.
+    if [ "$(tmux show-window-options -g remain-on-exit 2>/dev/null)" != "remain-on-exit on" ]; then
+      echo "  aviso: remain-on-exit global está off — rode sounio-herd-split; NÃO vou alterá-la daqui" >&2
+    fi
+
+    if has_ses; then
+      tmux respawn-pane -k -t "=$SES:" "$(pane_cmd)" >/dev/null && echo "  loomd: pane revivido"
+    else
+      tmux new-session -d -s "$SES" -n "$SES" -c "$LOOMD_CWD" "$(pane_cmd)" \
+        && echo "  loomd: sessão tmux '$SES' criada"
+    fi
+
+    local i
+    for i in $(seq 1 25); do alive && break; sleep 1; done
+    alive || { echo "  FALHOU: /livez não respondeu 200 em 25 s. Veja: tmux attach -t =$SES" >&2; exit 1; }
+    echo "  loomd: de pé (/livez 200)"
+  fi
+
+  if lane_known; then
+    echo "  lane $LANE: presente em /v2/state"
+  else
+    echo "  lane $LANE: ausente do /v2/state (trama vazia) — mandando um turno real"
+    seed && echo "  lane $LANE: presente em /v2/state" \
+         || echo "  AVISO: $LANE continua ausente após o turno. Veja: curl -s $BASE/v2/trama" >&2
+  fi
+}
+
+stop() {
+  if has_ses; then
+    tmux kill-session -t "=$SES" 2>/dev/null && echo "  sessão tmux '$SES' encerrada"
+  else
+    echo "  sessão tmux '$SES' não existe"
+  fi
+  local i
+  for i in $(seq 1 10); do alive || break; sleep 1; done
+  if alive; then
+    echo "  AVISO: alguém AINDA responde /livez na $PORT — não era só a nossa sessão:" >&2
+    who_serves >&2
+    exit 1
+  fi
+  echo "  4400 silenciosa (/livez não responde)"
+}
+
+status() {
+  local code
+  # SEM `|| echo 000`: quando a conexão falha o curl JÁ imprime 000 por conta do
+  # -w, e o fallback concatenava um segundo — a primeira leitura deste status
+  # saiu "000000". Um campo que mente sobre o próprio formato não serve de prova.
+  # `|| true` e não `|| echo 000`: o `set -e` mataria o script no exit 7 do curl
+  # (connection refused), mas o `echo` concatenaria um segundo 000 na saída.
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "$BASE/livez" 2>/dev/null || true)"
+  echo "  /livez            ${code:-000}            (200 = de pé; 000 = ninguém atende)"
+  echo "  LISTEN 4400       $(listening | tr '\n' ' ' | sed 's/ $//' || true)"
+  echo "  processo          $(who_serves | tr '\n' ' ' | sed 's/ $//' || true)"
+  if [ -x "$BIN" ]; then
+    echo "  binário           $BIN  (mtime $(date -d "@$(stat -c %Y "$BIN")" '+%F %T'))"
+    echo "  fonte mais nova   $(find "$LOOMD_DIR/src" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-) (mtime $(find "$LOOMD_DIR/src" -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1 | cut -d. -f1 | xargs -r -I{} date -d @{} '+%F %T'))"
+  else
+    echo "  binário           AUSENTE: $BIN"
+  fi
+  if has_ses; then
+    echo "  tmux '$SES'         existe$(ses_dead && echo '  <- PANE MORTO, revive com --ensure' || echo '  (pane vivo)')"
+  else
+    echo "  tmux '$SES'         ausente"
+  fi
+  echo "  lanes das 11      $(tmux ls -F '#{session_name}' 2>/dev/null | grep -vx "$SES" | wc -l) sessões (intocadas por este script)"
+  if [ "$code" = "200" ]; then
+    echo "  /v2/state         $(curl -s --max-time 3 "$BASE/v2/state")"
+  fi
+}
+
+case "${1:---status}" in
+  --ensure) ensure ;;
+  --stop)   stop ;;
+  --seed)   seed && echo "  lane $LANE presente" || { echo "  lane $LANE ausente" >&2; exit 1; } ;;
+  --status) status ;;
+  *) echo "uso: sounio-loomd [--ensure|--status|--stop|--seed]" >&2; exit 2 ;;
+esac

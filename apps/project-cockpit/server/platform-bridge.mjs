@@ -13,6 +13,17 @@ export const PEEK_DELIM = "@@LANE:";
 export const RECEIPT_DELIM = "@@RECEIPT:";
 /// Marks the liveness block that the batched peek emits BEFORE the per-lane screens.
 export const ALIVE_DELIM = "@@ALIVE:";
+/// Marks the loomd block — the FIRST block of the batched peek, before @@ALIVE.
+export const LOOMD_DELIM = "@@LOOMD:";
+/// O supervisor loomd, dentro do MESMO pod do workspace. Fica em 127.0.0.1 de propósito: ele
+/// não tem autenticação nenhuma e o ns beagle não tem NetworkPolicy, então a porta não é
+/// exposta ao cluster. O único caminho até ele é este exec, que já é autenticado pelo RBAC
+/// do cockpit — carona no transporte que já existe, zero superfície nova.
+export const LOOMD_STATE_URL = "http://127.0.0.1:4400/v2/state";
+/// Teto de espera do curl. NÃO negociável: este curl roda EM SÉRIE com os 11 capture-pane
+/// dentro do `timeout: 20000` do LanePoller. Um loomd travado (não morto) sem teto estouraria
+/// o sweep inteiro e envelheceria os 11 vereditos — o loomd derrubaria o board que veio melhorar.
+export const LOOMD_TIMEOUT_S = 3;
 
 // The ONLY keystrokes the cockpit may inject into a lane, by tmux key name. A closed set is the
 // whole security argument for one-touch approval: a named key is the same `y` he would press, it
@@ -139,8 +150,13 @@ export function zellijCleanupArgv(kind, ns) {
 // ("advertised but never observed"). That painted cards for three lanes that do not exist.
 export function lanesPeekArgv(ns) {
   const lane0 = SESSION_ALLOWLIST[WORKSPACE_LANES[0]];
+  // O bloco do loomd vem PRIMEIRO e no MESMO exec: mesmo pod, mesmo container, mesmo relógio,
+  // zero RBAC novo. O `echo` final é carga útil, não enfeite — a resposta do axum não termina
+  // em newline, e sem ele o `@@ALIVE:` gruda no fim do JSON: o JSON não parseia (loomd lido
+  // como caído) E o bloco de liveness some (as 11 lanes passariam a ser assumidas vivas).
+  const loomd = `echo "${LOOMD_DELIM}"; curl -fsS --max-time ${LOOMD_TIMEOUT_S} ${LOOMD_STATE_URL} 2>/dev/null; echo`;
   const alive = `echo "${ALIVE_DELIM}"; tmux ls -F "#{session_name}" 2>/dev/null`;
-  const script = [alive]
+  const script = [loomd, alive]
     .concat(WORKSPACE_LANES.map(
       (l) => `echo "${PEEK_DELIM}${l}"; tmux capture-pane -p -t ${l} -S -${PEEK_LINES} 2>/dev/null`))
     .join("; ");
@@ -162,6 +178,36 @@ export function parseLanesAlive(stdout) {
     if (WORKSPACE_LANES.includes(name)) alive.add(name);
   }
   return alive;
+}
+
+// O exec PERGUNTOU ao loomd? Isso é diferente de o loomd ter respondido. Sem esta distinção,
+// um cockpit velho (script sem o bloco) e um loomd morto ficam indistinguíveis, e o board diria
+// "fonte exata caiu" quando na verdade ninguém perguntou.
+export function hasLoomdBlock(stdout) {
+  return String(stdout || "").split("\n").some((l) => l.startsWith(LOOMD_DELIM));
+}
+
+// O payload do `@@LOOMD:` — o /v2/state do supervisor, cru. Devolve `null`, NUNCA objeto vazio,
+// quando o bloco falta, vem vazio ou não parseia: quem chama precisa distinguir "o loomd está
+// calado" de "o loomd disse que não supervisiona lane nenhuma". Tratar as duas como iguais é
+// exatamente como uma fonte morta viraria "tudo inferred" em silêncio.
+export function parseLoomdState(stdout) {
+  const lines = String(stdout || "").split("\n");
+  const start = lines.findIndex((l) => l.startsWith(LOOMD_DELIM));
+  if (start < 0) return null;
+  const buf = [];
+  for (const line of lines.slice(start + 1)) {
+    if (line.startsWith(PEEK_DELIM) || line.startsWith(ALIVE_DELIM) || line.startsWith(LOOMD_DELIM)) break;
+    buf.push(line);
+  }
+  const raw = buf.join("\n").trim();
+  if (!raw) return null;                       // curl falhou (-f) ou o loomd não está de pé
+  let j;
+  try { j = JSON.parse(raw); } catch { return null; }
+  // Um 200 com corpo que não é o contrato é tão inútil quanto silêncio — e mais perigoso, porque
+  // parece resposta. `lanes` precisa ser array; qualquer outra coisa é "calado".
+  if (!j || typeof j !== "object" || !Array.isArray(j.lanes)) return null;
+  return j;
 }
 
 // ─── ONE-TOUCH ACTIONS: send-keys, not attach ────────────────────────────────────────────

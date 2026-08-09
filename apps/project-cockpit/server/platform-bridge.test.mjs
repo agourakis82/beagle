@@ -5,6 +5,7 @@ import {
   lanesPeekArgv, parseLanesPeek, WORKSPACE_LANES, PEEK_DELIM,
   parseLanesAlive, ALIVE_DELIM, LANE_KEYS,
   laneSendKeyArgv, laneIsolateArgv, laneWorktreeCheckArgv, LANE_WT_ROOT,
+  parseLoomdState, hasLoomdBlock, LOOMD_DELIM, LOOMD_STATE_URL,
 } from "./platform-bridge.mjs";
 
 test("peek is read-only (capture-pane), su-wrapped, and never attaches a client", () => {
@@ -165,4 +166,56 @@ test("parseDeckSession: tmux + zellij → safe metadata-only shape", () => {
   const z = parseDeckSession("sounio-dev", "sounio-dev [Created 4days 13h ago] (current)\n", 1721400300);
   assert.equal(z.name, "sounio-dev"); assert.equal(z.attached, true); assert.equal(z.window, "zellij");
   assert.equal(parseDeckSession("sounio-dev", "other-session [Created ...]\n", 0), null);
+});
+
+// ─── loomd: o bloco medido no protocolo, de carona no MESMO exec ─────────────────────────────
+
+test("o bloco @@LOOMD vem ANTES do @@ALIVE e dos 11 peeks, com teto de 3s", () => {
+  const body = lanesPeekArgv("beagle").at(-1);
+  const iLoomd = body.indexOf(LOOMD_DELIM);
+  const iAlive = body.indexOf(ALIVE_DELIM);
+  const iPeek = body.indexOf(`${PEEK_DELIM}${WORKSPACE_LANES[0]}`);
+  assert.ok(iLoomd >= 0, "o exec precisa perguntar ao loomd");
+  assert.ok(iLoomd < iAlive && iAlive < iPeek, "ordem: loomd → alive → peeks");
+  assert.ok(body.includes(`curl -fsS --max-time 3 ${LOOMD_STATE_URL}`),
+    "--max-time 3 é obrigatório: o curl roda em série dentro do timeout de 20s do sweep");
+  assert.ok(body.includes("127.0.0.1:4400"), "o loomd fica em loopback — nada exposto ao cluster");
+  // O script inteiro roda dentro de `sh -c '…'`: uma aspa simples no trecho novo trunca tudo
+  // silenciosamente (foi assim que a query git-head foi mutilada em produção).
+  assert.doesNotMatch(body.slice(iLoomd, iAlive), /'/, "o trecho do loomd não pode conter aspa simples");
+});
+
+test("o curl termina em newline — sem ele o @@ALIVE gruda no JSON e as duas leituras caem juntas", () => {
+  // A resposta do axum não termina em newline. Sem o `echo`, o stdout real seria
+  // `…}@@ALIVE:` numa linha só: o JSON não parseia E parseLanesAlive devolve null (o que faz
+  // as 11 lanes serem assumidas vivas). Uma regressão de um caractere que derruba duas coisas.
+  const body = lanesPeekArgv("beagle").at(-1);
+  assert.match(body, /--max-time 3 http:\/\/127\.0\.0\.1:4400\/v2\/state 2>\/dev\/null; echo/);
+});
+
+test("parseLoomdState lê o bloco e para no delimitador seguinte", () => {
+  const stdout = `${LOOMD_DELIM}\n{"ok":true,"observed_at_ms":7,"lanes":[{"lane":"loom-1","kind":"idle","confidence":"exact","observed_at_ms":7,"turns":2}]}\n`
+    + `${ALIVE_DELIM}\nclaude-1\n${PEEK_DELIM}claude-1\ntela\n`;
+  const j = parseLoomdState(stdout);
+  assert.equal(j.lanes.length, 1);
+  assert.equal(j.lanes[0].lane, "loom-1");
+  assert.equal(j.observed_at_ms, 7);
+  // E o bloco novo não engoliu o resto do sweep.
+  assert.deepEqual([...parseLanesAlive(stdout)], ["claude-1"]);
+  assert.match(parseLanesPeek(stdout)["claude-1"], /^tela/);
+});
+
+test("loomd calado é null — NUNCA objeto vazio", () => {
+  // Objeto vazio faria o chamador ler "o loomd disse que não há lane"; null diz "não respondeu".
+  // Confundir os dois é exatamente como uma fonte morta vira `inferred` em silêncio.
+  assert.equal(parseLoomdState(`${LOOMD_DELIM}\n${ALIVE_DELIM}\nclaude-1\n`), null, "bloco vazio (curl -f falhou)");
+  assert.equal(parseLoomdState(`${ALIVE_DELIM}\nclaude-1\n`), null, "bloco ausente");
+  assert.equal(parseLoomdState(`${LOOMD_DELIM}\n{"ok":true,"lanes":[{"lane":"loo\n`), null, "JSON truncado");
+  assert.equal(parseLoomdState(`${LOOMD_DELIM}\n<html>502</html>\n`), null, "corpo que não é o contrato");
+  assert.equal(parseLoomdState(`${LOOMD_DELIM}\n{"ok":true}\n`), null, "200 sem `lanes` é tão inútil quanto silêncio");
+});
+
+test("hasLoomdBlock separa `não perguntamos` de `perguntamos e ele não respondeu`", () => {
+  assert.equal(hasLoomdBlock(`${LOOMD_DELIM}\n${ALIVE_DELIM}\n`), true);
+  assert.equal(hasLoomdBlock(`${ALIVE_DELIM}\nclaude-1\n`), false);
 });

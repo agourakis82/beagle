@@ -3,6 +3,7 @@ import { decodeClient, encodeServer } from "./protocol.mjs";
 import { recipeFor } from "./catalog.mjs";
 import { classify } from "./state.mjs";
 import { LazySession } from "./lazySession.mjs";
+import { fuseFleet, EXACT, INFERRED } from "./loomd.mjs";
 
 let _seq = 0;
 const nextSid = (kind) => `${kind}-${++_seq}`;
@@ -34,6 +35,18 @@ export class Broker {
   /// for lanes nobody is watching. Returns null when we have never observed the lane.
   _observed(sid) { return this._laneStates?.get?.(sid) || null; }
 
+  /// A leitura MEDIDA no protocolo (loomd), quando existe. Map vazio = ninguém é `exact`, que é
+  /// o lado seguro: um board sem a fonte boa mostra exatamente o que mostrava ontem, e diz que
+  /// perdeu a fonte por `loomdTruth()` — nunca promovendo um chute a medição.
+  _loomdLanes() {
+    const m = this._laneStates?.loomdAll?.();
+    return m instanceof Map ? m : new Map();
+  }
+  _loomdTruth() {
+    return this._laneStates?.loomdTruth?.()
+      || { mode: "unknown", truthMode: "unknown", observedAt: null, lanes: 0, lost: [], error: "sem leitor loomd" };
+  }
+
   _stateOf(session) {
     const obs = this._observed(session.sid);
     if (obs) return obs.state;
@@ -41,7 +54,13 @@ export class Broker {
     const m = session.meta;
     return classify({ alive: m.alive, lastOutputAt: m.lastOutputAt, now: Date.now() });
   }
+  /// O array de cards, já rotulado. `fuseFleet` é quem garante o invariante: tudo que veio de
+  /// `capture-pane` sai `inferred` — literal, não derivado — e só o que o loomd serviu sai
+  /// `exact`. Lanes que só o loomd conhece entram como cards ADICIONAIS, sem apagar ninguém.
   _sessionsSnapshot() {
+    return fuseFleet(this._peekedSnapshot(), this._loomdLanes());
+  }
+  _peekedSnapshot() {
     return [...this._sessions.values()].map((s) => {
       const m = s.meta;
       const obs = this._observed(m.sid);
@@ -62,12 +81,32 @@ export class Broker {
     });
   }
   _send(sock, msg) { try { sock.send(encodeServer(msg)); } catch { /* closed */ } }
-  _broadcastSessions() { const snap = this._sessionsSnapshot(); for (const c of this._clients) this._send(c, { t: "sessions", sessions: snap }); }
+  /// UM construtor para TODO frame `sessions` — o da conexão, o do `list` e o do pump. Eram três
+  /// literais separados, e um campo novo em dois deles é exatamente como um cliente passa a ver
+  /// o rótulo só às vezes.
+  ///
+  /// O frame carrega a saúde da fonte exata junto com os cards. Sem isso, o loomd cair produz um
+  /// board indistinguível do de ontem — todo mundo `inferred`, nada quebrado, nenhum aviso: o
+  /// falso-positivo mais provável desta fatia. `loomd.mode` é o que torna a queda visível.
+  _sessionsFrame() {
+    return { t: "sessions", sessions: this._sessionsSnapshot(), loomd: this._loomdTruth() };
+  }
+  _broadcastSessions() {
+    const frame = this._sessionsFrame();
+    for (const c of this._clients) this._send(c, frame);
+  }
   _broadcastState(sid) {
     const s = this._sessions.get(sid); if (!s) return;
     const obs = this._observed(sid);
-    const msg = { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "",
-      approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null };
+    const exact = this._loomdLanes().get(sid) || null;
+    // O patch de lane única PRECISA carregar `confidence`: um cliente que faz `?? old` num campo
+    // ausente congelaria o rótulo antigo, e uma lane que perdeu a fonte exata continuaria
+    // desenhada como medida.
+    const msg = exact
+      ? { t: "state", sid, state: exact.state, detail: exact.detail, confidence: EXACT,
+          approveKey: null, atShell: false, observedAt: exact.observedAt }
+      : { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", confidence: INFERRED,
+          approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null };
     for (const c of this._clients) this._send(c, msg);
   }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }
@@ -85,7 +124,7 @@ export class Broker {
   handleConnection(sock) {
     this._clients.add(sock); this._subs.set(sock, new Set());
     console.log(`[loom] client connected (clients=${this._clients.size}, sessions=${this._sessions.size})`);
-    this._send(sock, { t: "sessions", sessions: this._sessionsSnapshot() });
+    this._send(sock, this._sessionsFrame());
     sock.on("message", (raw) => this._onMessage(sock, raw));
     sock.on("close", () => {
       const sids = [...(this._subs.get(sock) || [])];
@@ -98,7 +137,7 @@ export class Broker {
     if (!m) return this._send(sock, { t: "error", message: "bad message" });
     const s = m.sid ? this._sessions.get(m.sid) : null;
     switch (m.t) {
-      case "hello": case "list": return this._send(sock, { t: "sessions", sessions: this._sessionsSnapshot() });
+      case "hello": case "list": return this._send(sock, this._sessionsFrame());
       case "subscribe": {
         console.log(`[loom] subscribe ${m.sid} (exists=${!!s}, lazyPending=${s?.lazyPending})`);
         if (!s) return this._send(sock, { t: "error", sid: m.sid, message: "no such session" });

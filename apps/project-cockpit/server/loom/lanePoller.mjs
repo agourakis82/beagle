@@ -11,12 +11,16 @@
 import { execFile } from "node:child_process";
 import { lanesPeekArgv, parseLanesPeek, parseLanesAlive, WORKSPACE_LANES } from "../platform-bridge.mjs";
 import { classifyLane, peekLines } from "./laneState.mjs";
+import { LoomdView } from "./loomd.mjs";
 
 export class LanePoller {
   constructor({ kubectl, ns, intervalMs = 12000, execFn = execFile, now = () => Date.now() }) {
     this._kubectl = kubectl; this._ns = ns; this._intervalMs = intervalMs;
     this._exec = execFn; this._now = now;
     this._states = new Map();     // lane -> { state, detail, peek, approveKey, observedAt }
+    // A segunda fonte, medida no protocolo, que vem de carona NO MESMO exec e portanto no mesmo
+    // relógio deste sweep. Ela nunca sobrescreve `_states`: as duas convivem rotuladas.
+    this._loomd = new LoomdView({ now });
     this._timer = null;
     this._inFlight = false;
     this._pending = null;
@@ -24,8 +28,16 @@ export class LanePoller {
   }
 
   /// Latest verdict for a lane, or null if never observed (caller must NOT invent one).
+  /// SEMPRE `inferred`: isto aqui é tela raspada, e o rótulo não depende de quem pergunta.
   get(lane) { return this._states.get(lane) || null; }
   all() { return Object.fromEntries(this._states); }
+
+  /// A leitura exata (loomd) da mesma varredura. `loomdTruth()` diz se ela vale — um chamador
+  /// que só olhar `loomd(lane)` e achar null não pode concluir "não há lane": pode ser a fonte
+  /// que caiu, e essa diferença é o produto desta rodada.
+  loomd(lane) { return this._loomd.get(lane); }
+  loomdAll() { return this._loomd.lanes; }
+  loomdTruth() { return this._loomd.truth(); }
 
   start() {
     if (this._timer) return;
@@ -64,6 +76,10 @@ export class LanePoller {
     // nothing about existence and must not claim a lane is gone.
     const alive = parseLanesAlive(stdout);
     const now = this._now();
+    // Mesmo stdout, mesmo `now`: o card exato e o card adivinhado envelhecem pelo mesmo relógio.
+    // Só é chamado aqui dentro — `ingest` só roda quando o exec VOLTOU, e um exec que falhou não
+    // é medição sobre o loomd (ver o quadro em loomd.mjs).
+    this._loomd.ingest(stdout, now);
     for (const lane of WORKSPACE_LANES) {
       const text = screens[lane];
       if (text === undefined) continue;                 // no record at all → keep the old, ageing entry

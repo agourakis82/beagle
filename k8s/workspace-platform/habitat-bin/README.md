@@ -31,6 +31,7 @@ corrompem o arquivo silenciosamente.
 | `sounio-herd-tmux` | as 11 lanes em **uma** sessão tmux (`sounio-dev`) → 1 workspace, N abas no cmux |
 | `sounio-herd-split` | as 11 lanes em **uma sessão por lane** → N workspaces no cmux (1 por agente) |
 | `sounio-herd` | as mesmas lanes em **herdr**, com estado semântico dos agentes |
+| `sounio-loomd` | mantém o **loomd** de pé (sessão tmux dedicada `loomd`) — o supervisor que publica estado vindo do protocolo (`exact`), não de tela raspada (`inferred`) |
 
 Todos idempotentes: criam só as lanes que faltam e (nos de tmux) revivem no lugar
 as que morreram.
@@ -80,7 +81,20 @@ cmux.
   `TMPDIR=/workspace/.tmp` (workspace-disk-guard), mas shell não-interativo não
   os lê. Daí o `ZELLIJ_SOCKET_DIR` fixado no `.zshenv`.
 - **`pgrep -f <padrão>` casa com a própria linha de comando** de quem chama.
-  Use colchetes (`mosh-server[.]real`) ou exclua o próprio PID.
+  Use colchetes (`mosh-server[.]real`) ou exclua o próprio PID. Medido de novo em
+  09-ago-2026, agora com `pkill`: um `pkill -f /workspace/.loomd/...` disparado de
+  dentro de um `su -c "...pkill -f /workspace/.loomd/..."` casou o **próprio su** e
+  matou o comando no meio. O `sounio-loomd` não contém pgrep nem pkill: derruba por
+  `tmux kill-session` e decide vivacidade por `/livez`.
+- **`root` no `kubectl exec` NÃO tem `CAP_SYS_PTRACE`.** `readlink /proc/<pid>/exe`
+  de um processo de outro UID devolve EACCES, e o campo sai **vazio** — igualzinho
+  a "não existe processo". Leia `/proc/<pid>/exe` como o **dono** do processo.
+- **`curl -w '%{http_code}'` já imprime `000` quando a conexão falha.** Um
+  `|| echo 000` de fallback concatena e produz `000000`; e sem fallback nenhum, o
+  `set -e` mata o script no exit 7 do curl. O certo é `|| true`.
+- **`ss` não existe neste container.** `ss | grep 4400` sai 1 por ENOENT, o que se
+  lê distraidamente como "porta livre". Para saber quem está em LISTEN, leia
+  `/proc/net/tcp{,6}` (estado `0A`, porta em hexadecimal: 4400 = `1130`).
 - **O binário de cada agente mora no HOME da lane** (`.agents/<lane>/.local/bin`,
   `.kimi-code/bin`). Passar só `HOME` sem o `PATH` correspondente faz o
   `agent start` falhar por timeout.
