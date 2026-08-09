@@ -90,6 +90,22 @@ impl CodexLane {
         }))
         .await;
 
+        // ISTO é a tese inteira em três linhas: se já conhecemos a thread, RETOMAMOS.
+        // O tmux persiste PIXELS — depois de um restart ele te devolve um scrollback morto.
+        // Aqui a sessão vive no store do próprio Codex e volta COM CONTEXTO. É por isso que
+        // este daemon pode morrer sem que o trabalho morra junto.
+        if let Some(tid) = self.thread.lock().await.clone() {
+            self.send(serde_json::json!({
+                "jsonrpc":"2.0","id":2,"method":"thread/resume",
+                "params": {"threadId": tid, "cwd": cwd}
+            }))
+            .await;
+            self.trama.append(
+                AgentEvent::new(&self.lane, Kind::SessionStarted, Confidence::Exact)
+                    .detail(format!("thread retomada por id: {tid}")),
+            );
+        }
+
         let mut lines = BufReader::new(out).lines();
         while let Some(line) = lines.next_line().await? {
             if line.trim().is_empty() {

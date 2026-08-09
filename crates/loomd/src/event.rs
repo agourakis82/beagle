@@ -189,11 +189,23 @@ pub fn from_codex_notification(lane: &str, method: &str, p: &serde_json::Value) 
     e.turn = s(p, "turnId");
     e.diff = s(p, "diff");
     if kind == Kind::ToolCall {
-        e.tool = p
-            .get("item")
-            .and_then(|i| i.get("type"))
-            .and_then(|t| t.as_str())
-            .map(str::to_string);
+        let item = p.get("item");
+        e.tool = item.and_then(|i| i.get("type")).and_then(|t| t.as_str()).map(str::to_string);
+        // O que o agente DISSE é a evidência que o card cita — e sem ela não há como provar que
+        // uma sessão retomada voltou com contexto. Formas variam por versão; leitor tolerante.
+        e.detail = item.and_then(|i| {
+            i.get("text")
+                .and_then(|t| t.as_str())
+                .or_else(|| i.get("message").and_then(|m| m.as_str()))
+                .or_else(|| {
+                    i.get("content")
+                        .and_then(|c| c.as_array())
+                        .and_then(|a| a.first())
+                        .and_then(|f| f.get("text"))
+                        .and_then(|t| t.as_str())
+                })
+        })
+        .map(|t| t.chars().take(240).collect());
     }
     Some(e)
 }
