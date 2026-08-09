@@ -52,7 +52,26 @@ fi
 #     tmux procuraria o socket no lugar errado — criando um SEGUNDO servidor
 #     tmux, vazio, ao lado das 11 lanes.
 export HOME="$BASE_HOME"
-export CODEX_HOME="$BASE_HOME/.codex"
+# 🚨 CODEX_HOME PRÓPRIO — medido em 09-ago-2026, depois de a codex-2 morrer no boot.
+#
+# O loomd usava `$BASE_HOME/.codex`, o MESMO store das lanes de trabalho dele. O Codex arbitra
+# quem escreve numa thread por arquivo em `~/.codex/thread-writer-locks/<thread>.lock`, e o
+# supervisor passava a ser mais um escritor no mesmo diretório de arbitragem das lanes.
+#
+# A morte da codex-2 daquela vez foi lock ÓRFÃO do pod que caiu, não o loomd — verifiquei que
+# nenhum processo segurava o arquivo e que a thread dela nunca passou pela trama. Mas partilhar
+# o store é um perigo que só não cobrou ainda: um `app-server` supervisionado disputando
+# arbitragem com o terminal em que ele trabalha é a colisão esperando acontecer.
+#
+# O loomd nunca ADOTA lane de TUI — ele é dono dos processos que cria. Então store separado é
+# estritamente correto, e não perde nada. A thread antiga fica órfã no store da base: o próprio
+# loomd esquece o id quando o `thread/resume` é recusado (caminho já testado).
+export CODEX_HOME="${LOOMD_CODEX_HOME:-/workspace/.loomd/codex-home}"
+mkdir -p "$CODEX_HOME"
+# A credencial é a mesma conta; só a ARBITRAGEM é que precisa ser separada.
+for f in auth.json config.toml; do
+  [ -f "$CODEX_HOME/$f" ] || cp "$BASE_HOME/.codex/$f" "$CODEX_HOME/$f" 2>/dev/null || true
+done
 export TMUX_TMPDIR="$BASE_HOME/.tmux"
 export PATH="$BASE_HOME/.local/node-v20.20.2-linux-x64/bin:$BASE_HOME/bin:$PATH"
 

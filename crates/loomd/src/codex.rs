@@ -391,4 +391,38 @@ mod tests {
         let virgem = CodexLane::spawn("lane-nova", "/bin/true", "/tmp", vec![], Arc::new(Trama::open(&p)));
         assert_eq!(virgem.thread_atual().await, None);
     }
+    /// O caminho de erro que ninguém tinha exercido: o `codex app-server` que NÃO sobe.
+    ///
+    /// Achado da crítica de completude — todo o trabalho de durabilidade assumia que o filho
+    /// nasce. Binário ausente, `CODEX_HOME` deslogado ou o `unknown variant 'max'` do config
+    /// produzem o MESMO sintoma: uma lane supervisionada e MUDA. Sem este teste, o supervisor
+    /// girava em silêncio e o board não tinha como dizer por quê.
+    #[tokio::test]
+    async fn lane_com_binario_inexistente_registra_erro_em_vez_de_ficar_muda() {
+        let t = std::sync::Arc::new(crate::trama::Trama::open(
+            std::env::temp_dir().join("loomd-test-nao-sobe.jsonl"),
+        ));
+        let _ = std::fs::remove_file(std::env::temp_dir().join("loomd-test-nao-sobe.jsonl"));
+        let t = std::sync::Arc::new(crate::trama::Trama::open(
+            std::env::temp_dir().join("loomd-test-nao-sobe.jsonl"),
+        ));
+        CodexLane::spawn("lane-fantasma", "/nao/existe/codex", "/tmp", vec![], t.clone());
+
+        // O laço de reinício tem backoff; basta uma volta para o erro aparecer na trama.
+        for _ in 0..40 {
+            if !t.since(0, Some("lane-fantasma")).is_empty() { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let ev = t.since(0, Some("lane-fantasma"));
+        assert!(!ev.is_empty(), "uma lane que não sobe NÃO pode ficar muda na trama");
+        assert!(
+            ev.iter().any(|e| matches!(e.kind, crate::event::Kind::Error)),
+            "o sintoma tem que ser um Error com o motivo, não silêncio: {:?}",
+            ev.iter().map(|e| e.kind).collect::<Vec<_>>()
+        );
+        let motivo = ev.iter().find(|e| matches!(e.kind, crate::event::Kind::Error))
+            .and_then(|e| e.detail.clone()).unwrap_or_default();
+        assert!(motivo.contains("caiu"), "o evento tem que carregar o motivo: {motivo}");
+    }
+
 }
