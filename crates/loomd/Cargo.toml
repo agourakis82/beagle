@@ -1,0 +1,19 @@
+[package]
+name = "loomd"
+version = "0.1.0"
+edition = "2021"
+
+# Crate DELIBERADAMENTE fora do workspace do Beagle: `cargo build --all` do monorepo não deve
+# arrastar isto, e isto não deve arrastar as 60+ crates. Fatia 1 é para ser barata de construir
+# e barata de jogar fora.
+[workspace]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "signal"] }
+axum = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 1
+debug = false
