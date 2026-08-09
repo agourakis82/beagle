@@ -104,6 +104,35 @@ public enum ApproveAffordance: Sendable, Equatable {
     }
 }
 
+/// De ONDE veio o estado desta lane. Não é decoração: separa o que foi medido no protocolo
+/// do agente (JSON-RPC do codex app-server / hooks do Claude Code, via loomd) do que foi
+/// adivinhado por regex em cima de `tmux capture-pane`.
+///
+/// A ausência do campo lê `inferred` — o lado seguro. Todo emissor que NÃO sabe a procedência
+/// está, por definição, adivinhando; promover ausência a `exact` inventaria uma garantia.
+public enum Confidence: String, Sendable, Codable, CaseIterable {
+    /// Medido no protocolo: o agente disse, o loomd registrou. Nenhuma tela foi lida.
+    case exact
+    /// Lido da tela: classificação por regex do `capture-pane` (o LanePoller de hoje).
+    case inferred
+
+    /// O glifo da procedência. Reaproveita o vocabulário de `TruthMode` — ● observado,
+    /// ○ declarado — porque é a mesma pergunta: isto foi visto ou foi suposto?
+    public var glyph: String {
+        switch self {
+        case .exact:    return "\u{25CF}"   // ●
+        case .inferred: return "\u{25CB}"   // ○
+        }
+    }
+
+    public var label: String {
+        switch self {
+        case .exact:    return "medido no protocolo"
+        case .inferred: return "lido da tela"
+        }
+    }
+}
+
 /// One lane as the Frota board sees it — decoded from a Loom `sessions` entry.
 public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     public let sid: String
@@ -120,6 +149,14 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     public let atShell: Bool
     /// When the broker actually observed this lane. Nil = never observed (state is a guess).
     public let observedAt: Date?
+    /// A procedência de `state`: medido no protocolo (loomd) ou lido da tela (LanePoller).
+    /// Mesmo peso epistêmico de `observedAt` — QUANDO foi visto e COMO foi visto.
+    public let confidence: Confidence
+    /// A lane tem um pedido de aprovação TIPADO pendente (o loomd o recebeu por RPC).
+    /// Diferente de `approve`, que descreve uma TECLA: aqui não há tecla nenhuma — há um pedido
+    /// a responder. É este sinal que desenha o botão numa lane servida pelo loomd, e sem ele o
+    /// card exato caía na folha de "Responder", cuja resposta era engolida em silêncio.
+    public let pendingApproval: Bool
 
     public var id: String { sid }
     public var family: LaneFamily { LaneFamily.of(sid) }
@@ -136,6 +173,21 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// What the card calls this lane's presence.
     public var presenceLabel: String { isAbsent ? "ausente" : state.label }
 
+    /// Como o card NOMEIA a procedência — para leitor de tela e para quem não distingue as
+    /// duas cores. Sem isto o campo existiria só em cor+glifo dentro de um card `.combine`.
+    public var confidenceLabel: String { confidence.label }
+
+    /// Existe uma sessão tmux por trás desta lane, ou seja: dá para ABRIR um terminal nela?
+    ///
+    /// Uma lane do loomd (`loom-1`) é supervisionada por JSON-RPC e não tem pty do outro lado.
+    /// Oferecer "Abrir lane" ali é oferecer um erro — e foi o que aconteceu enquanto o roster de
+    /// terminais e o allowlist de ação eram a mesma lista.
+    public var hasTerminal: Bool { FleetEndpoint.hasTerminal(sid) }
+
+    /// Por que este card não tem "Abrir lane". Um botão que some sem explicação vira suspeita
+    /// de bug; a frase é curta e fica no lugar dele.
+    public var noTerminalReason: String { "sem terminal — supervisionada por protocolo" }
+
     /// Moving a lane into its own worktree types a `cd`, so it needs TWO things: the lane at
     /// rest, and the lane at a **shell**. `idle` alone is not enough — a lane parked at its
     /// agent's input box is idle too, and there the same text is a REQUEST to the agent rather
@@ -145,11 +197,17 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     public init(
         sid: String, title: String, state: LaneState, detail: String = "",
         peek: [String] = [], approve: ApproveAffordance = .answerNeeded,
-        atShell: Bool = false, observedAt: Date? = nil
+        atShell: Bool = false, observedAt: Date? = nil,
+        confidence: Confidence = .inferred,
+        pendingApproval: Bool = false
     ) {
         self.sid = sid; self.title = title; self.state = state; self.detail = detail
         self.peek = peek; self.approve = approve; self.atShell = atShell
         self.observedAt = observedAt
+        // Default `.inferred` pela mesma razão de `atShell: false`: quem constrói sem dizer
+        // a procedência não a conhece.
+        self.confidence = confidence
+        self.pendingApproval = pendingApproval
     }
 
     /// True when the observation is too old to present as current. The card must then show it
@@ -176,6 +234,12 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         } else {
             self.observedAt = nil
         }
+        // Campo ausente OU valor desconhecido = `inferred`. Um cockpit antigo, que ainda não
+        // manda `confidence`, não pode fazer a Frota afirmar que raspagem de tela é medição.
+        self.confidence = Confidence(rawValue: (obj["confidence"] as? String) ?? "") ?? .inferred
+        // Ausente = não há pendência. Degradar para "tem pedido" desenharia um botão que não
+        // tem o que responder — e o servidor recusaria com 409.
+        self.pendingApproval = obj["pendingApproval"] != nil && !(obj["pendingApproval"] is NSNull)
     }
 }
 

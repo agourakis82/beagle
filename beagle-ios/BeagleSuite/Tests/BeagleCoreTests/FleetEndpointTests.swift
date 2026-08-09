@@ -10,16 +10,35 @@ final class FleetEndpointTests: XCTestCase {
                        "ws://sounio-cockpit.tail21cbc4.ts.net/ws/loom")
     }
 
-    func testRosterIsTheRealElevenLanes() {
-        XCTAssertEqual(FleetEndpoint.agents.count, 11)
-        XCTAssertEqual(FleetEndpoint.agents.first, "claude-1")
-        XCTAssertEqual(FleetEndpoint.agents.last, "repo")
+    func testORosterDeTerminaisNaoEOAllowlistDeAcao() {
+        // Duas perguntas diferentes, duas listas. Enquanto foram uma só, `loom-1` — que não é
+        // sessão tmux — entrou no roster que `FleetTerminalStore.agents` publica, e o app passou
+        // a oferecer um terminal que só podia dar erro.
+        XCTAssertEqual(FleetEndpoint.terminalAgents.count, 11)
+        XCTAssertEqual(FleetEndpoint.terminalAgents.first, "claude-1")
+        XCTAssertEqual(FleetEndpoint.terminalAgents.last, "repo")
+        XCTAssertFalse(FleetEndpoint.terminalAgents.contains("loom-1"),
+                       "lane do loomd não tem pty: não pode estar no roster de terminais")
+
+        // O allowlist de AÇÃO é estritamente maior — e é essa folga que a lista única apagava.
+        XCTAssertEqual(FleetEndpoint.actionableLanes.count, 12)
+        XCTAssertTrue(FleetEndpoint.isKnownAgent("loom-1"),
+                      "sem allowlist a lane do loomd é descartada em silêncio nas ações")
+        XCTAssertFalse(FleetEndpoint.hasTerminal("loom-1"))
+        XCTAssertTrue(FleetEndpoint.hasTerminal("claude-1"))
+
+        // Um POST de tecla para a lane do loomd continua sendo MONTADO (o allowlist a conhece)…
+        let ep = FleetEndpoint(host: "h", scheme: "wss", token: "t")
+        XCTAssertNotNil(ep.laneKeyRequest(sid: "loom-1", key: .y))
+
         // The old roster was stale fiction (minimax/cursor/grok/kimi were never tmux sessions).
         for ghost in ["minimax", "cursor", "grok", "kimi"] {
             XCTAssertFalse(FleetEndpoint.isKnownAgent(ghost), "\(ghost) is not a real lane")
+            XCTAssertFalse(FleetEndpoint.hasTerminal(ghost))
         }
         for real in ["claude-3", "codex-2", "kimi-cli1", "grok-cli2", "repo"] {
             XCTAssertTrue(FleetEndpoint.isKnownAgent(real))
+            XCTAssertTrue(FleetEndpoint.hasTerminal(real))
         }
     }
 

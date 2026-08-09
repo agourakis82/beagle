@@ -56,6 +56,9 @@ public struct FrotaView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 if !coord.state.hazards.isEmpty || !coord.state.conflicts.isEmpty { coordSection }
+                // Acima da prateleira de propósito: isto não é sobre UMA lane, é sobre o quanto
+                // se pode confiar em tudo que vem abaixo.
+                if let saude = fleet.loomd, saude.isDegraded { loomdBand(saude) }
                 if !fleet.shelf.isEmpty { shelfSection }
                 restSection
                 linkFooter
@@ -140,6 +143,71 @@ public struct FrotaView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .farolGlass(tint: .red.opacity(0.55), frosted: false)
             }
+        }
+    }
+
+    // MARK: - A queda da fonte medida
+
+    /// A faixa que dá NOME à queda do loomd. Só existe quando `isDegraded` — mesma lei do
+    /// `coordSection` logo acima: um aviso permanente vira papel de parede e para de ser lido.
+    ///
+    /// Ela responde as três coisas que sumiam juntas quando o cliente descartava o bloco
+    /// `loomd` do frame: em que MODO a fonte está, POR QUE (nas palavras do servidor, que sabe
+    /// mais que o cliente), e QUAIS lanes saíram do board com ela. Vidro é chrome, a cor é
+    /// significado, e nada pisca — a queda de uma fonte é um fato, não um alarme.
+    @ViewBuilder
+    private func loomdBand(_ saude: LoomdHealth) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: loomdSymbol(saude))
+                    .foregroundStyle(loomdTint(saude))
+                Text("Fonte medida \(saude.modeLabel)")
+                    .font(.system(.subheadline, weight: .semibold)).foregroundStyle(.white)
+                Spacer()
+                // O carimbo do LOOMD, não o do cockpit: é o relógio da coisa que caiu.
+                if let at = saude.observedAt {
+                    Text(at, style: .relative)
+                        .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.45))
+                }
+            }
+            Text(saude.reason)
+                .font(.caption).foregroundStyle(.white.opacity(0.75))
+                .fixedSize(horizontal: false, vertical: true)
+            // As lanes perdidas, nomeadas em poço opaco — o mesmo tratamento que o hazard dá aos
+            // nomes de lane. Sem esta linha, a queda é "um card a menos", que ninguém nota.
+            if let perdidas = saude.lostSentence {
+                Text(perdidas)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.32)))
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .farolGlass(tint: loomdTint(saude).opacity(0.55), frosted: false)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(saude.headline)
+    }
+
+    /// Duas cores, não cinco. Uma MEDIÇÃO ruim (`down`/`stale`) usa o mesmo laranja que os cards
+    /// já usam para "leitura antiga"; a AUSÊNCIA de medição usa o tom de "declarado, não
+    /// observado" que o resto da plataforma usa. A cor diz de que tipo é a falta.
+    private func loomdTint(_ saude: LoomdHealth) -> Color {
+        switch saude.mode {
+        case .down, .stale:          return .orange
+        case .absent, .unknown:      return BeagleTheme.truthDeclared
+        case .observed:              return BeagleTheme.truthObserved
+        }
+    }
+
+    private func loomdSymbol(_ saude: LoomdHealth) -> String {
+        switch saude.mode {
+        case .down:                  return "antenna.radiowaves.left.and.right.slash"
+        case .stale:                 return "clock.badge.exclamationmark"
+        case .absent, .unknown:      return "questionmark.circle"
+        case .observed:              return "antenna.radiowaves.left.and.right"
         }
     }
 
@@ -248,7 +316,12 @@ public struct FrotaView: View {
     /// resizes the pane the agent (and his cmux) is looking at.
     private func approve(_ lane: LaneSnapshot) {
         // A lane whose question needs a sentence has no honest keystroke — go straight to typing.
-        guard lane.approve.key != nil else { answering = lane; answerText = ""; return }
+        // Pendência TIPADA responde por RPC, sem tecla. Só cai na folha de texto quem de fato
+        // precisa de uma frase digitada — e não o card exato, que tinha o que responder e era
+        // mandado para o caminho que engolia a resposta.
+        guard lane.approve.key != nil || lane.pendingApproval else {
+            answering = lane; answerText = ""; return
+        }
         act(lane) { await fleet.approve(lane) }
     }
 
@@ -346,9 +419,13 @@ private struct LaneCard: View {
         .farolGlass(tint: raised ? hue : nil, frosted: lane.state == .stuck)
         .shadow(color: .black.opacity(raised ? 0.45 : 0.18), radius: raised ? 18 : 6, y: raised ? 8 : 2)
         .contentShape(Rectangle())
-        .onTapGesture(perform: onOpen)
+        // O toque no card inteiro é o atalho para o terminal. Numa lane sem sessão tmux ele
+        // levaria direto a uma tela de erro, então o guarda fica aqui e não no destino.
+        .onTapGesture { if lane.hasTerminal { onOpen() } }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(lane.title), \(lane.presenceLabel). \(lane.detail)")
+        .accessibilityLabel(
+            "\(lane.title), \(lane.presenceLabel), \(lane.confidenceLabel). \(lane.detail)"
+        )
     }
 
     private var header: some View {
@@ -390,7 +467,30 @@ private struct LaneCard: View {
     private static let glyphInk = Color(red: 0.043, green: 0.055, blue: 0.086)
 
     /// Truth mode, per the platform invariant: never show a state without its provenance.
+    /// Duas perguntas, um selo só: QUANDO foi visto (o tempo relativo) e COMO foi visto
+    /// (o ponto). Vidro é chrome; a cor aqui é significado, e nada pisca — a diferença entre
+    /// medido e adivinhado não é um alerta, é uma propriedade do dado.
     private var truthBadge: some View {
+        HStack(spacing: 5) {
+            provenanceDot
+            observationAge
+        }
+    }
+
+    /// ● medido no protocolo (loomd) · ○ lido da tela (peek + regex).
+    /// Glifo E cor, nunca só cor: o mesmo par que `TruthMode` já usa no resto da plataforma.
+    private var provenanceDot: some View {
+        Text(lane.confidence.glyph)
+            .font(.system(size: 8, weight: .black))
+            .foregroundStyle(
+                lane.confidence == .exact
+                    ? BeagleTheme.truthObserved
+                    : BeagleTheme.truthDeclared
+            )
+            .accessibilityHidden(true)   // o texto vive no label do card, não duplicado aqui
+    }
+
+    private var observationAge: some View {
         Group {
             if lane.observedAt == nil {
                 Text("não observado")
@@ -446,7 +546,7 @@ private struct LaneCard: View {
     private var actions: some View {
         HStack(spacing: 10) {
             if lane.state == .waiting {
-                if lane.approve.key != nil {
+                if lane.approve.key != nil || lane.pendingApproval {
                     // One named key, sent without attaching. `y` here is the same `y` he would
                     // press at the keyboard — it is not a command.
                     Button(action: onApprove) {
@@ -476,8 +576,16 @@ private struct LaneCard: View {
                     // Moving a lane is not free, and the card says the price before he pays it.
                     .help("Move a lane para /workspace/.wt/\(lane.sid). Reinicia o agente ali — o contexto dele se perde.")
             }
-            Button(action: onOpen) { Text("Abrir lane").font(.subheadline) }
-                .buttonStyle(.bordered)
+            // Só quem tem sessão tmux ganha "Abrir lane". Uma lane do loomd é supervisionada por
+            // JSON-RPC e não tem pty do outro lado — o botão ali só podia falhar. No lugar dele
+            // fica a razão, porque um botão que some sem explicação vira suspeita de bug.
+            if lane.hasTerminal {
+                Button(action: onOpen) { Text("Abrir lane").font(.subheadline) }
+                    .buttonStyle(.bordered)
+            } else {
+                Text(lane.noTerminalReason)
+                    .font(.caption2).foregroundStyle(.white.opacity(0.45))
+            }
             if busy {
                 ProgressView().controlSize(.small)
                     .accessibilityLabel("enviando")

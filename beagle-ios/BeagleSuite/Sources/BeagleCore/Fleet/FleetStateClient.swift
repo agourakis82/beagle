@@ -23,6 +23,25 @@ public final class FleetStateClient {
     /// When the board last heard anything at all from the broker.
     public private(set) var lastFrameAt: Date?
 
+    /// A saúde da fonte MEDIDA (loomd), do bloco `loomd:{…}` que todo frame `sessions` carrega.
+    ///
+    /// `nil` = o cockpit nunca falou sobre essa fonte (versão antiga do servidor). É diferente
+    /// de `.unknown`, que é o servidor DIZENDO que não sabe — e a tela trata os dois diferente:
+    /// sobre o que ninguém afirmou, ela fica calada.
+    public private(set) var loomd: LoomdHealth?
+
+    /// Trava: a fonte já respondeu nesta sessão. É o que separa QUEDA de AUSÊNCIA, e portanto
+    /// o que decide se a faixa aparece — sem ela, um deploy sem loomd nenhum ganharia banner
+    /// permanente, que é como um aviso vira papel de parede.
+    private var loomdEverObserved = false
+
+    /// As lanes que sumiram junto com a fonte, acumuladas DESTE lado.
+    ///
+    /// Não basta repassar o `lost[]` do servidor: ele zera quando o cockpit reinicia, e a lane
+    /// continua fora do board. O diff antes/depois feito aqui é o único que o outro lado não
+    /// pode apagar. Só é limpo quando a fonte volta a ser observada.
+    private var loomdLost: Set<String> = []
+
     private let endpoint: FleetEndpoint
     private let session: URLSession
     private var task: URLSessionWebSocketTask?
@@ -81,8 +100,40 @@ public final class FleetStateClient {
     /// Clear a waiting lane with ONE named key, over HTTP — no attach, so it never becomes a
     /// tmux client and never resizes his panes. The server re-reads the lane's screen inside the
     /// request and refuses with a reason if the key is wrong for what is on it.
+    /// Por onde uma aprovação sai. PURA e separada do `approve` de propósito: enquanto a escolha
+    /// morava dentro da função que faz rede, ela não tinha teste — e a mutação provou isso
+    /// (trocar o ramo do RPC por `false` deixava a suíte INTEIRA verde). O servidor já separa a
+    /// decisão do efeito em `decideKey`; aqui é a mesma disciplina.
+    public enum ApproveTransport: Sendable, Equatable {
+        /// Pedido TIPADO: o loomd responde por RPC. Não há tecla nenhuma para nomear.
+        case rpc
+        /// Lane de tela: uma tecla nomeada, entregue por `send-keys`.
+        case key(FleetEndpoint.LaneKey)
+        /// Pergunta aberta: precisa de frase digitada, e nenhum botão pode fingir que resolve.
+        case answer
+    }
+
+    /// `nonisolated` porque é PURA: não toca estado do cliente, e uma decisão que só pode ser
+    /// consultada de dentro do main actor não é testável como decisão.
+    public nonisolated static func approveTransport(for lane: LaneSnapshot) -> ApproveTransport {
+        if lane.pendingApproval { return .rpc }
+        if let k = lane.approve.key { return .key(k) }
+        return .answer
+    }
+
     @discardableResult
     public func approve(_ lane: LaneSnapshot) async -> ActionResult {
+        // Lane servida pelo loomd: não há tecla, há um pedido TIPADO a responder. Sem este ramo
+        // o card exato caía no `guard` abaixo e abria a folha de "Responder" — cuja resposta
+        // seguia pelo socket para uma sessão que o broker não tem, e sumia em silêncio.
+        if Self.approveTransport(for: lane) == .rpc {
+            guard let req = endpoint.laneApproveRequest(sid: lane.sid, allow: true) else {
+                return ActionResult(ok: false, message: "lane fora do allowlist: \(lane.sid)")
+            }
+            let out = await post(req)
+            if out.ok { refresh() }
+            return out
+        }
         guard let key = lane.approve.key else {
             return ActionResult(ok: false, message: "essa lane pede uma resposta digitada — abra o terminal")
         }
@@ -172,7 +223,10 @@ public final class FleetStateClient {
         }
     }
 
-    private func handle(_ raw: String) {
+    /// `internal` (não `private`) só para dar costura de teste via `@testable`: o caminho de
+    /// patch de lane única é onde um campo novo some em silêncio, e não há como exercê-lo sem
+    /// um socket real de outra forma.
+    func handle(_ raw: String) {
         guard
             let data = raw.data(using: .utf8),
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -183,8 +237,10 @@ public final class FleetStateClient {
         switch t {
         case "sessions":
             guard let arr = obj["sessions"] as? [[String: Any]] else { return }
+            let antes = lanes
             lanes = arr.compactMap(LaneSnapshot.init(loom:))
-            trace("sessions: \(lanes.count) lanes, \(shelf.count) na prateleira")
+            ingestLoomd(obj["loomd"] as? [String: Any], antes: antes)
+            trace("sessions: \(lanes.count) lanes, \(shelf.count) na prateleira, fonte medida: \(loomd?.mode.rawValue ?? "não declarada")")
         case "state":
             // A single lane changed; patch it in place so the board does not reflow.
             guard let sid = obj["sid"] as? String,
@@ -203,11 +259,44 @@ public final class FleetStateClient {
                     : ApproveAffordance(approveKey: obj["approveKey"] as? String),
                 atShell: (obj["atShell"] as? Bool) ?? old.atShell,
                 observedAt: (obj["observedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-                    ?? old.observedAt
+                    ?? old.observedAt,
+                // Patch de lane única: `?? old.confidence`, NÃO `?? .inferred`. Um frame
+                // `state` que omite o campo é silêncio sobre a procedência, não a afirmação
+                // de que a lane passou a ser adivinhada — rebaixá-la apagaria o contraste
+                // no primeiro evento depois do snapshot.
+                confidence: (obj["confidence"] as? String).flatMap(Confidence.init(rawValue:))
+                    ?? old.confidence
             )
         default:
             break   // data/scrollback belong to PTYClient; the board ignores terminal bytes.
         }
+    }
+
+    /// Lê o bloco `loomd` de um frame `sessions` e mantém, deste lado, o que a queda levou.
+    ///
+    /// Bloco ausente = cockpit antigo, que nunca soube da fonte: deixamos `loomd` como estava
+    /// (`nil` continua `nil`). Silêncio não é afirmação, e inventar `.unknown` aqui produziria
+    /// uma faixa sobre uma fonte que ninguém mencionou.
+    private func ingestLoomd(_ bloco: [String: Any]?, antes: [LaneSnapshot]) {
+        guard let bloco else { return }
+        let lida = LoomdHealth(loom: bloco)
+
+        if lida.mode == .observed {
+            loomdEverObserved = true
+            loomdLost.removeAll()   // a fonte voltou: parar de acusar perda que já não existe
+        } else {
+            // As lanes que ERAM medidas e não vieram neste frame. Comparar por `confidence`
+            // importa: uma lane raspada da tela some por outros motivos (tmux, pod), e pendurá-la
+            // na queda do loomd seria acusar a fonte errada.
+            let vivas = Set(lanes.map(\.sid))
+            let sumidas = antes.filter { $0.confidence == .exact && !vivas.contains($0.sid) }
+            loomdLost.formUnion(sumidas.map(\.sid))
+            loomdLost.formUnion(lida.lost)
+        }
+
+        loomd = lida
+            .remembering(everObserved: loomdEverObserved)
+            .naming(lost: loomdLost.sorted())
     }
 
     private func drop(_ error: Error) {

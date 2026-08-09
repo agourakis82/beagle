@@ -20,11 +20,16 @@ public final class FleetTerminalStore {
     public init(endpoint: FleetEndpoint = FleetEndpoint()) {
         self.endpoint = endpoint
         let saved = UserDefaults.standard.string(forKey: Self.lastAgentKey)
-        self.activeAgent = (saved.flatMap { FleetEndpoint.isKnownAgent($0) ? $0 : nil })
-            ?? (FleetEndpoint.agents.first ?? "claude-1")
+        // `hasTerminal`, não `isKnownAgent`: o allowlist de AÇÃO inclui lanes do loomd, que não
+        // têm sessão tmux. Restaurar uma delas como agente ativo abriria a aba Terminais direto
+        // num PTY que só pode falhar.
+        self.activeAgent = (saved.flatMap { FleetEndpoint.hasTerminal($0) ? $0 : nil })
+            ?? (FleetEndpoint.terminalAgents.first ?? "claude-1")
     }
 
-    public var agents: [String] { FleetEndpoint.agents }
+    /// O roster desta aba é o de TERMINAIS. Uma lane servida por protocolo (loomd) não entra:
+    /// ela não tem pty do outro lado.
+    public var agents: [String] { FleetEndpoint.terminalAgents }
 
     /// Returns the (lazily created, kept-alive) client for an agent and marks it opened.
     public func client(for agent: String) -> PTYClient {
@@ -36,7 +41,7 @@ public final class FleetTerminalStore {
     }
 
     public func open(_ agent: String) {
-        guard FleetEndpoint.isKnownAgent(agent) else { return }
+        guard FleetEndpoint.hasTerminal(agent) else { return }
         let c = client(for: agent)
         seen[agent] = c.activity        // opening = caught up (clears unread)
         activeAgent = agent
@@ -44,7 +49,7 @@ public final class FleetTerminalStore {
 
     /// Switch to the next/previous agent in the roster (for swipe).
     public func cycle(_ delta: Int) {
-        let list = FleetEndpoint.agents
+        let list = FleetEndpoint.terminalAgents
         guard let i = list.firstIndex(of: activeAgent) else { return }
         let n = ((i + delta) % list.count + list.count) % list.count
         open(list[n])

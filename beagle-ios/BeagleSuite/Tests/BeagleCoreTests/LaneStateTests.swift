@@ -108,6 +108,40 @@ final class LaneActionTests: XCTestCase {
         XCTAssertEqual(LaneSnapshot(loom: ["sid": "repo", "state": "idle", "atShell": true])?.atShell, true)
     }
 
+    func testAnAbsentConfidenceFieldIsReadAsInferred() {
+        // Gêmeo de `testAnAbsentAtShellFieldIsReadAsNotAShell`. Um cockpit que ainda não manda
+        // `confidence` não pode fazer a Frota afirmar que raspagem de tela é medição.
+        let mudo = LaneSnapshot(loom: ["sid": "repo", "state": "idle"])
+        XCTAssertEqual(mudo?.confidence, .inferred)
+        XCTAssertEqual(mudo?.confidenceLabel, "lido da tela")
+        // Idem para um valor que não reconhecemos: desconhecido cai no lado seguro.
+        XCTAssertEqual(
+            LaneSnapshot(loom: ["sid": "repo", "state": "idle", "confidence": "provavelmente"])?
+                .confidence,
+            .inferred
+        )
+        // E o init memberwise, que é como toda a UI de teste/preview constrói lane.
+        XCTAssertEqual(LaneSnapshot(sid: "repo", title: "repo", state: .idle).confidence, .inferred)
+    }
+
+    func testUmaLaneSemSessaoTmuxNaoOfereceTerminal() {
+        // É isto que apaga o botão "Abrir lane" (e o toque no card) numa lane do loomd. Sem
+        // este predicado o card oferecia um terminal impossível: o operador toca e cai num erro.
+        let doLoomd = LaneSnapshot(sid: "loom-1", title: "loom-1", state: .waiting)
+        XCTAssertFalse(doLoomd.hasTerminal)
+        XCTAssertFalse(doLoomd.noTerminalReason.isEmpty, "o lugar do botão não pode ficar mudo")
+        XCTAssertTrue(LaneSnapshot(sid: "claude-1", title: "claude-1", state: .idle).hasTerminal)
+        XCTAssertTrue(LaneSnapshot(sid: "repo", title: "repo", state: .idle).hasTerminal)
+    }
+
+    func testExactOnlyWhenTheFrameDeclaresIt() {
+        let medida = LaneSnapshot(loom: ["sid": "loom-1", "state": "waiting", "confidence": "exact"])
+        XCTAssertEqual(medida?.confidence, .exact)
+        XCTAssertEqual(medida?.confidenceLabel, "medido no protocolo")
+        // Glifo E cor: o selo não pode depender só de matiz.
+        XCTAssertNotEqual(Confidence.exact.glyph, Confidence.inferred.glyph)
+    }
+
     func testTheKeyRequestCarriesTheTokenInAHeaderAndTheKeyInTheBody() throws {
         let ep = FleetEndpoint(host: "cockpit.example", scheme: "wss", token: "sekret")
         let req = try XCTUnwrap(ep.laneKeyRequest(sid: "codex-2", key: .y))
@@ -126,5 +160,59 @@ final class LaneActionTests: XCTestCase {
         XCTAssertNil(ep.laneKeyRequest(sid: "evil; rm -rf", key: .y))
         XCTAssertNil(ep.laneIsolateRequest(sid: "not-a-lane"))
         XCTAssertNotNil(ep.laneIsolateRequest(sid: "codex-1"))
+    }
+}
+
+
+/// Aprovação por RPC — a lane servida pelo loomd não tem tecla, tem um pedido a responder.
+final class AprovacaoPorRPCTests: XCTestCase {
+
+    func testPendenciaTipadaEDecodificadaEAusenciaNaoInventaPedido() {
+        // Ausente = não há pendência. Degradar para "tem pedido" desenharia um botão sem nada
+        // para responder, e o servidor devolveria 409.
+        let com = LaneSnapshot(loom: ["sid": "loom-1", "state": "waiting",
+                                      "pendingApproval": ["7", "item/fileChange/requestApproval"]])
+        XCTAssertEqual(com?.pendingApproval, true)
+        XCTAssertNil(com?.approve.key, "lane do loomd NÃO tem tecla — é RPC")
+        XCTAssertEqual(LaneSnapshot(loom: ["sid": "loom-1", "state": "waiting"])?.pendingApproval, false)
+        XCTAssertEqual(LaneSnapshot(loom: ["sid": "l", "state": "waiting",
+                                           "pendingApproval": NSNull()])?.pendingApproval, false)
+    }
+
+    func testOTransporteDaAprovacaoEEscolhidoPeloQueALaneOFERECE() {
+        // Este é o teste que faltava: a mutação mostrou que trocar o ramo do RPC por `false`
+        // deixava a suíte inteira VERDE — ou seja, o comportamento central da mudança não tinha
+        // guarda nenhuma. Enquanto a escolha morava dentro da função que faz rede, não havia
+        // costura para testar; agora é pura.
+        let doLoomd = LaneSnapshot(sid: "loom-1", title: "loom-1", state: .waiting, pendingApproval: true)
+        XCTAssertEqual(FleetStateClient.approveTransport(for: doLoomd), .rpc,
+                       "pendência tipada NÃO pode virar tecla nem folha de texto")
+
+        let deTela = LaneSnapshot(sid: "codex-2", title: "codex-2", state: .waiting, approve: .enterKey)
+        XCTAssertEqual(FleetStateClient.approveTransport(for: deTela), .key(.enter))
+
+        let perguntaAberta = LaneSnapshot(sid: "kimi-cli1", title: "kimi-cli1", state: .waiting, approve: .answerNeeded)
+        XCTAssertEqual(FleetStateClient.approveTransport(for: perguntaAberta), .answer,
+                       "pergunta que pede frase nunca ganha botão de um toque")
+
+        // E a precedência importa: se as duas coisas chegarem, o RPC vence — é o caminho que
+        // responde ao pedido REAL, enquanto a tecla seria enviada a um pane que não existe.
+        let ambos = LaneSnapshot(sid: "loom-1", title: "loom-1", state: .waiting,
+                                 approve: .yKey, pendingApproval: true)
+        XCTAssertEqual(FleetStateClient.approveTransport(for: ambos), .rpc)
+    }
+
+    func testARotaDeAprovarNaoLevaOTokenNaURLERecusaSidHostil() throws {
+        let ep = FleetEndpoint(host: "cockpit.example", scheme: "wss", token: "sekret")
+        let req = try XCTUnwrap(ep.laneApproveRequest(sid: "loom-1"))
+        XCTAssertEqual(req.httpMethod, "POST")
+        XCTAssertEqual(req.url?.absoluteString,
+                       "https://cockpit.example/api/mobile/v1/lanes/loom-1/approve")
+        XCTAssertFalse(req.url?.absoluteString.contains("sekret") ?? true)
+        XCTAssertEqual(req.value(forHTTPHeaderField: "x-cockpit-token"), "sekret")
+        // O sid vem do frame do servidor, mas entra num caminho de URL — charset é verificado.
+        XCTAssertNil(ep.laneApproveRequest(sid: "../../etc"))
+        XCTAssertNil(ep.laneApproveRequest(sid: "loom 1"))
+        XCTAssertNil(ep.laneApproveRequest(sid: ""))
     }
 }

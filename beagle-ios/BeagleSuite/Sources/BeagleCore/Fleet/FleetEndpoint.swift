@@ -13,13 +13,31 @@ import FoundationNetworking   // URLRequest/URLSession live here on non-Apple pl
 public struct FleetEndpoint: Sendable {
     /// The real workspace agent lanes — tmux session ids on `sounio-workspace-control-0`,
     /// allowlisted in `platform-bridge.mjs` and seeded into the Loom broker.
-    public static let agents: [String] = [
+    ///
+    /// Esta lista é o roster de TERMINAIS: cada nome aqui tem uma sessão tmux atrás, e é a ela
+    /// que `FleetTerminalStore` abre um PTY. Não é o allowlist de ação — ver `actionableLanes`.
+    public static let terminalAgents: [String] = [
         "claude-1", "claude-2", "claude-3",
         "codex-1", "codex-2", "codex-3",
         "kimi-cli1", "kimi-cli2",
         "grok-cli1", "grok-cli2",
         "repo",
     ]
+
+    /// Lanes servidas pelo **loomd** (supervisor por protocolo, JSON-RPC dentro do pod). Elas
+    /// aparecem no board e aceitam ação, mas NÃO têm sessão tmux: abrir terminal para uma delas
+    /// só pode dar erro.
+    ///
+    /// Medido hoje: `loom-1` tinha sido posto na lista acima, que é literalmente o que
+    /// `FleetTerminalStore.agents` publica na aba Terminais — o app oferecia um terminal
+    /// impossível. Duas perguntas diferentes ("posso AGIR nesta lane?" e "posso ABRIR esta
+    /// lane?") não podem compartilhar uma lista só.
+    public static let loomdLanes: [String] = ["loom-1"]
+
+    /// Tudo em que o board pode agir: terminais + lanes do loomd. É o allowlist consultado
+    /// antes de montar um POST de tecla/isolamento — sem estar aqui, a lane chega no frame e é
+    /// descartada em silêncio, sem erro e sem log.
+    public static let actionableLanes: [String] = terminalAgents + loomdLanes
 
     public let host: String
     public let scheme: String
@@ -46,8 +64,15 @@ public struct FleetEndpoint: Sendable {
         self.token = CockpitToken.resolve(explicit: token)
     }
 
+    /// Pode-se AGIR nesta lane? (tecla, isolamento) — inclui as lanes do loomd.
     public static func isKnownAgent(_ agent: String) -> Bool {
-        agents.contains(agent)
+        actionableLanes.contains(agent)
+    }
+
+    /// Existe um terminal para ABRIR? Só as sessões tmux. Estritamente mais restrito que
+    /// `isKnownAgent`, e é essa folga entre os dois conjuntos que o roster único apagava.
+    public static func hasTerminal(_ agent: String) -> Bool {
+        terminalAgents.contains(agent)
     }
 
     /// The single multiplexed Loom socket: `ws(s)://<host>/ws/loom`. Every lane shares it;
@@ -113,6 +138,23 @@ public struct FleetEndpoint: Sendable {
 
     /// Move a lane into its own git worktree. Only sound for a lane at rest — the server enforces
     /// that, because moving restarts the agent there and its context is lost.
+    /// Responder ao pedido que a lane está fazendo. Irmã de `laneKeyRequest`, não substituta:
+    /// `/key` diz "entregue ESTA tecla" e só faz sentido onde existe um pane; `/approve` diz
+    /// "responda ao pedido" e deixa o SERVIDOR escolher o mecanismo a partir de quem serve a
+    /// lane. Numa lane do loomd não há tecla nenhuma para nomear.
+    ///
+    /// O `sid` vem do frame do próprio servidor, não de digitação — mas passa por um teste de
+    /// charset assim mesmo, porque ele entra num caminho de URL.
+    public func laneApproveRequest(sid: String, allow: Bool = true) -> URLRequest? {
+        guard !sid.isEmpty, sid.count <= 64,
+              sid.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { return nil }
+        guard var req = jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/approve") else { return nil }
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Self.encode(["allow": allow]).data(using: .utf8)
+        return req
+    }
+
     public func laneIsolateRequest(sid: String) -> URLRequest? {
         guard Self.isKnownAgent(sid) else { return nil }
         guard var req = jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/isolate") else { return nil }
