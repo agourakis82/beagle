@@ -36,17 +36,27 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
             let tv = TerminalView(frame: .zero)
             tv.terminalDelegate = self
             terminal = tv
+            // Cockpit identity: plum canvas, light text. This used to be iOS-only, so the Mac
+            // terminal sat on SwiftTerm's default white inside a dark window — the one surface
+            // in Mission Control that did not belong to the room.
             #if os(iOS)
-            // Cockpit identity: plum canvas, light text (keyboard accessory toolbar is
-            // auto-installed by SwiftTerm on iPhone).
             tv.nativeBackgroundColor = UIColor(red: 0.106, green: 0.078, blue: 0.149, alpha: 1)
             tv.nativeForegroundColor = UIColor(white: 0.92, alpha: 1)
+            #else
+            tv.nativeBackgroundColor = NSColor(srgbRed: 0.106, green: 0.078, blue: 0.149, alpha: 1)
+            tv.nativeForegroundColor = NSColor(white: 0.92, alpha: 1)
             #endif
             // Lane output -> terminal (main actor; PTYClient is @MainActor)
             client.onBytes = { [weak tv] bytes in
                 tv?.feed(byteArray: bytes[...])
             }
             client.connect()
+            // Tell the lane our REAL viewport immediately. The broker's attach starts at a
+            // hard-coded 120x34 (adaptedSession.mjs), and tmux sizes a window to its smallest
+            // client — so an invented size briefly reshapes the pane every other client is
+            // looking at. `sizeChanged` corrects it, but only after the first layout pass.
+            let cols = tv.getTerminal().cols, rows = tv.getTerminal().rows
+            if cols > 0 && rows > 0 { client.resize(cols: cols, rows: rows) }
             return tv
         }
 

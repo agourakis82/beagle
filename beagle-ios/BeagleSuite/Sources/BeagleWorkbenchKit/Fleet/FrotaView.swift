@@ -27,6 +27,17 @@ public struct FrotaView: View {
     @State private var coord = CoordClient()
     @State private var answering: LaneSnapshot?
     @State private var answerText: String = ""
+    /// The lane whose one-touch action is in flight. A button that looks idle while a keystroke
+    /// is on the wire invites a second press — and a second `y` lands in whatever came next.
+    @State private var acting: String?
+    /// The last refusal or failure, kept next to the lane it belongs to. The server's own wording
+    /// is shown verbatim: it knows why ("a lane está running, não esperando por você").
+    @State private var actionNote: ActionNote?
+
+    private struct ActionNote: Equatable {
+        let sid: String
+        let message: String
+    }
     @Environment(\.scenePhase) private var scenePhase
 
     /// Opening a lane's full terminal is the caller's business (it owns navigation).
@@ -150,8 +161,12 @@ public struct FrotaView: View {
             }
             ForEach(fleet.shelf) { lane in
                 LaneCard(lane: lane, raised: true,
+                         busy: acting == lane.sid,
+                         note: actionNote?.sid == lane.sid ? actionNote?.message : nil,
                          onApprove: { approve(lane) },
                          onAnswer: { answering = lane; answerText = "" },
+                         onInterrupt: { interrupt(lane) },
+                         onIsolate: { isolate(lane) },
                          onOpen: { onOpenLane(lane.sid) })
             }
         }
@@ -170,7 +185,11 @@ public struct FrotaView: View {
             } else {
                 ForEach(fleet.rest) { lane in
                     LaneCard(lane: lane, raised: false,
+                             busy: acting == lane.sid,
+                             note: actionNote?.sid == lane.sid ? actionNote?.message : nil,
                              onApprove: {}, onAnswer: {},
+                             onInterrupt: { interrupt(lane) },
+                             onIsolate: { isolate(lane) },
                              onOpen: { onOpenLane(lane.sid) })
                 }
             }
@@ -225,11 +244,27 @@ public struct FrotaView: View {
 
     // MARK: - Actions
 
+    /// One touch = one named key, sent over HTTP. No attach, so approving from the Mac never
+    /// resizes the pane the agent (and his cmux) is looking at.
     private func approve(_ lane: LaneSnapshot) {
-        if fleet.approve(lane) {
-            haptic()
-        } else {
-            answering = lane; answerText = ""   // needs a real answer, not a keystroke
+        // A lane whose question needs a sentence has no honest keystroke — go straight to typing.
+        guard lane.approve.key != nil else { answering = lane; answerText = ""; return }
+        act(lane) { await fleet.approve(lane) }
+    }
+
+    private func interrupt(_ lane: LaneSnapshot) { act(lane) { await fleet.interrupt(lane) } }
+    private func isolate(_ lane: LaneSnapshot) { act(lane) { await fleet.isolate(lane) } }
+
+    /// Every lane action goes through here so none of them can fail invisibly: in-flight is
+    /// shown, and a refusal lands as text on the card that was refused.
+    private func act(_ lane: LaneSnapshot, _ body: @escaping () async -> FleetStateClient.ActionResult) {
+        guard acting == nil else { return }
+        acting = lane.sid
+        actionNote = nil
+        Task {
+            let out = await body()
+            acting = nil
+            if out.ok { haptic() } else { actionNote = ActionNote(sid: lane.sid, message: out.message) }
         }
     }
 
@@ -282,8 +317,15 @@ private struct LaneCard: View {
     let lane: LaneSnapshot
     /// A lane on the shelf sits physically higher — elevation is the second encoding of state.
     let raised: Bool
+    /// An action for THIS lane is on the wire.
+    let busy: Bool
+    /// Why the last action did not happen. Shown on the card, never as a global toast: the
+    /// refusal is about this lane and belongs where the operator was looking.
+    let note: String?
     let onApprove: () -> Void
     let onAnswer: () -> Void
+    let onInterrupt: () -> Void
+    let onIsolate: () -> Void
     let onOpen: () -> Void
 
     @State private var breathing = false
@@ -293,7 +335,10 @@ private struct LaneCard: View {
             header
             if !lane.detail.isEmpty { evidence }
             if !lane.peek.isEmpty && lane.state != .waiting { peekWell }
-            if lane.state == .waiting { actions }
+            // A lane that does not exist in tmux gets no controls at all — there is nothing
+            // there to press a key at.
+            if !lane.isAbsent { actions }
+            if let note { refusal(note) }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -303,7 +348,7 @@ private struct LaneCard: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onOpen)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(lane.title), \(lane.state.label). \(lane.detail)")
+        .accessibilityLabel("\(lane.title), \(lane.presenceLabel). \(lane.detail)")
     }
 
     private var header: some View {
@@ -312,7 +357,7 @@ private struct LaneCard: View {
             Text(lane.title)
                 .font(.system(.body, weight: .semibold))
                 .foregroundStyle(.white)
-            Text(lane.state.label)
+            Text(lane.presenceLabel)
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.6))
             Spacer()
@@ -400,26 +445,64 @@ private struct LaneCard: View {
     /// one-tap approval when one keystroke can honestly satisfy the prompt.
     private var actions: some View {
         HStack(spacing: 10) {
-            if lane.approve.injection != nil {
-                Button(action: onApprove) {
-                    Label("Aprovar", systemImage: "return")
-                        .font(.system(.subheadline, weight: .semibold))
+            if lane.state == .waiting {
+                if lane.approve.key != nil {
+                    // One named key, sent without attaching. `y` here is the same `y` he would
+                    // press at the keyboard — it is not a command.
+                    Button(action: onApprove) {
+                        Label("Aprovar", systemImage: "return")
+                            .font(.system(.subheadline, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(hue)
+                } else {
+                    // No keystroke can honestly satisfy an open question — do not draw one.
+                    Button(action: onAnswer) {
+                        Label("Responder", systemImage: "text.bubble")
+                            .font(.system(.subheadline, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(hue)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(hue)
-            } else {
-                Button(action: onAnswer) {
-                    Label("Responder", systemImage: "text.bubble")
-                        .font(.system(.subheadline, weight: .semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(hue)
+            }
+            if lane.state == .waiting || lane.state == .running {
+                // Esc confirms nothing; it is the interrupt the CLIs advertise themselves.
+                Button(action: onInterrupt) { Label("Interromper", systemImage: "escape").font(.subheadline) }
+                    .buttonStyle(.bordered)
+            }
+            if lane.isIsolatable {
+                Button(action: onIsolate) { Label("Isolar", systemImage: "arrow.branch").font(.subheadline) }
+                    .buttonStyle(.bordered)
+                    // Moving a lane is not free, and the card says the price before he pays it.
+                    .help("Move a lane para /workspace/.wt/\(lane.sid). Reinicia o agente ali — o contexto dele se perde.")
             }
             Button(action: onOpen) { Text("Abrir lane").font(.subheadline) }
                 .buttonStyle(.bordered)
+            if busy {
+                ProgressView().controlSize(.small)
+                    .accessibilityLabel("enviando")
+            }
             Spacer()
         }
+        .disabled(busy)
         .padding(.top, 2)
+    }
+
+    /// The refusal, in the server's own words. It is more specific than anything the client
+    /// could infer, and a button that fails silently is worse than no button.
+    private func refusal(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .foregroundStyle(Color(red: 1.00, green: 0.64, blue: 0.30))
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.32)))
     }
 
     /// Hue = identity. One accent per agent family.

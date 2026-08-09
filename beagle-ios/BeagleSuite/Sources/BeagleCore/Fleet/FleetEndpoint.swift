@@ -87,6 +87,41 @@ public struct FleetEndpoint: Sendable {
     /// The coordination reading: shared-tree hazards, live claims, and their conflicts.
     public func coordRequest() -> URLRequest? { jsonRequest(path: "/api/mobile/v1/coord") }
 
+    // MARK: - Acting on a lane (HTTP one-shot, never an attach)
+
+    /// The only keystrokes the cockpit will deliver, by name. Mirrors `LANE_KEYS` in
+    /// `platform-bridge.mjs`; the server refuses anything else, so this is a convenience, not
+    /// the guard. `esc` interrupts and confirms nothing — it is the one key valid on a busy lane.
+    public enum LaneKey: String, Sendable, CaseIterable {
+        case enter, y, esc
+    }
+
+    /// Press ONE named key in a lane, via `tmux send-keys` — no attach, so it never becomes a
+    /// tmux client and never resizes his panes (tmux sizes a window to its smallest client).
+    ///
+    /// The server decides whether the key is allowed, from a screen it re-reads inside the
+    /// request. A lane whose question needs a typed sentence is refused with a reason; the UI
+    /// must open the terminal instead of pretending a keystroke answered it.
+    public func laneKeyRequest(sid: String, key: LaneKey) -> URLRequest? {
+        guard Self.isKnownAgent(sid) else { return nil }
+        guard var req = jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/key") else { return nil }
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Self.encode(["key": key.rawValue]).data(using: .utf8)
+        return req
+    }
+
+    /// Move a lane into its own git worktree. Only sound for a lane at rest — the server enforces
+    /// that, because moving restarts the agent there and its context is lost.
+    public func laneIsolateRequest(sid: String) -> URLRequest? {
+        guard Self.isKnownAgent(sid) else { return nil }
+        guard var req = jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/isolate") else { return nil }
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = Data("{}".utf8)
+        return req
+    }
+
     private func jsonRequest(path: String) -> URLRequest? {
         var c = URLComponents()
         c.scheme = (scheme == "wss") ? "https" : "http"

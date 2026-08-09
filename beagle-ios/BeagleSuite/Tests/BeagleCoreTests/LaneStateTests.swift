@@ -60,3 +60,61 @@ final class LaneStateTests: XCTestCase {
                                    observedAt: Date().addingTimeInterval(-120)).isStale())
     }
 }
+
+/// Acting on a lane — added with Fase 6, when the Frota stopped being read-only.
+final class LaneActionTests: XCTestCase {
+
+    func testTheAffordanceMapsToANamedKeyAndNeverInventsOneForAnOpenQuestion() {
+        XCTAssertEqual(ApproveAffordance.enterKey.key, .enter)
+        XCTAssertEqual(ApproveAffordance.yKey.key, .y)
+        // The whole point: a question that needs a sentence has NO key. The server refuses it
+        // too, so this is belt-and-braces rather than the only guard.
+        XCTAssertNil(ApproveAffordance.answerNeeded.key)
+    }
+
+    func testAnAbsentLaneIsNotJustAnotherExitedOne() {
+        // Measured 2026-08-09: grok-cli1/2 and codex-3 do not exist in tmux at all. The server
+        // states it in `detail`; the card must say "ausente" and offer nothing to press.
+        let absent = LaneSnapshot(sid: "grok-cli1", title: "grok-cli1", state: .exited,
+                                  detail: "sessão não existe no tmux")
+        XCTAssertTrue(absent.isAbsent)
+        XCTAssertEqual(absent.presenceLabel, "ausente")
+        XCTAssertFalse(absent.isIsolatable, "there is nothing there to move")
+
+        let ended = LaneSnapshot(sid: "codex-1", title: "codex-1", state: .exited,
+                                 detail: "Goal achieved (2h 46m)")
+        XCTAssertFalse(ended.isAbsent)
+        XCTAssertEqual(ended.presenceLabel, "encerrado")
+        XCTAssertTrue(ended.isIsolatable)
+    }
+
+    func testOnlyALaneAtRestOffersIsolation() {
+        // Moving restarts the agent in the new tree and loses its context, so a busy lane must
+        // not even show the button.
+        for state in [LaneState.running, .waiting, .stuck, .unknown] {
+            XCTAssertFalse(LaneSnapshot(sid: "claude-1", title: "c", state: state).isIsolatable,
+                           "\(state) must not offer isolation")
+        }
+        XCTAssertTrue(LaneSnapshot(sid: "repo", title: "repo", state: .idle).isIsolatable)
+    }
+
+    func testTheKeyRequestCarriesTheTokenInAHeaderAndTheKeyInTheBody() throws {
+        let ep = FleetEndpoint(host: "cockpit.example", scheme: "wss", token: "sekret")
+        let req = try XCTUnwrap(ep.laneKeyRequest(sid: "codex-2", key: .y))
+        XCTAssertEqual(req.httpMethod, "POST")
+        XCTAssertEqual(req.url?.absoluteString, "https://cockpit.example/api/mobile/v1/lanes/codex-2/key")
+        // A token in the URL leaks into logs and proxies; it belongs in a header. Same invariant
+        // the Loom socket already holds.
+        XCTAssertFalse(req.url?.absoluteString.contains("sekret") ?? true)
+        XCTAssertEqual(req.value(forHTTPHeaderField: "x-cockpit-token"), "sekret")
+        let body = try XCTUnwrap(req.httpBody).flatMap { String(decoding: [$0], as: UTF8.self) }.joined()
+        XCTAssertTrue(body.contains("\"key\":\"y\""), "got \(body)")
+    }
+
+    func testAnUnknownLaneNeverGetsARequestBuiltForIt() {
+        let ep = FleetEndpoint(host: "cockpit.example", scheme: "wss", token: "t")
+        XCTAssertNil(ep.laneKeyRequest(sid: "evil; rm -rf", key: .y))
+        XCTAssertNil(ep.laneIsolateRequest(sid: "not-a-lane"))
+        XCTAssertNotNil(ep.laneIsolateRequest(sid: "codex-1"))
+    }
+}

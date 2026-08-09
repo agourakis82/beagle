@@ -61,6 +61,23 @@ public final class FleetTerminalStore {
         return c.activity > (seen[agent] ?? 0)
     }
 
+    /// Let a lane go: close its socket and forget it. Without this, `opened` only ever grew —
+    /// walking the roster once left one live WebSocket per lane, each holding a real `tmux
+    /// attach` on the workspace pod. Detaching also lets the broker dematerialize the attach,
+    /// which is what stops a lane's pane from being sized by a window nobody is looking at.
+    public func close(_ agent: String) {
+        guard let c = clients.removeValue(forKey: agent) else { return }
+        c.disconnect()
+        opened.removeAll { $0 == agent }
+        seen[agent] = nil
+        if activeAgent == agent, let next = opened.first { activeAgent = next }
+    }
+
+    /// Close everything except the lane in front of him. Cheap insurance for a long session.
+    public func closeAllExceptActive() {
+        for agent in opened where agent != activeAgent { close(agent) }
+    }
+
     /// Reconnect any dropped sessions (call on foreground).
     public func reconnectStale() {
         for c in clients.values where c.state != .connected && c.state != .connecting {

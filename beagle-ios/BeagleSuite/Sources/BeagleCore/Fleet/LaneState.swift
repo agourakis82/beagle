@@ -81,10 +81,24 @@ public enum ApproveAffordance: Sendable, Equatable {
 
     /// The bytes to inject into the lane. Nil when a real answer is required — the UI must
     /// NOT offer a one-tap button it cannot honestly fulfil.
+    ///
+    /// Kept for the terminal path (`/ws/loom` `input`). The Frota's one-tap button no longer
+    /// uses it: it posts a NAMED key instead, so approving does not require attaching a tmux
+    /// client — an attach resizes the pane for every other client on that session.
     public var injection: String? {
         switch self {
         case .enterKey: return "\r"
         case .yKey: return "y\n"
+        case .answerNeeded: return nil
+        }
+    }
+
+    /// The named key to press for a one-touch approval. Nil for `answerNeeded` — and the server
+    /// refuses it too, so a client bug cannot press Enter at a question that wants a sentence.
+    public var key: FleetEndpoint.LaneKey? {
+        switch self {
+        case .enterKey: return .enter
+        case .yKey: return .y
         case .answerNeeded: return nil
         }
     }
@@ -107,6 +121,22 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     public var id: String { sid }
     public var family: LaneFamily { LaneFamily.of(sid) }
     public var needsOperator: Bool { state.needsOperator }
+
+    /// The lane does not exist in tmux at all — it was seeded in the roster but never created
+    /// (measured 2026-08-09: grok-cli1, grok-cli2, codex-3). Different from "it ran and ended",
+    /// and very different from `unknown`; the card must not offer actions on a lane that is
+    /// not there. The server states this in `detail`, so the client never has to infer it.
+    public var isAbsent: Bool {
+        state == .exited && detail.localizedCaseInsensitiveContains("não existe no tmux")
+    }
+
+    /// What the card calls this lane's presence.
+    public var presenceLabel: String { isAbsent ? "ausente" : state.label }
+
+    /// Moving a lane into its own worktree restarts the agent there, so it is only offered when
+    /// nothing is in flight. The server enforces the same rule — this just avoids drawing a
+    /// button that would be refused.
+    public var isIsolatable: Bool { (state == .idle || state == .exited) && !isAbsent }
 
     public init(
         sid: String, title: String, state: LaneState, detail: String = "",

@@ -108,6 +108,16 @@ public struct FleetTerminalsView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(color(for: agent))
+        // Leaving a lane must be possible, and it is not cosmetic: each open lane holds a live
+        // socket AND a real `tmux attach` on the workspace pod. Closing releases both.
+        .contextMenu {
+            if store.opened.contains(agent) {
+                Button("Fechar \(agent)", systemImage: "xmark.circle") { store.close(agent) }
+                Button("Fechar as outras", systemImage: "rectangle.on.rectangle.slash") {
+                    store.open(agent); store.closeAllExceptActive()
+                }
+            }
+        }
     }
 
     @ViewBuilder private var statusLine: some View {

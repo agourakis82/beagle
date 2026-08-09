@@ -69,16 +69,69 @@ public final class FleetStateClient {
     /// Set by `disconnect()` so a late error from the socket cannot schedule a reconnect.
     private var closedByCaller = false
 
-    /// Clear a waiting lane in one gesture. Returns false when the lane needs a typed answer —
-    /// the UI must not present a button we cannot honestly fulfil.
-    @discardableResult
-    public func approve(_ lane: LaneSnapshot) -> Bool {
-        guard let injection = lane.approve.injection else { return false }
-        send(FleetEndpoint.inputFrame(sid: lane.sid, data: injection))
-        return true
+    /// What an action did, in words the card can show. An approval that did not land must never
+    /// look like one that did — the old path sent a frame into `task?.send { _ in }` and threw
+    /// the completion error away, so a half-open socket swallowed the keystroke in silence.
+    public struct ActionResult: Sendable, Equatable {
+        public let ok: Bool
+        public let message: String
+        public static let sent = ActionResult(ok: true, message: "")
     }
 
-    /// Answer an open question with real text (the case one keystroke cannot cover).
+    /// Clear a waiting lane with ONE named key, over HTTP — no attach, so it never becomes a
+    /// tmux client and never resizes his panes. The server re-reads the lane's screen inside the
+    /// request and refuses with a reason if the key is wrong for what is on it.
+    @discardableResult
+    public func approve(_ lane: LaneSnapshot) async -> ActionResult {
+        guard let key = lane.approve.key else {
+            return ActionResult(ok: false, message: "essa lane pede uma resposta digitada — abra o terminal")
+        }
+        return await press(lane, key)
+    }
+
+    /// Interrupt a lane. The only key that is also valid while it is working, and it confirms
+    /// nothing — the CLIs advertise it themselves ("esc to interrupt").
+    @discardableResult
+    public func interrupt(_ lane: LaneSnapshot) async -> ActionResult { await press(lane, .esc) }
+
+    /// Move a lane into its own git worktree, so two agents cannot clobber one tree.
+    @discardableResult
+    public func isolate(_ lane: LaneSnapshot) async -> ActionResult {
+        guard let req = endpoint.laneIsolateRequest(sid: lane.sid) else {
+            return ActionResult(ok: false, message: "lane fora do allowlist: \(lane.sid)")
+        }
+        return await post(req)
+    }
+
+    public func press(_ lane: LaneSnapshot, _ key: FleetEndpoint.LaneKey) async -> ActionResult {
+        guard let req = endpoint.laneKeyRequest(sid: lane.sid, key: key) else {
+            return ActionResult(ok: false, message: "lane fora do allowlist: \(lane.sid)")
+        }
+        let out = await post(req)
+        if out.ok { refresh() }   // pull the roster so the card catches up with the sweep
+        return out
+    }
+
+    /// One place where a lane action becomes an HTTP call, so every failure is legible. The
+    /// server's own refusal text is surfaced verbatim: it is more specific than anything the
+    /// client could guess ("a lane está running, não esperando por você").
+    private func post(_ request: URLRequest) async -> ActionResult {
+        do {
+            let (data, response) = try await session.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let serverError = (body??["error"] as? String) ?? ""
+            if (200..<300).contains(code) { return .sent }
+            if code == 401 { return ActionResult(ok: false, message: "Token do cockpit recusado (401).") }
+            return ActionResult(ok: false, message: serverError.isEmpty ? "cockpit respondeu \(code)" : serverError)
+        } catch {
+            return ActionResult(ok: false, message: error.localizedDescription)
+        }
+    }
+
+    /// Answer an open question with real text (the case one keystroke cannot cover). This one
+    /// DOES need the socket: arbitrary text is not a named key, and it belongs on the path where
+    /// he can see what he is answering.
     public func answer(_ lane: LaneSnapshot, text: String) {
         guard !text.isEmpty else { return }
         send(FleetEndpoint.inputFrame(sid: lane.sid, data: text + "\r"))
@@ -142,8 +195,12 @@ public final class FleetStateClient {
                 title: old.title,
                 state: LaneState(rawValue: (obj["state"] as? String) ?? "") ?? .unknown,
                 detail: (obj["detail"] as? String) ?? old.detail,
-                peek: old.peek,
-                approve: old.approve,
+                peek: (obj["peek"] as? [Any])?.compactMap { $0 as? String } ?? old.peek,
+                // A patch that kept the OLD affordance could leave an approve button on a lane
+                // that has moved on to a question needing a typed answer.
+                approve: obj["approveKey"] == nil
+                    ? old.approve
+                    : ApproveAffordance(approveKey: obj["approveKey"] as? String),
                 observedAt: (obj["observedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
                     ?? old.observedAt
             )
