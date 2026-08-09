@@ -1,0 +1,33 @@
+# CAPTURADO DO CLUSTER em 10-ago-2026 — esta regra existia SÓ no cluster.
+#
+# Descoberto ao consertar o caminho de entrega do alarme: seis PrometheusRules aplicadas à mão
+# em algum momento e nunca versionadas. São justamente as que vigiam a plataforma embaixo de tudo
+# (nó fora de Ready, Prometheus/Alertmanager/CoreDNS caídos, Cilium, Ceph). Perder o namespace
+# perderia as regras, e ninguém saberia o que faltava.
+#
+# Capturado com `kubectl get -o json` + limpeza de campos de servidor, e conferido com
+# `kubectl apply --dry-run=server`, que respondeu `unchanged` — o arquivo é fiel, não aproximado.
+# Ao editar aqui, aplique; ao editar no cluster, recapture. Ver darwin-alert-routing.yaml para
+# como estas regras chegam a alguém.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B7.4
+    release: darwin-observability
+  name: darwin-cilium-agent-rules
+  namespace: darwin-platform
+spec:
+  groups:
+  - name: darwin.cilium-agent
+    rules:
+    - alert: DarwinCiliumAgentTargetDown
+      annotations:
+        description: Cilium agent metrics are unavailable for {{ $labels.node }}.
+        summary: Cilium agent metrics target is down
+      expr: up{job="cilium-agent"} == 0
+      for: 10m
+      labels:
+        domain: network
+        severity: warning

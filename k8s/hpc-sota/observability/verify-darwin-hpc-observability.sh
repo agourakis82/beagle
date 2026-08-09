@@ -2,6 +2,9 @@
 set -euo pipefail
 
 KUBECONFIG_PATH="${KUBECONFIG_PATH:-/etc/kubernetes/admin.conf}"
+# Resolvido UMA vez, aqui: dentro de uma função, `${BASH_SOURCE[0]}` aponta para onde a função
+# foi definida, e não para este arquivo se alguém a extrair para testá-la.
+SCRIPT_DIR="${SCRIPT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 DCGM_MIN_TARGETS="${DCGM_MIN_TARGETS:-3}"
 FAILURES=0
 WARNINGS=0
@@ -94,6 +97,24 @@ check_alert_delivery_path() {
   else
     fail "ntfy-auth ausente em darwin-platform — o sink sobe em audit-only e ninguém é avisado"
   fi
+}
+
+# Toda PrometheusRule viva precisa de arquivo no repo. Seis existiam SÓ no cluster até
+# 10-ago-2026 — entre elas as que vigiam nó fora de Ready e Prometheus caído. Regra aplicada à mão
+# e não versionada morre com o namespace, e ninguém sabe o que faltou.
+check_rules_captured() {
+  local dir missing name
+  dir="$SCRIPT_DIR"
+  missing=0
+  while read -r name; do
+    [ -z "$name" ] && continue
+    if [ ! -f "$dir/$name.yaml" ]; then
+      fail "prometheusrule/$name existe no cluster e NÃO está no repo ($dir/$name.yaml)"
+      missing=$((missing + 1))
+    fi
+  done < <("${KCTL[@]}" -n darwin-platform get prometheusrule \
+             -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)
+  [ "$missing" -eq 0 ] && pass "todas as PrometheusRules do cluster estão versionadas"
 }
 
 check_namespace() {
@@ -220,6 +241,7 @@ main() {
   check_object prometheusrule darwin-platform darwin-slurmdbd-backend-rules
   check_object alertmanagerconfig darwin-platform darwin-alert-routing
   check_deployment_ready darwin-platform darwin-alert-sink
+  check_rules_captured
   check_alert_delivery_path
 
   echo

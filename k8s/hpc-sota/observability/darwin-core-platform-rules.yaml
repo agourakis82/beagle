@@ -1,0 +1,52 @@
+# CAPTURADO DO CLUSTER em 10-ago-2026 — esta regra existia SÓ no cluster.
+#
+# Descoberto ao consertar o caminho de entrega do alarme: seis PrometheusRules aplicadas à mão
+# em algum momento e nunca versionadas. São justamente as que vigiam a plataforma embaixo de tudo
+# (nó fora de Ready, Prometheus/Alertmanager/CoreDNS caídos, Cilium, Ceph). Perder o namespace
+# perderia as regras, e ninguém saberia o que faltava.
+#
+# Capturado com `kubectl get -o json` + limpeza de campos de servidor, e conferido com
+# `kubectl apply --dry-run=server`, que respondeu `unchanged` — o arquivo é fiel, não aproximado.
+# Ao editar aqui, aplique; ao editar no cluster, recapture. Ver darwin-alert-routing.yaml para
+# como estas regras chegam a alguém.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  labels:
+    app.kubernetes.io/part-of: darwin-observability
+    darwin.phase: B7.3
+    release: darwin-observability
+  name: darwin-core-platform-rules
+  namespace: darwin-platform
+spec:
+  groups:
+  - name: darwin.core-platform
+    rules:
+    - alert: DarwinNodeNotReady
+      annotations:
+        description: '{{ $labels.node }} has not been Ready for at least 5 minutes.'
+        summary: Darwin node is not Ready
+      expr: max by (node) (kube_node_status_condition{condition="Ready",status="true",node=~"t560-proxmox|r770-proxmox|5860-proxmox"})
+        < 1
+      for: 5m
+      labels:
+        domain: platform
+        severity: critical
+    - alert: DarwinKubeStateMetricsDown
+      annotations:
+        description: kube-state-metrics is unavailable, so rollout and workload state visibility is degraded.
+        summary: kube-state-metrics is down
+      expr: sum(up{job="kube-state-metrics"}) < 1
+      for: 5m
+      labels:
+        domain: observability
+        severity: warning
+    - alert: DarwinCriticalScrapeTargetMissing
+      annotations:
+        description: Prometheus is missing at least one critical scrape target for job {{ $labels.job }}.
+        summary: A critical Darwin scrape target is missing
+      expr: sum by (job) (up{job=~"coredns|cilium-envoy|cilium-operator-metrics|darwin-echo"} == 0) > 0
+      for: 10m
+      labels:
+        domain: observability
+        severity: warning
