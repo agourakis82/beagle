@@ -13,7 +13,7 @@ que executa.
 ```bash
 POD=sounio-workspace-control-0
 NS=beagle
-for s in sounio-herd sounio-herd-tmux sounio-herd-split; do
+for s in sounio-herd sounio-herd-tmux sounio-herd-split sounio-lane-worktrees sounio-loomd cli-canary; do
   kubectl cp -n "$NS" -c workspace-ssh "$s" "$POD:/workspace/.home/openvscode-server/bin/$s"
   kubectl -n "$NS" exec "$POD" -c workspace-ssh -- sh -c \
     "chmod +x /workspace/.home/openvscode-server/bin/$s && \

@@ -138,6 +138,19 @@ aparecer um segundo bug de vivacidade em review, a evidência empírica venceu e
 em Elixir/OTP antes da lane 2 migrar.** Refaça a conta a cada rodada — o compromisso não vale
 nada sem ela.
 
+**O DENOMINADOR, declarado de uma vez** (a crítica de completude apontou que duas leituras
+coexistiam e que, enquanto isso, o compromisso não decide nada):
+
+> O teto de ~500 linhas é do **ANDAIME DE SUPERVISÃO** — as funções que cuidam de manter o
+> processo filho vivo: `CodexLane::spawn` (laço de reinício/backoff) e `CodexLane::run_once`
+> (spawn, pipes, laço de leitura, encerramento). **NÃO** é o crate inteiro.
+
+Motivo: a disputa Rust×Elixir foi sobre supervisão — árvore de processos, isolamento de falha,
+reinício. Tradução de vocabulário (`event.rs`), diário (`trama.rs`) e rotas (`main.rs`) seriam
+exatamente do mesmo tamanho nos dois runtimes, então contá-las não decide nada. Para referência
+honesta, o crate inteiro tem hoje ~1.011 linhas não-vazias/não-comentadas: se o teto fosse esse,
+já teria estourado — e é por isso que dizer QUAL é o denominador importa mais que a conta.
+
 Medição de 09-ago-2026, **método declarado** (linhas não vazias e não comentadas, `awk` do
 cabeçalho da função até o `}` de coluna 4): `spawn` + laço de reinício **33**, `run_once` **50** —
 total **83**. A rodada anterior anotou 29 + 34 = 63 sem declarar o método; a diferença é grande
