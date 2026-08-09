@@ -36,10 +36,20 @@ export TMUX_TMPDIR="${TMUX_TMPDIR:-$BASE_HOME/.tmux}"
 mkdir -p "$TMUX_TMPDIR"
 
 # remain-on-exit é window-option e precisa ser GLOBAL: `-t <sessão>` não propaga
-# para a janela (herda o global `off` e o workspace some do cmux quando o agente
-# sai). `-g` cobre todas as sessões/janelas do servidor, atuais e futuras.
+# para a janela (herda o global `off` e o workspace some do cmux quando o agente sai).
+#
+# 🚨 MEDIDO 09-ago-2026 — `-g` SOZINHO NÃO BASTA, e falhava em silêncio.
+# `remain-on-exit` vive na tabela de opções de JANELA. `set-option -g` grava na tabela
+# global de SESSÃO, então isto sempre voltou `off` no escopo que importa:
+#     show-options        -g remain-on-exit  ->  off
+#     show-window-options -g remain-on-exit  ->  off     (nunca foi ligado)
+# Consequência real: grok-cli1 e grok-cli2 subiram em 08-ago 13:29, o grok saiu logo
+# depois (menu/changelog de primeira execução), o pane fechou, a janela fechou e a
+# SESSÃO EVAPOROU — as lanes "sumiram" em vez de ficarem visíveis como mortas.
+# `-wg` é o que grava na tabela de janela. Provado: sessão com comando que sai agora
+# permanece com o pane marcado morto.
 tmux start-server 2>/dev/null || true
-tmux set-option -g remain-on-exit on >/dev/null 2>&1 || true
+tmux set-option -wg remain-on-exit on >/dev/null 2>&1 || true
 
 cmd_for() {
   case "$1" in
