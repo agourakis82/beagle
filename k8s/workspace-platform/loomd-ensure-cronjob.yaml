@@ -1,0 +1,145 @@
+# sounio-loomd-ensure — o loomd volta sozinho, e a volta AVISA.
+#
+# ACHADO que motivou isto (crítica de completude, 09-ago-2026): nada subia o loomd depois de um
+# restart do container. Os 5 contêineres do StatefulSet têm `lifecycle: None` — sem postStart, sem
+# supervisor — e o `workspace-ssh` já reiniciou **25 vezes**. No 26º, o board voltaria a ser 12
+# cards `inferred` sem loomd nenhum.
+#
+# E o pior não era a queda: era o SILÊNCIO. Com o pod novo, o cockpit nunca chega a observar o
+# loomd, então o modo é `absent` — e `absent` foi projetado para não acender a faixa (só `down` e
+# `stale` acendem). Ou seja, o cenário MAIS PROVÁVEL era o ÚNICO mudo.
+#
+# Por que CronJob e não `postStart`/`initContainer`: mexer no StatefulSet **reinicia o pod e mata
+# as 11 lanes vivas**. Um CronJob age de FORA, não toca no sts, e sobrevive a qualquer restart do
+# container — que é exatamente o evento que precisamos cobrir.
+#
+# Por que uma CronJob IRMÃ e não um passo dentro de `sounio-workspace-governance`: aquela roda a
+# cada 5 min e já mede outra coisa (o zellij `sounio-dev`, não as 11 sessões tmux do split).
+# Enxertar lógica nova num job que já está errado sobre o próprio alvo é comprar dois problemas.
+# Reaproveitamos dela só o que é infraestrutura: a ServiceAccount, que já tem `pods/exec`.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sounio-loomd-ensure
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: sounio-loomd-ensure
+    app.kubernetes.io/part-of: loom
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 900
+      template:
+        spec:
+          restartPolicy: Never
+          # 🚨 PRESO AO t560, e não é preferência: rodando no dl380 o job alcançou a API do
+          # Kubernetes (o `kubectl exec` funcionou) mas NÃO alcançou o ClusterIP do ntfy —
+          # `curl` devolveu 000, falha de conexão. O mesmo POST do pod do cockpit, no t560,
+          # devolve 200. Bate com o incidente conhecido de rota ClusterIP em nó que não é o
+          # t560. Um despertador que depende de onde o scheduler jogou o pod não é despertador.
+          # (A rota do dl380 é problema próprio e maior — anotado, não consertado aqui.)
+          nodeSelector:
+            kubernetes.io/hostname: t560-proxmox
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+          # A SA já existe e já tem `pods/exec` (Role sounio-workspace-governance). Nada de
+          # permissão nova: o alcance deste job é exatamente o que a governança já tinha.
+          serviceAccountName: sounio-workspace-governance
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+          containers:
+            - name: ensure
+              # A imagem do cockpit tem `kubectl` em /usr/local/bin (verificado) e é a mesma que
+              # já fala com este pod todo dia. Nenhuma imagem nova para manter.
+              image: 192.168.3.207:5003/project-cockpit:lanekey-ea9ade01
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: NTFY_URL
+                  value: http://ntfy.beagle.svc.cluster.local
+                - name: NTFY_TOPIC
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: topic, optional: true } }
+                - name: NTFY_USER
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: user, optional: true } }
+                - name: NTFY_PASSWORD
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: password, optional: true } }
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -u
+                  POD=sounio-workspace-control-0
+                  NS=beagle
+                  B=/workspace/.home/openvscode-server
+
+                  # `su` + TMUX_TMPDIR explícito: shell não-interativo não lê o .zshenv, e o
+                  # socket das lanes NÃO é /tmp/tmux-1000 (é $HOME/.tmux). Já custou caro antes.
+                  exec_ws() {
+                    kubectl -n "$NS" exec "$POD" -c workspace-ssh -- \
+                      su -s /bin/bash openvscode-server -c \
+                      "export HOME=$B; export TMUX_TMPDIR=\$HOME/.tmux; $1" 2>&1
+                  }
+
+                  # ANTES: o veredito é do /livez, nunca de pgrep. Os 5 contêineres compartilham
+                  # netns e um `grep` já casou a própria linha de comando duas vezes hoje.
+                  antes=$(exec_ws 'curl -s -o /dev/null -w %{http_code} --max-time 3 http://127.0.0.1:4400/livez' | tail -1)
+                  echo "antes: /livez=$antes"
+
+                  if [ "$antes" = "200" ]; then
+                    echo "loomd de pé — nada a fazer"
+                    exit 0
+                  fi
+
+                  echo "loomd fora do ar — subindo"
+                  saida=$(exec_ws '~/bin/sounio-loomd --ensure')
+                  echo "$saida"
+                  sleep 5
+                  depois=$(exec_ws 'curl -s -o /dev/null -w %{http_code} --max-time 3 http://127.0.0.1:4400/livez' | tail -1)
+                  echo "depois: /livez=$depois"
+
+                  # O aviso é a metade que faltava. A doutrina da casa é ntfy no topic do
+                  # cockpit, porque o Alertmanager do cluster é receptor `null` — um alarme que
+                  # só existe num painel que ninguém está olhando não é alarme.
+                  # ⚠️ NADA de `${VAR:+-u "$A:$B"}`. Em sh a expansão sai SEM as aspas
+                  # aplicadas: o curl recebe `-u` e `"user:senha"` com aspas LITERAIS, autentica
+                  # errado, e o erro só aparece no código HTTP — que `-s -o /dev/null` engole.
+                  # É a mesma família de armadilha que já imprimiu uma chave por engano nesta
+                  # casa. Aqui o ramo é explícito e o veredito é o STATUS, não o exit do curl.
+                  avisa() {
+                    if [ -z "${NTFY_TOPIC:-}" ]; then echo "(sem NTFY_TOPIC — aviso não enviado)"; return 0; fi
+                    if [ -n "${NTFY_USER:-}" ]; then
+                      code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+                        -u "$NTFY_USER:$NTFY_PASSWORD" \
+                        -H "Title: $1" -H "Priority: $2" -H "Tags: $3" \
+                        -d "$4" "$NTFY_URL/$NTFY_TOPIC")
+                    else
+                      code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+                        -H "Title: $1" -H "Priority: $2" -H "Tags: $3" \
+                        -d "$4" "$NTFY_URL/$NTFY_TOPIC")
+                    fi
+                    # 2xx ou nada: um aviso que não chegou tem que aparecer no log do job, senão
+                    # o despertador silencioso é pior que despertador nenhum.
+                    case "$code" in 2*) echo "aviso enviado (ntfy $code)";; *) echo "AVISO NÃO ENVIADO (ntfy $code)";; esac
+                  }
+
+                  if [ "$depois" = "200" ]; then
+                    # Recuperar em silêncio esconderia a frequência da queda — e a frequência é
+                    # o dado que decide se isto vira supervisor de verdade.
+                    avisa "loomd voltou" "default" "arrows_counterclockwise" \
+                      "O supervisor loomd estava fora e foi religado pelo cron. A Frota volta a ter fonte medida."
+                    exit 0
+                  fi
+
+                  avisa "loomd NÃO subiu" "high" "warning" \
+                    "sounio-loomd --ensure rodou e /livez seguiu em $depois. A Frota está 100% inferred (tela raspada). Saída: $(echo "$saida" | tail -3)"
+                  exit 1
+              resources:
+                requests: { cpu: 10m, memory: 64Mi }
+                limits: { cpu: 200m, memory: 256Mi }
