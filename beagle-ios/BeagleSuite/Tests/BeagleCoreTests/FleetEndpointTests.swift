@@ -29,8 +29,16 @@ final class FleetEndpointTests: XCTestCase {
         XCTAssertEqual(req?.value(forHTTPHeaderField: "x-cockpit-token"), "s3cr3t")
         XCTAssertFalse(req?.url?.absoluteString.contains("s3cr3t") ?? true,
                        "a token in the URL leaks into logs")
-        // No token = rely on the tailnet gateway, same posture as the old pod-gated /pty.
-        XCTAssertNil(FleetEndpoint(host: "h").loomRequest()?.value(forHTTPHeaderField: "x-cockpit-token"))
+
+        // NEVER assert on the AMBIENT token. `CockpitToken.resolve` falls back to Secrets.plist,
+        // $BEAGLE_COCKPIT_TOKEN and ~/.beagle/cockpit-token, so this used to assert nil and then
+        // FAIL on the operator's own Mac — printing the real cockpit token into the test log
+        // (2026-08-09; that token is being rotated). A test must not depend on, or be able to
+        // reveal, a secret that happens to exist on the machine running it.
+        let ambient = FleetEndpoint(host: "h").loomRequest()?.value(forHTTPHeaderField: "x-cockpit-token")
+        XCTAssertNotEqual(ambient, "", "an empty token must stay absent, not become an empty header")
+        // Whatever the ambient token is, it belongs in the header and never in the URL.
+        XCTAssertEqual(FleetEndpoint(host: "h").loomURL()?.absoluteString, "ws://h/ws/loom")
     }
 
     func testHTTPReadsUseHTTPSWhenTheSocketIsSecure() {
