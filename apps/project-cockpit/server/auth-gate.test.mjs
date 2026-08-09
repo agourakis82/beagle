@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { classifyAuth } from "./auth-gate.mjs";
+import { classifyAuth, wsAuthInputs } from "./auth-gate.mjs";
 
 const TOKENS = new Set(["real-token", "internal-token"]);
 
@@ -97,4 +97,48 @@ test("the internal token works on a socket too — the WS gate no longer checks 
   // PROJECT_COCKPIT_INTERNAL_AUTH_TOKEN authenticated on HTTP and was rejected on WS.
   const both = new Set(["public-token", "internal-token"]);
   assert.equal(classifyAuth({ method: "POST", path: "/ws/loom", tokens: both, headerToken: "internal-token" }).allow, true);
+});
+
+test("wsAuthInputs lê o token dos TRÊS lugares — o Bearer valia no HTTP e era recusado no WS", () => {
+  // A divergência medida ao vivo em 10-ago-2026: o mesmo segredo dava 404 em /api/... (ou seja,
+  // passou pela auth) e 401 no upgrade de /ws/loom, porque só aqui se lia `?token=`.
+  const TOKENS = new Set(["segredo"]);
+  const allow = (headers, url = "/ws/loom") =>
+    classifyAuth({ ...wsAuthInputs({ url, headers }), tokens: TOKENS }).allow;
+
+  assert.equal(allow({ authorization: "Bearer segredo" }), true, "Authorization: Bearer");
+  assert.equal(allow({ authorization: "bearer segredo" }), true, "o esquema é case-insensitive");
+  assert.equal(allow({ "x-cockpit-token": "segredo" }), true, "x-cockpit-token");
+  assert.equal(allow({}, "/ws/loom?token=segredo"), true, "?token= continua valendo");
+  assert.equal(allow({ authorization: "Bearer errado" }), false, "token errado não entra");
+  assert.equal(allow({}), false, "sem credencial nenhuma, não entra");
+});
+
+test("wsAuthInputs classifica upgrade como ESCRITA e prefere o cabeçalho à URL", () => {
+  const i = wsAuthInputs({
+    url: "/ws/loom?token=da-url",
+    headers: { authorization: "Bearer do-cabecalho", "tailscale-user-login": "alguem@exemplo" },
+  });
+  assert.equal(i.method, "POST", "um upgrade digita numa sessão viva — nunca é leitura");
+  assert.equal(i.path, "/ws/loom", "a query não pode entrar no path que decide a rota");
+  assert.equal(i.bearer, "do-cabecalho",
+    "cabeçalho vence a URL: premiar ?token= é ensinar o cliente a vazar segredo em log de proxy");
+  assert.equal(i.tsUser, "alguem@exemplo", "a identidade do tailnet segue visível — e insuficiente");
+});
+
+test("wsAuthInputs não explode com URL malformada", () => {
+  const i = wsAuthInputs({ url: "//\\:", headers: {} });
+  assert.equal(i.bearer, "");
+  assert.equal(i.method, "POST", "falhar a leitura da query não pode rebaixar o upgrade para leitura");
+});
+
+test("cabeçalho de tailnet forjado NÃO abre um socket, mesmo passando por wsAuthInputs", () => {
+  // Esta é a asserção que fecha o laço: se `wsAuthInputs` algum dia classificar o upgrade como
+  // leitura, o ramo `tailnet-read` de classifyAuth libera — e o header é forjável de dentro do
+  // cluster. O teste do método já pega a mutação; este pega a CONSEQUÊNCIA.
+  const v = classifyAuth({
+    ...wsAuthInputs({ url: "/ws/loom", headers: { "tailscale-user-login": "demetrios@me.com" } }),
+    tokens: new Set(["segredo"]),
+  });
+  assert.equal(v.allow, false, "identidade de tailnet não digita numa lane");
 });

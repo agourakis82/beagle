@@ -25,7 +25,7 @@ import { registerPlatformRoutes } from "./platform-routes.mjs";
 import { OficinaPoller, registerOficinaRoutes } from "./oficina.mjs";
 import { ClaimRegistry, HazardPoller, registerCoordRoutes } from "./coord.mjs";
 import { registerLaneActionRoutes } from "./laneActions.mjs";
-import { classifyAuth } from "./auth-gate.mjs";
+import { classifyAuth, wsAuthInputs } from "./auth-gate.mjs";
 import { workspaceQueryArgv as coordQueryArgv } from "./platform-bridge.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
@@ -15185,15 +15185,11 @@ server.on("upgrade", (req, socket, head) => {
   // HTTP gate was fixed to fail closed on 2026-08-08; the WS gate was not, and it also ignored
   // the internal token. It now goes through the same classifier, so the two cannot drift again.
   {
-    const wsUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+    // Os clientes iOS/macOS mandam o mesmo `x-cockpit-token` de toda chamada REST; `Authorization:
+    // Bearer` e `?token=` também valem. A leitura mora em `wsAuthInputs`, pura e testável — ver o
+    // comentário dela para a divergência que isso fechou.
     const verdict = classifyAuth({
-      method: "POST",                                  // an upgrade is a write path, always
-      path: (req.url || "").split("?")[0],
-      // The iOS/macOS clients send the same x-cockpit-token header they use on every REST call;
-      // ?token= stays supported for clients that cannot set headers.
-      bearer: wsUrl.searchParams.get("token") || "",
-      headerToken: req.headers["x-cockpit-token"] || "",
-      tsUser: req.headers["tailscale-user-login"] || "",
+      ...wsAuthInputs({ url: req.url, headers: req.headers }),
       tokens: COCKPIT_AUTH_TOKENS,
       allowOpen: ALLOW_OPEN,
     });
