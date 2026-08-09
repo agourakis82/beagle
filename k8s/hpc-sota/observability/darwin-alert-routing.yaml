@@ -1,3 +1,25 @@
+# darwin-alert-routing — a PERNA DE ROTEAMENTO do alarme do cluster.
+#
+# 🚨 POR QUE MUDOU (10-ago-2026). Este AlertmanagerConfig era descoberto por SELETOR, e o
+# prometheus-operator, ao mesclar um config assim, injeta `namespace="darwin-platform"` na rota.
+# Medido no config gerado: 19 dos 59 alertas NÃO carregam rótulo `namespace` — entre eles
+# `DarwinNodeNotReady`, `DarwinPrometheusDown`, `DarwinCoreDNSTargetDown`, `CephMonQuorumReduced`.
+# Todos caíam na rota raiz, cujo receptor é `"null"`. **Os alertas mais graves eram justamente os
+# que não chegavam a lugar nenhum.**
+#
+# O CONSERTO tem duas partes, e nenhuma sozinha entrega nada:
+#  1. AQUI — este config passa a ser o **global** do Alertmanager
+#     (`spec.alertmanagerConfiguration.name`, aplicado por
+#     apply-darwin-observability-control-plane-patches.sh). Config global NÃO recebe o matcher de
+#     namespace, então a raiz volta a valer para todo alerta. A alternativa — carimbar
+#     `namespace: darwin-platform` em 19 regras, várias delas sobre NÓS — seria escrever um rótulo
+#     falso em 19 lugares para contentar o roteador.
+#  2. Em darwin-alert-sink.yaml — o receptor precisa ENTREGAR. Ele imprimia e devolvia 202.
+#
+# A escalada agora sai de `severity`, que TODAS as 59 regras já têm, em vez de
+# `notification_tier`, que só 40 têm. `notification_tier` continua honrado para quem quiser
+# forçar a mão. E o Watchdog (que dispara sempre, de propósito) é descartado explicitamente —
+# senão ele vira o alarme que o ensina a ignorar alarme.
 apiVersion: monitoring.coreos.com/v1alpha1
 kind: AlertmanagerConfig
 metadata:
@@ -12,17 +34,34 @@ spec:
     receiver: darwin-dev-noise
     groupBy:
       - alertname
-      - notification_tier
+      - severity
       - domain
     groupWait: 30s
     groupInterval: 5m
     repeatInterval: 6h
     routes:
+      # O Watchdog existe para provar que o pipeline está vivo — quem observa isso é o
+      # DarwinAlertmanagerDown, não ele. Encaminhá-lo seria ruído perpétuo.
+      - receiver: darwin-null
+        matchers:
+          - name: alertname
+            matchType: "="
+            value: Watchdog
       - receiver: darwin-real-incident
         matchers:
           - name: notification_tier
             matchType: "="
             value: real-incident
+        groupWait: 10s
+        groupInterval: 2m
+        repeatInterval: 1h
+      # `severity=critical` cobre as 19 regras sem `notification_tier` — inclusive NodeNotReady,
+      # PrometheusDown e CoreDNSTargetDown, que hoje morrem no receptor nulo.
+      - receiver: darwin-real-incident
+        matchers:
+          - name: severity
+            matchType: "="
+            value: critical
         groupWait: 10s
         groupInterval: 2m
         repeatInterval: 1h
@@ -34,7 +73,30 @@ spec:
         groupWait: 30s
         groupInterval: 10m
         repeatInterval: 12h
+  # Config global SUBSTITUI o arquivo inteiro, então as inhibit_rules que o kube-prometheus-stack
+  # trazia de fábrica somem se não forem redeclaradas aqui. Sem elas, um nó caindo entrega o
+  # critical E o warning do mesmo alertname — dois toques para um fato só.
+  inhibitRules:
+    - sourceMatch:
+        - name: severity
+          matchType: "="
+          value: critical
+      targetMatch:
+        - name: severity
+          matchType: "=~"
+          value: warning|info
+      equal: [alertname, domain]
+    - sourceMatch:
+        - name: severity
+          matchType: "="
+          value: warning
+      targetMatch:
+        - name: severity
+          matchType: "="
+          value: info
+      equal: [alertname, domain]
   receivers:
+    - name: darwin-null
     - name: darwin-dev-noise
       webhookConfigs:
         - url: http://darwin-alert-sink.darwin-platform.svc.cluster.local:8080/dev-noise
@@ -45,4 +107,3 @@ spec:
         - url: http://darwin-alert-sink.darwin-platform.svc.cluster.local:8080/real-incident
           sendResolved: true
           maxAlerts: 0
-

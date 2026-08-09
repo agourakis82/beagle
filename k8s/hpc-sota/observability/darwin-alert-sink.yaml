@@ -1,3 +1,23 @@
+# darwin-alert-sink — a PERNA DE ENTREGA do alarme do cluster.
+#
+# 🚨 POR QUE MUDOU (10-ago-2026). Até hoje este serviço era um sink de verdade: recebia o webhook
+# do Alertmanager, imprimia o JSON no stdout e devolvia 202. Ou seja: as 59 regras disparavam,
+# o Alertmanager roteava certo, o sink respondia "aceito" — e **ninguém era avisado de nada**.
+# Um alarme que termina em `print()` é um alarme que não existe. Medido: 6 alertas ativos,
+# nenhum jamais entregue.
+#
+# Agora ele **encaminha para o ntfy** e o veredito é o STATUS HTTP, nunca o exit code:
+#   - ntfy 2xx  → 202 para o Alertmanager (entregue)
+#   - ntfy !2xx → **502** para o Alertmanager, que RETENTA. Engolir a falha aqui reproduziria
+#     exatamente o bug que este arquivo existe para consertar.
+#   - sem NTFY_TOPIC montado → 202 + linha `mode:audit-only` no log, para o modo antigo ficar
+#     VISÍVEL em vez de silencioso.
+# O `print()` do payload continua: é a trilha de auditoria, e é o que sobra se o ntfy cair.
+#
+# A prioridade vem do CAMINHO, que o Alertmanager escolhe pela rota (ver darwin-alert-routing.yaml):
+#   /real-incident → urgent   (severity=critical ou notification_tier=real-incident)
+#   /dev-noise     → default
+#   qualquer grupo só com `resolved` → low (fechamento não acorda ninguém)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,19 +49,97 @@ spec:
         - name: alert-sink
           image: python:3.12-alpine
           imagePullPolicy: IfNotPresent
+          env:
+            - name: NTFY_URL
+              value: http://ntfy.beagle.svc.cluster.local
+            # `optional: true` de propósito: sem o segredo o serviço sobe em audit-only e DIZ isso,
+            # em vez de entrar em CrashLoop e derrubar junto a única trilha que resta.
+            - name: NTFY_TOPIC
+              valueFrom: { secretKeyRef: { name: ntfy-auth, key: topic, optional: true } }
+            - name: NTFY_USER
+              valueFrom: { secretKeyRef: { name: ntfy-auth, key: user, optional: true } }
+            - name: NTFY_PASSWORD
+              valueFrom: { secretKeyRef: { name: ntfy-auth, key: password, optional: true } }
           command:
             - /bin/sh
             - -lc
             - |
               cat > /tmp/alert_sink.py <<'PY'
+              import base64
               import json
               import os
-              from http.server import BaseHTTPRequestHandler, HTTPServer
+              import urllib.error
+              import urllib.request
+              from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+              NTFY_URL = os.environ.get("NTFY_URL", "").rstrip("/")
+              NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
+              NTFY_USER = os.environ.get("NTFY_USER", "")
+              NTFY_PASSWORD = os.environ.get("NTFY_PASSWORD", "")
+              TIMEOUT = float(os.environ.get("NTFY_TIMEOUT_S", "8"))
+              MAX_LINES = 10
+
+              # O Alertmanager manda o corpo dele; o ntfy quer o corpo dele. Esta função é a ponte
+              # inteira, e é PURA: dá para exercê-la sem rede.
+              def render(path, body):
+                  alerts = body.get("alerts") or []
+                  firing = [a for a in alerts if a.get("status") == "firing"]
+                  shown = firing or alerts
+                  names = []
+                  for a in shown:
+                      n = (a.get("labels") or {}).get("alertname")
+                      if n and n not in names:
+                          names.append(n)
+                  head = ", ".join(names[:3]) or body.get("status", "alerta")
+                  if len(names) > 3:
+                      head += " +%d" % (len(names) - 3)
+
+                  if not firing and alerts:
+                      title, prio, tags = ("resolvido: %s" % head, "low", "white_check_mark")
+                  elif path.endswith("real-incident"):
+                      title, prio, tags = ("INCIDENTE: %s" % head, "urgent", "rotating_light")
+                  else:
+                      title, prio, tags = ("%s" % head, "default", "warning")
+
+                  lines = []
+                  for a in shown[:MAX_LINES]:
+                      lab = a.get("labels") or {}
+                      ann = a.get("annotations") or {}
+                      what = ann.get("summary") or ann.get("description") or lab.get("alertname", "?")
+                      where = lab.get("node") or lab.get("instance") or lab.get("pod") or lab.get("domain")
+                      sev = lab.get("severity")
+                      suffix = " ".join(x for x in ("[%s]" % sev if sev else "", where or "") if x)
+                      lines.append(("- %s %s" % (what, suffix)).rstrip())
+                  if len(shown) > MAX_LINES:
+                      lines.append("… e mais %d" % (len(shown) - MAX_LINES))
+                  return title, prio, tags, "\n".join(lines) or "(sem detalhe)"
+
+              def forward(title, prio, tags, text):
+                  req = urllib.request.Request(
+                      "%s/%s" % (NTFY_URL, NTFY_TOPIC),
+                      data=text.encode("utf-8"),
+                      method="POST",
+                  )
+                  # Título só em ASCII: cabeçalho HTTP é latin-1 e um emoji aqui derruba o POST.
+                  # O ícone vai por Tags, que o ntfy resolve do lado dele.
+                  req.add_header("Title", title.encode("ascii", "replace").decode("ascii"))
+                  req.add_header("Priority", prio)
+                  req.add_header("Tags", tags)
+                  if NTFY_USER:
+                      cred = base64.b64encode(("%s:%s" % (NTFY_USER, NTFY_PASSWORD)).encode()).decode()
+                      req.add_header("Authorization", "Basic %s" % cred)
+                  try:
+                      with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+                          return r.status, ""
+                  except urllib.error.HTTPError as e:
+                      return e.code, e.reason
+                  except Exception as e:
+                      return 0, repr(e)
 
               class Handler(BaseHTTPRequestHandler):
-                  def _write(self, status, body, content_type="application/json"):
+                  def _write(self, status, body):
                       self.send_response(status)
-                      self.send_header("Content-Type", content_type)
+                      self.send_header("Content-Type", "application/json")
                       self.end_headers()
                       self.wfile.write(body.encode())
 
@@ -53,18 +151,36 @@ spec:
 
                   def do_POST(self):
                       length = int(self.headers.get("Content-Length", "0"))
-                      payload = self.rfile.read(length).decode("utf-8") if length else ""
-                      print(json.dumps({
-                          "path": self.path,
-                          "headers": dict(self.headers),
-                          "payload": payload,
-                      }), flush=True)
-                      self._write(202, '{"status":"accepted"}')
+                      raw = self.rfile.read(length).decode("utf-8") if length else ""
+                      try:
+                          body = json.loads(raw) if raw else {}
+                      except Exception:
+                          body = {}
+
+                      if not NTFY_TOPIC:
+                          print(json.dumps({"path": self.path, "mode": "audit-only",
+                                            "reason": "NTFY_TOPIC ausente", "payload": raw}), flush=True)
+                          self._write(202, '{"status":"audit-only"}')
+                          return
+
+                      title, prio, tags, text = render(self.path, body)
+                      code, err = forward(title, prio, tags, text)
+                      print(json.dumps({"path": self.path, "ntfy": code, "err": err,
+                                        "title": title, "priority": prio, "payload": raw}), flush=True)
+                      if 200 <= code < 300:
+                          self._write(202, '{"status":"delivered"}')
+                      else:
+                          # 502 → o Alertmanager retenta. Responder 202 aqui seria mentir.
+                          self._write(502, json.dumps({"status": "ntfy-failed", "code": code}))
 
                   def log_message(self, fmt, *args):
                       return
 
-              HTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8080"))), Handler).serve_forever()
+              if __name__ == "__main__":
+                  print(json.dumps({"boot": True, "ntfy_url": NTFY_URL,
+                                    "topic_set": bool(NTFY_TOPIC), "auth": bool(NTFY_USER)}), flush=True)
+                  ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8080"))),
+                                      Handler).serve_forever()
               PY
               exec python /tmp/alert_sink.py
           ports:

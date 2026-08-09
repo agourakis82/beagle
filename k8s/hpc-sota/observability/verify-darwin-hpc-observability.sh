@@ -56,6 +56,46 @@ check_object() {
   fi
 }
 
+# 🚨 Existir ≠ entregar. Até 10-ago-2026 este arquivo conferia que o AlertmanagerConfig e o
+# darwin-alert-sink EXISTIAM — e os dois existiam, enquanto a raiz roteava para o receptor `"null"`
+# e o sink só dava `print()`. Toda a suíte ficava verde com o alarme mudo. Esta função checa as
+# duas pernas do caminho: a rota não pode terminar em nulo, e o receptor precisa ter para onde
+# mandar.
+check_alert_delivery_path() {
+  local cfg
+  cfg=$("${KCTL[@]}" -n darwin-platform get secret \
+    alertmanager-darwin-observability-alertmanager-generated \
+    -o jsonpath='{.data.alertmanager\.yaml\.gz}' 2>/dev/null | base64 -d | gunzip 2>/dev/null) || true
+
+  if [ -z "$cfg" ]; then
+    fail "config gerado do Alertmanager ilegível — caminho de entrega não verificável"
+    return
+  fi
+
+  # A raiz é a primeira linha `receiver:` do bloco `route:`.
+  local root
+  root=$(printf '%s\n' "$cfg" | awk '/^route:/{f=1;next} f&&/^  receiver:/{print $2;exit}')
+  case "$root" in
+    '"null"'|null|'')
+      fail "rota RAIZ do Alertmanager entrega em '${root:-vazio}' — todo alerta sem rota específica é descartado" ;;
+    *)
+      pass "rota raiz do Alertmanager entrega em ${root}" ;;
+  esac
+
+  if printf '%s\n' "$cfg" | grep -q 'darwin-alert-sink.darwin-platform.svc.cluster.local'; then
+    pass "receptores apontam para o darwin-alert-sink"
+  else
+    fail "nenhum receptor aponta para o darwin-alert-sink"
+  fi
+
+  # O sink em audit-only aceita tudo e não avisa ninguém — o modo antigo, agora detectável.
+  if "${KCTL[@]}" -n darwin-platform get secret ntfy-auth >/dev/null 2>&1; then
+    pass "segredo ntfy-auth presente em darwin-platform (sink entrega, não só audita)"
+  else
+    fail "ntfy-auth ausente em darwin-platform — o sink sobe em audit-only e ninguém é avisado"
+  fi
+}
+
 check_namespace() {
   local namespace="$1"
   if "${KCTL[@]}" get namespace "$namespace" >/dev/null 2>&1; then
@@ -180,6 +220,7 @@ main() {
   check_object prometheusrule darwin-platform darwin-slurmdbd-backend-rules
   check_object alertmanagerconfig darwin-platform darwin-alert-routing
   check_deployment_ready darwin-platform darwin-alert-sink
+  check_alert_delivery_path
 
   echo
   echo "== Dashboards =="

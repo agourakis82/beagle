@@ -51,6 +51,15 @@ echo "== patch Prometheus and Alertmanager CRs onto control-plane =="
 kc -n "${NS}" patch prometheus darwin-observability-prometheus --type merge -p "${control_plane_cr_patch}"
 kc -n "${NS}" patch alertmanager darwin-observability-alertmanager --type merge -p "${control_plane_cr_patch}"
 
+# 🚨 O Alertmanager precisa usar darwin-alert-routing como config GLOBAL, não como config
+# descoberto por seletor. Descoberto por seletor, o operator injeta `namespace="darwin-platform"`
+# na rota — e os 19 alertas sem rótulo `namespace` (NodeNotReady, PrometheusDown, CoreDNSTargetDown,
+# CephMonQuorumReduced…) caem na raiz, cujo receptor de fábrica é `"null"`. Isto é um patch pós-helm:
+# um `helm upgrade` do kube-prometheus-stack o desfaz em silêncio, e o alarme volta a ser mudo.
+echo "== apontar o Alertmanager para o AlertmanagerConfig global =="
+kc -n "${NS}" patch alertmanager darwin-observability-alertmanager --type merge \
+  -p '{"spec":{"alertmanagerConfiguration":{"name":"darwin-alert-routing"}}}'
+
 echo "== recycle deployment-backed pods from not-ready nodes =="
 kc -n "${NS}" delete pod -l app.kubernetes.io/name=grafana --ignore-not-found --grace-period=0 --force || true
 kc -n "${NS}" delete pod -l app.kubernetes.io/name=kube-state-metrics --ignore-not-found --grace-period=0 --force || true
