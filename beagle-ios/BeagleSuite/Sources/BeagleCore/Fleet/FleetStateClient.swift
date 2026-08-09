@@ -119,8 +119,8 @@ public final class FleetStateClient {
         do {
             let (data, response) = try await session.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let serverError = (body??["error"] as? String) ?? ""
+            let body = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            let serverError = (body?["error"] as? String) ?? ""
             if (200..<300).contains(code) { return .sent }
             if code == 401 { return ActionResult(ok: false, message: "Token do cockpit recusado (401).") }
             return ActionResult(ok: false, message: serverError.isEmpty ? "cockpit respondeu \(code)" : serverError)
