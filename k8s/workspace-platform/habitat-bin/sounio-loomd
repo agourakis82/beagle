@@ -247,6 +247,21 @@ ensure() {
     else
       tmux new-session -d -s "$SES" -n "$SES" -c "$LOOMD_CWD" "$(pane_cmd)" \
         && echo "  loomd: sessão tmux '$SES' criada"
+      # 🚨 QUEBROU A codex-3 EM 09-ago-2026 — o defeito mais caro do dia, e foi meu.
+      #
+      # Quando ESTE script é o primeiro a rodar depois de um pod novo, é ele quem CRIA o
+      # servidor tmux — e o tmux copia o ambiente de quem o criou para o ambiente GLOBAL do
+      # servidor, que TODA sessão futura herda. Com `CODEX_HOME` exportado aqui, as 3 lanes
+      # codex nasceram apontando para o store da BASE em vez do próprio `.agents/<lane>/.codex`.
+      # Todas passaram a `resume --last` da MESMA thread; a codex-2 ganhou o lock de escrita e a
+      # codex-3 morreu com `already has an active writer`.
+      #
+      # O pane do loomd recebe o env pelo prefixo `env` do próprio comando (ver pane_cmd), então
+      # tirar estas do ambiente do SERVIDOR não muda nada para ele — e devolve às lanes o direito
+      # de decidir o próprio store.
+      for v in CODEX_HOME LOOMD_CODEX_BIN LOOMD_CODEX_LANES LOOMD_CODEX_ARGS LOOMD_TRAMA LOOMD_ADDR LOOMD_CWD; do
+        tmux set-environment -gu "$v" 2>/dev/null || true
+      done
     fi
 
     local i
