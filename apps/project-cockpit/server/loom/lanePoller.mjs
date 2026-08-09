@@ -83,6 +83,9 @@ export class LanePoller {
         state: r.state,
         detail: r.detail,
         approveKey: r.approveKey,
+        // Whether the lane is sitting at a SHELL (not an agent's input box). Anything that types
+        // a command may only aim here — see laneActions.decideIsolate.
+        atShell: r.atShell,
         peek: peekLines(text, 2),
         observedAt: now,
         lastOutputAt: changed ? now : (prev?.lastOutputAt ?? now),

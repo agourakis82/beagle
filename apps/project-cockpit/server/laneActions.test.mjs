@@ -45,14 +45,23 @@ test("never observed is never approved — and unknown lanes/keys are refused up
   assert.match(decideKey({ lane: "repo", key: "rm -rf /", verdict: waiting("y") }).error, /não permitida/);
 });
 
-test("isolate only moves a lane at rest, and only into a worktree that exists", () => {
-  assert.equal(decideIsolate({ lane: "codex-1", verdict: { state: "idle" }, worktreeExists: true }).ok, true);
-  assert.equal(decideIsolate({ lane: "codex-1", verdict: { state: "exited" }, worktreeExists: true }).ok, true);
-  const busy = decideIsolate({ lane: "claude-1", verdict: { state: "running" }, worktreeExists: true });
+test("isolate only moves a lane at rest, AT A SHELL, and only into a worktree that exists", () => {
+  const shell = (state) => ({ state, atShell: true });
+  assert.equal(decideIsolate({ lane: "codex-1", verdict: shell("idle"), worktreeExists: true }).ok, true);
+  assert.equal(decideIsolate({ lane: "codex-1", verdict: shell("exited"), worktreeExists: true }).ok, true);
+  const busy = decideIsolate({ lane: "claude-1", verdict: { state: "running", atShell: false }, worktreeExists: true });
   assert.equal(busy.status, 409);
   assert.match(busy.error, /perde o contexto/, "the cost must be stated, not implied");
-  assert.match(decideIsolate({ lane: "claude-1", verdict: { state: "waiting" }, worktreeExists: true }).error, /waiting/);
-  const missing = decideIsolate({ lane: "codex-1", verdict: { state: "idle" }, worktreeExists: false });
+  assert.match(decideIsolate({ lane: "claude-1", verdict: { state: "waiting", atShell: false }, worktreeExists: true }).error, /waiting/);
+
+  // The one that nearly went wrong: an agent CLI idling at ITS OWN input box is "idle" too, and
+  // `cd /workspace/.wt/codex-1` typed there is not a command — it is a request to the agent.
+  const agentIdle = decideIsolate({ lane: "codex-1", verdict: { state: "idle", atShell: false }, worktreeExists: true });
+  assert.equal(agentIdle.status, 409);
+  assert.match(agentIdle.error, /prompt do agente/);
+  assert.match(agentIdle.error, /feche o agente/, "say what unblocks it");
+
+  const missing = decideIsolate({ lane: "codex-1", verdict: shell("idle"), worktreeExists: false });
   assert.match(missing.error, /worktree ausente/);
   assert.match(missing.error, /sounio-lane-worktrees --apply/, "say the command that fixes it");
 });
@@ -116,7 +125,7 @@ test("an unknown lane never reaches the cluster", async () => {
 });
 
 test("isolate checks the destination before typing the cd", async () => {
-  const h = harness({ verdictsByCall: [{ state: "idle", approveKey: null }] });
+  const h = harness({ verdictsByCall: [{ state: "idle", approveKey: null, atShell: true }] });
   const r = await h.call("/api/mobile/v1/lanes/:lane/isolate", { lane: "codex-1" }, {});
   assert.equal(r.code, 200);
   assert.equal(h.execs.length, 2, "first the test -d, then the send-keys");

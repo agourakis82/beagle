@@ -52,6 +52,9 @@ export class Broker {
         detail: obs?.detail || "",
         peek: obs?.peek || [],
         approveKey: obs?.approveKey || null,
+        // At a SHELL, not an agent's input box — the client must not draw an action that types
+        // a command where an agent would read it as a request.
+        atShell: obs?.atShell === true,
         // Truth-mode metadata: when this was actually observed (null = we are guessing).
         observedAt: obs?.observedAt || null,
         cols: m.cols, rows: m.rows,
@@ -63,7 +66,8 @@ export class Broker {
   _broadcastState(sid) {
     const s = this._sessions.get(sid); if (!s) return;
     const obs = this._observed(sid);
-    const msg = { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", observedAt: obs?.observedAt || null };
+    const msg = { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "",
+      approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null };
     for (const c of this._clients) this._send(c, msg);
   }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }

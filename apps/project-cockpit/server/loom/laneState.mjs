@@ -149,10 +149,16 @@ export function classifyLane({
   const awaitingInput = Boolean(approvalHit) || selectionHit;
 
   const atRest = AT_REST.some((re) => re.test(tailText));
-  const atPrompt = tail.some((l) => EMPTY_PROMPT.test(l))
-    || atRest
-    || (!working && tail.some((l) => PROMPT_LINE.test(l) && !isChrome(l) && !/^\s*[❯>]\s*\d+\./.test(l)))
-    || (!working && tail.some((l) => SHELL_PROMPT.test(l) && l.trim().length < 40));
+  // A bare SHELL prompt and an AGENT's input box are both "at rest", and the difference is not
+  // cosmetic: a shell will run what you type, an agent CLI will treat it as a REQUEST. Anything
+  // that types a command (moving a lane into its worktree) may only aim at a shell — otherwise
+  // `cd /workspace/.wt/codex-1` becomes a prompt asking the agent to change directory.
+  const agentBox = tail.some((l) => EMPTY_PROMPT.test(l))
+    || (!working && tail.some((l) => PROMPT_LINE.test(l) && !isChrome(l) && !/^\s*[❯>]\s*\d+\./.test(l)));
+  const atShell = !working && !agentBox
+    && tail.some((l) => SHELL_PROMPT.test(l) && l.trim().length < 40);
+
+  const atPrompt = agentBox || atRest || atShell;
 
   // Two different reads, on purpose:
   //  * evidence = the last MESSAGE (topic sentence), so a card never quotes a fragment;
@@ -169,13 +175,13 @@ export function classifyLane({
   if (!alive) {
     return {
       state: "exited", detail: last || "sessão não existe no tmux",
-      question: "", working: false, atPrompt: false, awaitingInput: false, approveKey: null,
+      question: "", working: false, atPrompt: false, atShell: false, awaitingInput: false, approveKey: null,
     };
   }
   // A blank screen tells us nothing. Found live on codex-3, which reported "running" with no
   // evidence at all — exactly the confident-but-empty verdict this vocabulary exists to avoid.
   if (lines.length === 0) {
-    return { state: "unknown", detail: "", question: "", working: false, atPrompt: false, awaitingInput: false, approveKey: null };
+    return { state: "unknown", detail: "", question: "", working: false, atPrompt: false, atShell: false, awaitingInput: false, approveKey: null };
   }
 
   let state, detail, approveKey = null;
@@ -203,7 +209,7 @@ export function classifyLane({
     detail = last.slice(0, 240);
   }
 
-  return { state, detail, question, working, atPrompt, awaitingInput, approveKey };
+  return { state, detail, question, working, atPrompt, atShell, awaitingInput, approveKey };
 }
 
 /// The last N content lines — the opaque 2-line terminal peek on a Frota card.

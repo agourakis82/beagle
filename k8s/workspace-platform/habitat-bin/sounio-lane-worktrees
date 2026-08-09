@@ -31,7 +31,26 @@ set -euo pipefail
 REPO="${SOUNIO_REPO:-/workspace/sounio}"
 WT_ROOT="${WT_ROOT:-/workspace/.wt}"
 SLUG="${LANE_SLUG:-$(date +%Y%m%d)}"
-LANES=(claude-1 claude-2 claude-3 codex-1 codex-2 codex-3 kimi-cli1 kimi-cli2 grok-cli1 grok-cli2)
+# The lanes that ACTUALLY exist, asked of tmux. A hardcoded list drifts: on 2026-08-09 it still
+# named codex-3/grok-cli1/grok-cli2 (dead for a day) and omitted `repo`, so it would have created
+# three worktrees nobody could ever move into. LANES=... in the environment still wins, and the
+# hardcoded roster is only the fallback for running this outside the workspace pod.
+if [ -z "${LANES:-}" ]; then
+  # `repo` is deliberately excluded: it is the operator's own shell, and the shared tree with its
+  # uncommitted work is exactly what he opens it to inspect.
+  live="$(tmux ls -F '#{session_name}' 2>/dev/null | grep -vx repo | tr '\n' ' ')"
+  if [ -n "$live" ]; then
+    # shellcheck disable=SC2206
+    LANES=($live)
+    echo "lanes:       from tmux ($(echo "$live" | wc -w | tr -d ' ') live)"
+  else
+    LANES=(claude-1 claude-2 claude-3 codex-1 codex-2 codex-3 kimi-cli1 kimi-cli2 grok-cli1 grok-cli2)
+    echo "lanes:       tmux não respondeu — usando a lista fixa (pode estar velha)"
+  fi
+else
+  # shellcheck disable=SC2206
+  LANES=($LANES)
+fi
 
 MODE="dry"
 case "${1:-}" in

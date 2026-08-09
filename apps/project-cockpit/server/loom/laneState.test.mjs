@@ -231,3 +231,26 @@ test("quote the last MESSAGE, not the last line (fragments read like noise)", ()
   // A plain shell has no message markers at all — fall back, don't return nothing.
   assert.match(classifyLane({ text: "$ make test\nok 12 passed\nuser@host%" }).detail, /ok 12 passed/);
 });
+
+test("um shell e a caixa de entrada de um agente NÃO são a mesma coisa", () => {
+  // Ambos são "idle". A diferença decide se digitar `cd ...` executa um comando ou vira um
+  // PEDIDO ao agente — achado ao ir mover a codex-1 pela primeira vez (09-ago-2026).
+  const shell = classifyLane({ text: "sounio-workspace-control-0%\n" });
+  assert.equal(shell.state, "idle");
+  assert.equal(shell.atShell, true);
+
+  const agent = classifyLane({ text: "● terminei a análise\n╭────╮\n│ ❯  │\n╰────╯\n" });
+  assert.equal(agent.state, "idle");
+  assert.equal(agent.atShell, false, "a caixa do agente não executa comando");
+
+  // Forma real da codex-1: placeholder do Codex + marcador de turno concluído.
+  const codexRest = classifyLane({ text: "• Goal achieved (2h 46m)\n› Explain this codebase\n" });
+  assert.equal(codexRest.atShell, false);
+
+  // Trabalhando nunca é shell, mesmo com um % na tela.
+  assert.equal(classifyLane({ text: "$ make\n· esc to interrupt\nhost%\n" }).atShell, false);
+
+  // E os dois casos degenerados não inventam um shell.
+  assert.equal(classifyLane({ text: "", alive: false }).atShell, false);
+  assert.equal(classifyLane({ text: "" }).atShell, false);
+});

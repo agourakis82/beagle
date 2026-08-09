@@ -40,7 +40,7 @@ spec:
             - name: BEAGLE_GIT_BRANCH
               value: reconcile/unify-beagle
             - name: BEAGLE_GIT_REF
-              value: "b14deba5"
+              value: "0deeaae6"
           command:
             - /bin/sh
             - -lc
@@ -53,7 +53,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: oficina-b14deba5
+              value: lanekey-0deeaae6
           args:
             - "--dockerfile=/workspace/apps/project-cockpit/Dockerfile"
             - "--context=dir:///workspace"

@@ -22,8 +22,9 @@ import {
   laneSendKeyArgv, laneIsolateArgv, laneWorktreeCheckArgv,
 } from "./platform-bridge.mjs";
 
-/// States in which typing a `cd` at the lane is sound. A running agent would receive it as prompt
-/// text; and moving a lane restarts the agent there, losing its context — so it is never automatic.
+/// States in which typing a `cd` at the lane is sound at all. Necessary, NOT sufficient: see the
+/// shell check in `decideIsolate`. Moving a lane also restarts the agent there and loses its
+/// context, so it is never automatic.
 const ISOLATABLE = new Set(["idle", "exited"]);
 
 /// Pure decision: may this key be delivered to this lane, given the freshest verdict we have?
@@ -61,6 +62,16 @@ export function decideIsolate({ lane, verdict, worktreeExists }) {
   if (!verdict) return { status: 409, error: "lane nunca observada — não sei se ela está em repouso" };
   if (!ISOLATABLE.has(verdict.state)) {
     return { status: 409, error: `a lane está ${verdict.state}; mover reinicia o agente e perde o contexto dele` };
+  }
+  // CAUGHT BEFORE THE FIRST REAL MOVE (2026-08-09): "idle" covers a lane sitting at its AGENT's
+  // input box as well as one at a shell. A shell runs `cd /workspace/.wt/<lane>`; an agent CLI
+  // would receive that same text as a REQUEST and go do something with it. Isolation types a
+  // command, so it may only aim at a shell — the agent has to be closed first.
+  if (!verdict.atShell) {
+    return {
+      status: 409,
+      error: "a lane está no prompt do agente, não num shell — feche o agente antes (o `cd` viraria um pedido a ele)",
+    };
   }
   if (worktreeExists === false) {
     return { status: 409, error: `worktree ausente: ${LANE_WT_ROOT}/${lane} — rode sounio-lane-worktrees --apply antes` };
