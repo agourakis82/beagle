@@ -82,20 +82,30 @@ final class LaneActionTests: XCTestCase {
         XCTAssertFalse(absent.isIsolatable, "there is nothing there to move")
 
         let ended = LaneSnapshot(sid: "codex-1", title: "codex-1", state: .exited,
-                                 detail: "Goal achieved (2h 46m)")
+                                 detail: "Goal achieved (2h 46m)", atShell: true)
         XCTAssertFalse(ended.isAbsent)
         XCTAssertEqual(ended.presenceLabel, "encerrado")
         XCTAssertTrue(ended.isIsolatable)
     }
 
-    func testOnlyALaneAtRestOffersIsolation() {
+    func testOnlyALaneAtRestAndAtAShellOffersIsolation() {
         // Moving restarts the agent in the new tree and loses its context, so a busy lane must
         // not even show the button.
         for state in [LaneState.running, .waiting, .stuck, .unknown] {
-            XCTAssertFalse(LaneSnapshot(sid: "claude-1", title: "c", state: state).isIsolatable,
+            XCTAssertFalse(LaneSnapshot(sid: "claude-1", title: "c", state: state, atShell: true).isIsolatable,
                            "\(state) must not offer isolation")
         }
-        XCTAssertTrue(LaneSnapshot(sid: "repo", title: "repo", state: .idle).isIsolatable)
+        // The near-miss of 2026-08-09: a lane parked at its AGENT's input box is idle too, and
+        // `cd /workspace/.wt/codex-1` typed there is a request to the agent, not a command.
+        XCTAssertFalse(LaneSnapshot(sid: "codex-1", title: "codex-1", state: .idle, atShell: false).isIsolatable)
+        XCTAssertTrue(LaneSnapshot(sid: "repo", title: "repo", state: .idle, atShell: true).isIsolatable)
+    }
+
+    func testAnAbsentAtShellFieldIsReadAsNotAShell() {
+        // Guessing "shell" would draw a button the server refuses — degrade to the safe side.
+        let lane = LaneSnapshot(loom: ["sid": "repo", "state": "idle"])
+        XCTAssertEqual(lane?.atShell, false)
+        XCTAssertEqual(LaneSnapshot(loom: ["sid": "repo", "state": "idle", "atShell": true])?.atShell, true)
     }
 
     func testTheKeyRequestCarriesTheTokenInAHeaderAndTheKeyInTheBody() throws {

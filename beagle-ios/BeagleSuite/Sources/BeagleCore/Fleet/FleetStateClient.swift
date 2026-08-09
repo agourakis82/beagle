@@ -201,6 +201,7 @@ public final class FleetStateClient {
                 approve: obj["approveKey"] == nil
                     ? old.approve
                     : ApproveAffordance(approveKey: obj["approveKey"] as? String),
+                atShell: (obj["atShell"] as? Bool) ?? old.atShell,
                 observedAt: (obj["observedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
                     ?? old.observedAt
             )

@@ -115,6 +115,9 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// Up to 2 opaque terminal lines for the card's peek.
     public let peek: [String]
     public let approve: ApproveAffordance
+    /// The lane is sitting at a SHELL, not at an agent's input box. Both read as `idle`, and the
+    /// difference decides whether typed text is executed or handed to an agent as a request.
+    public let atShell: Bool
     /// When the broker actually observed this lane. Nil = never observed (state is a guess).
     public let observedAt: Date?
 
@@ -133,17 +136,20 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// What the card calls this lane's presence.
     public var presenceLabel: String { isAbsent ? "ausente" : state.label }
 
-    /// Moving a lane into its own worktree restarts the agent there, so it is only offered when
-    /// nothing is in flight. The server enforces the same rule — this just avoids drawing a
-    /// button that would be refused.
-    public var isIsolatable: Bool { (state == .idle || state == .exited) && !isAbsent }
+    /// Moving a lane into its own worktree types a `cd`, so it needs TWO things: the lane at
+    /// rest, and the lane at a **shell**. `idle` alone is not enough — a lane parked at its
+    /// agent's input box is idle too, and there the same text is a REQUEST to the agent rather
+    /// than a command. The server enforces both; this only avoids drawing a doomed button.
+    public var isIsolatable: Bool { (state == .idle || state == .exited) && atShell && !isAbsent }
 
     public init(
         sid: String, title: String, state: LaneState, detail: String = "",
-        peek: [String] = [], approve: ApproveAffordance = .answerNeeded, observedAt: Date? = nil
+        peek: [String] = [], approve: ApproveAffordance = .answerNeeded,
+        atShell: Bool = false, observedAt: Date? = nil
     ) {
         self.sid = sid; self.title = title; self.state = state; self.detail = detail
-        self.peek = peek; self.approve = approve; self.observedAt = observedAt
+        self.peek = peek; self.approve = approve; self.atShell = atShell
+        self.observedAt = observedAt
     }
 
     /// True when the observation is too old to present as current. The card must then show it
@@ -163,6 +169,8 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         self.detail = (obj["detail"] as? String) ?? ""
         self.peek = (obj["peek"] as? [Any])?.compactMap { $0 as? String } ?? []
         self.approve = ApproveAffordance(approveKey: obj["approveKey"] as? String)
+        // Absent field = not a shell. Guessing "shell" would draw a button the server refuses.
+        self.atShell = (obj["atShell"] as? Bool) ?? false
         if let ms = obj["observedAt"] as? Double, ms > 0 {
             self.observedAt = Date(timeIntervalSince1970: ms / 1000)
         } else {
