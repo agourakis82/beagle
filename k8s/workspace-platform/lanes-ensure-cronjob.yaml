@@ -36,18 +36,21 @@ spec:
       template:
         spec:
           restartPolicy: Never
-          # Preso ao t560 pelo mesmo motivo do job irmão: rodando no dl380 o pod alcança a API
-          # do Kubernetes mas NÃO o ClusterIP do ntfy (medido: curl 000 lá, 200 aqui). Um
-          # despertador que depende de onde o scheduler jogou o pod não é despertador.
-          nodeSelector:
-            kubernetes.io/hostname: t560-proxmox
-          tolerations:
-            - key: node-role.kubernetes.io/control-plane
-              operator: Exists
-              effect: NoSchedule
+          # O nodeSelector para o t560 foi REMOVIDO: ele "consertava" por acidente, tratando
+          # uma causa que não existia (rota ClusterIP do dl380) e concentrando carga no nó que
+          # já é ponto único de falha. Com o AppArmor liberado, o job roda em qualquer nó —
+          # verificado no dl380, que era exatamente o que falhava.
           serviceAccountName: sounio-workspace-governance
           securityContext:
             seccompProfile:
+              type: Unconfined
+            # 🚨 O CONSERTO DE VERDADE (10-ago-2026). O `ntfy 000` NÃO era rota do dl380 — era o
+            # perfil AppArmor padrão do nó bloqueando `pthread_create`, e o curl morria em
+            # `getaddrinfo() thread failed to start` ao resolver DNS. Medido no MESMO nó: sem
+            # isto, 5 POSTs → 000 000 000 000 000; com isto, 200 200 200 200 200.
+            # `seccompProfile: Unconfined` sozinho NÃO cobre — este repo já pagou por isso no
+            # build-job do project-cockpit, com a mesma assinatura de EPERM.
+            appArmorProfile:
               type: Unconfined
           containers:
             - name: ensure
