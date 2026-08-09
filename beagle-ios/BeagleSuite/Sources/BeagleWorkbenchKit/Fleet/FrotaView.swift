@@ -23,7 +23,7 @@ import UIKit
 // A board that asserts a fresh state it does not have teaches its operator to distrust it.
 
 public struct FrotaView: View {
-    @State private var fleet = FleetStateClient()
+    @State private var fleet: FleetStateClient
     @State private var coord = CoordClient()
     @State private var answering: LaneSnapshot?
     @State private var answerText: String = ""
@@ -43,7 +43,11 @@ public struct FrotaView: View {
     /// Opening a lane's full terminal is the caller's business (it owns navigation).
     private let onOpenLane: (String) -> Void
 
-    public init(onOpenLane: @escaping (String) -> Void = { _ in }) {
+    /// `fleet` injetável para que a tela possa ser RENDERIZADA sem cluster. Não é ornamento de
+    /// teste: enquanto a única forma de ver a Frota era conectar no broker e torcer para um
+    /// agente estar parado, cada rodada de design era um palpite.
+    public init(fleet: FleetStateClient? = nil, onOpenLane: @escaping (String) -> Void = { _ in }) {
+        _fleet = State(initialValue: fleet ?? FleetStateClient())
         self.onOpenLane = onOpenLane
     }
 
@@ -52,20 +56,28 @@ public struct FrotaView: View {
     /// The inert ground the glass refracts. Dusk, so a lit lamp reads as light.
     private static let canvas = Color(red: 0.043, green: 0.055, blue: 0.086)
 
-    public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                if !coord.state.hazards.isEmpty || !coord.state.conflicts.isEmpty { coordSection }
-                // Acima da prateleira de propósito: isto não é sobre UMA lane, é sobre o quanto
-                // se pode confiar em tudo que vem abaixo.
-                if let saude = fleet.loomd, saude.isDegraded { loomdBand(saude) }
-                if !fleet.shelf.isEmpty { shelfSection }
-                restSection
-                linkFooter
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 18)
+    /// O CONTEÚDO, separado do scroll de propósito.
+    ///
+    /// `ImageRenderer` propõe altura infinita ao filho de um `ScrollView` e o resultado sai em
+    /// branco — foi exatamente o que aconteceu na primeira tentativa de retratar esta tela, e o
+    /// branco parecia bug da Frota. Com o conteúdo apartado, ele é rasterizável sozinho, e o
+    /// `ScrollView` volta a ser só o transporte.
+    var conteudo: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            if !coord.state.hazards.isEmpty || !coord.state.conflicts.isEmpty { coordSection }
+            // Acima da prateleira de propósito: isto não é sobre UMA lane, é sobre o quanto
+            // se pode confiar em tudo que vem abaixo.
+            if let saude = fleet.loomd, saude.isDegraded { loomdBand(saude) }
+            if !fleet.shelf.isEmpty { shelfSection }
+            restSection
+            linkFooter
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+    }
+
+    public var body: some View {
+        ScrollView { conteudo }
         .background(Self.canvas.ignoresSafeArea())
         .navigationTitle("Frota")
         .onAppear { fleet.connect(); coord.start() }
@@ -242,26 +254,68 @@ public struct FrotaView: View {
 
     // MARK: - The calm half
 
+    /// A metade calma vira ROSTER, não pilha de cartões.
+    ///
+    /// Medido no retrato de 10-ago-2026, antes disto: 16 lanes ocupavam **3.760px** de altura numa
+    /// janela de 900 — a frota inteira nunca cabia na tela, que é o único motivo de existir um
+    /// painel de frota. Cada lane gastava ~235px para mostrar uma linha de 40 caracteres, e os
+    /// botões desligados ("Interromper", "Abrir lane") eram o elemento mais repetido da tela.
+    /// Um `tmux ls` mostrava as mesmas 16 em 16 linhas, e melhor.
+    ///
+    /// Agora: uma LINHA por lane, em colunas que se adaptam à largura. O cartão continua
+    /// existindo — mas só na prateleira, onde há uma decisão a tomar. Peso visual passa a
+    /// significar "isto te pede algo", em vez de "isto é uma lane".
     private var restSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(fleet.shelf.isEmpty ? "A FROTA" : "TRABALHANDO")
-                .font(.system(.caption, weight: .semibold))
-                .tracking(1.4)
-                .foregroundStyle(.white.opacity(0.5))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(fleet.shelf.isEmpty ? "A FROTA" : "TRABALHANDO")
+                    .font(.system(.caption, weight: .semibold))
+                    .tracking(1.4)
+                    .foregroundStyle(.white.opacity(0.5))
+                Text("\(trabalhando.count)")
+                    .font(.system(.caption2, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.35))
+                Spacer()
+            }
             if fleet.rest.isEmpty && fleet.shelf.isEmpty {
                 emptyState
             } else {
-                ForEach(fleet.rest) { lane in
-                    LaneCard(lane: lane, raised: false,
-                             busy: acting == lane.sid,
-                             note: actionNote?.sid == lane.sid ? actionNote?.message : nil,
-                             onApprove: {}, onAnswer: {},
-                             onInterrupt: { interrupt(lane) },
-                             onIsolate: { isolate(lane) },
-                             onOpen: { onOpenLane(lane.sid) })
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 620), spacing: 8)],
+                          alignment: .leading, spacing: 8) {
+                    ForEach(trabalhando) { lane in
+                        LaneRow(lane: lane,
+                                busy: acting == lane.sid,
+                                onOpen: { onOpenLane(lane.sid) })
+                    }
                 }
+                if !naoObservadas.isEmpty { grupoNaoObservado }
             }
         }
+    }
+
+    /// As lanes com estado de verdade — as que ele realmente opera.
+    private var trabalhando: [LaneSnapshot] { fleet.rest.filter { $0.state != .unknown } }
+
+    /// `unknown` = anunciada e nunca observada. No retrato eram QUATRO cartões `t560-*` com o mesmo
+    /// peso visual de uma lane esperando aprovação, cada um repetindo a mesma frase de rodapé.
+    /// Informação que não muda e não pede nada não merece área — merece uma linha.
+    private var naoObservadas: [LaneSnapshot] { fleet.rest.filter { $0.state == .unknown } }
+
+    private var grupoNaoObservado: some View {
+        DisclosureGroup {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 620), spacing: 8)],
+                      alignment: .leading, spacing: 8) {
+                ForEach(naoObservadas) { lane in
+                    LaneRow(lane: lane, busy: false, onOpen: { onOpenLane(lane.sid) })
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            Text("\(naoObservadas.count) anunciadas e nunca observadas")
+                .font(.caption).foregroundStyle(.white.opacity(0.45))
+        }
+        .tint(.white.opacity(0.45))
+        .padding(.top, 6)
     }
 
     /// An empty state must explain itself and offer the next action (never a bare blank).
@@ -404,7 +458,7 @@ private struct LaneCard: View {
     @State private var breathing = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 7) {
             header
             if !lane.detail.isEmpty { evidence }
             if !lane.peek.isEmpty && lane.state != .waiting { peekWell }
@@ -413,7 +467,11 @@ private struct LaneCard: View {
             if !lane.isAbsent { actions }
             if let note { refusal(note) }
         }
-        .padding(14)
+        // 12/10, não 14: no retrato de 10-ago três cartões de prateleira comiam 660px de uma
+        // janela de 900, e sobrava uma frota espremida embaixo. O cartão é o lugar da decisão,
+        // não um pôster.
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         // Glass is the panel (chrome). Hue enters only as the edge tint, never as a fill.
         .farolGlass(tint: raised ? hue : nil, frosted: lane.state == .stuck)
@@ -515,7 +573,7 @@ private struct LaneCard: View {
             .lineLimit(lane.state == .waiting ? 4 : 1)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, lane.state == .waiting ? 8 : 0)
+            .padding(.vertical, lane.state == .waiting ? 7 : 0)
             .padding(.horizontal, lane.state == .waiting ? 10 : 0)
             // Content, never chrome: an opaque well so the words are never read through blur.
             .background(
@@ -565,32 +623,55 @@ private struct LaneCard: View {
                     .tint(hue)
                 }
             }
-            if lane.state == .waiting || lane.state == .running {
-                // Esc confirms nothing; it is the interrupt the CLIs advertise themselves.
-                Button(action: onInterrupt) { Label("Interromper", systemImage: "escape").font(.subheadline) }
-                    .buttonStyle(.bordered)
-            }
-            if lane.isIsolatable {
-                Button(action: onIsolate) { Label("Isolar", systemImage: "arrow.branch").font(.subheadline) }
-                    .buttonStyle(.bordered)
-                    // Moving a lane is not free, and the card says the price before he pays it.
-                    .help("Move a lane para /workspace/.wt/\(lane.sid). Reinicia o agente ali — o contexto dele se perde.")
-            }
-            // Só quem tem sessão tmux ganha "Abrir lane". Uma lane do loomd é supervisionada por
-            // JSON-RPC e não tem pty do outro lado — o botão ali só podia falhar. No lugar dele
-            // fica a razão, porque um botão que some sem explicação vira suspeita de bug.
-            if lane.hasTerminal {
-                Button(action: onOpen) { Text("Abrir lane").font(.subheadline) }
-                    .buttonStyle(.bordered)
-            } else {
-                Text(lane.noTerminalReason)
-                    .font(.caption2).foregroundStyle(.white.opacity(0.45))
-            }
             if busy {
                 ProgressView().controlSize(.small)
                     .accessibilityLabel("enviando")
             }
             Spacer()
+
+            // Os secundários viram ÍCONE, e vão para a direita. No retrato de 10-ago-2026 eles
+            // eram cinza-sobre-cinza, ilegíveis, e ainda assim o elemento mais repetido da tela:
+            // "Interromper" e "Abrir lane" em todo cartão, disputando espaço com a única coisa
+            // que ele precisa achar em um segundo. Rótulo apagado não é discrição — é ruído que
+            // não dá para ler. Ícone com `.help` diz o mesmo e ocupa um sexto.
+            if lane.state == .waiting || lane.state == .running {
+                // Esc confirms nothing; it is the interrupt the CLIs advertise themselves.
+                Button(action: onInterrupt) { Image(systemName: "escape") }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .padding(.horizontal, 5).padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                    .help("Interromper (Esc)")
+                    .accessibilityLabel("Interromper")
+            }
+            if lane.isIsolatable {
+                Button(action: onIsolate) { Image(systemName: "arrow.branch") }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .padding(.horizontal, 5).padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                    // Moving a lane is not free, and the card says the price before he pays it.
+                    .help("Isolar em /workspace/.wt/\(lane.sid). Reinicia o agente ali — o contexto dele se perde.")
+                    .accessibilityLabel("Isolar em worktree")
+            }
+            // Só quem tem sessão tmux ganha "Abrir lane". Uma lane do loomd é supervisionada por
+            // JSON-RPC e não tem pty do outro lado — o botão ali só podia falhar. No lugar dele
+            // fica a razão, porque um botão que some sem explicação vira suspeita de bug.
+            if lane.hasTerminal {
+                Button(action: onOpen) { Image(systemName: "macwindow") }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .padding(.horizontal, 5).padding(.vertical, 3)
+                    .contentShape(Rectangle())
+                    .help("Abrir o terminal de \(lane.sid)")
+                    .accessibilityLabel("Abrir lane")
+            } else {
+                Text(lane.noTerminalReason)
+                    .font(.caption2).foregroundStyle(.white.opacity(0.4))
+            }
         }
         .disabled(busy)
         .padding(.top, 2)
@@ -627,14 +708,151 @@ private struct LaneCard: View {
     }
 }
 
+
+/// UMA LINHA por lane. O contrário do cartão: aqui não há decisão a tomar, há estado a varrer.
+///
+/// Ordem da esquerda para a direita segue a pergunta que ele faz ao olhar: *quem* (lâmpada+nome),
+/// *como está* (estado), *fazendo o quê* (a última linha do agente), *desde quando* (idade).
+/// A idade fica à direita, em dígitos tabulares, para as linhas alinharem em coluna.
+private struct LaneRow: View {
+    let lane: LaneSnapshot
+    let busy: Bool
+    let onOpen: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle().fill(hue).frame(width: 7, height: 7)
+                .opacity(lane.state == .unknown ? 0.35 : 1)
+
+            Text(lane.sid)
+                .font(.system(size: 12, weight: .semibold, design: .default))
+                .foregroundStyle(.white.opacity(lane.state == .unknown ? 0.5 : 0.92))
+                .lineLimit(1)
+                .frame(minWidth: 74, alignment: .leading)
+
+            Text(lane.presenceLabel)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.white.opacity(0.42))
+                .lineLimit(1)
+                .frame(minWidth: 62, alignment: .leading)
+
+            // O que o agente está de fato fazendo. É A informação da linha, então ganha o espaço
+            // que sobra — e não pode ser menor nem mais fraca que o nome, que ele já sabe de cor.
+            Text(lane.detail.isEmpty ? "—" : lane.detail)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.white.opacity(lane.state == .unknown ? 0.28 : 0.62))
+                .lineLimit(1).truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if busy { ProgressView().controlSize(.mini) }
+
+            if let at = lane.observedAt {
+                Text(at, style: .relative)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.3))
+                    .lineLimit(1).frame(width: 52, alignment: .trailing)
+            } else {
+                Text("—").font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.22))
+                    .frame(width: 52, alignment: .trailing)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.white.opacity(hover ? 0.07 : 0.035))
+        )
+        .overlay(
+            // A identidade entra por uma barra na borda, nunca por preenchimento: 12 linhas
+            // tingidas viram um arco-íris e param de significar qualquer coisa.
+            RoundedRectangle(cornerRadius: 8)
+                .fill(hue.opacity(lane.state == .unknown ? 0.15 : 0.5))
+                .frame(width: 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { if lane.hasTerminal { onOpen() } }
+        .onHover { hover = $0 }
+        .help(lane.hasTerminal ? "Abrir o terminal de \(lane.sid)" : lane.noTerminalReason)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(lane.sid), \(lane.presenceLabel), \(lane.confidenceLabel)")
+    }
+
+    private var hue: Color {
+        switch lane.family {
+        case .claude: return Color(red: 1.00, green: 0.76, blue: 0.34)
+        case .codex:  return Color(red: 0.28, green: 0.86, blue: 0.82)
+        case .kimi:   return Color(red: 0.72, green: 0.56, blue: 1.00)
+        case .grok:   return Color(red: 0.72, green: 0.90, blue: 0.32)
+        case .glm:    return Color(red: 0.44, green: 0.66, blue: 1.00)
+        case .repo:   return Color(red: 0.85, green: 0.72, blue: 0.50)
+        case .other:  return Color(white: 0.75)
+        }
+    }
+}
+
 // MARK: - The glass stratum
+
+/// Achata o vidro para um painel OPACO.
+///
+/// Existe por um motivo medido, não por gosto: `glassEffect` é Metal, e `ImageRenderer` não
+/// rasteriza Metal — a Frota inteira saía como um retângulo vazio, o que é exatamente o estado
+/// em que essa tela vinha sendo projetada. Com isto ela pode ser VISTA fora de uma janela viva.
+///
+/// O modo opaco não é só andaime de teste: é o degrade honesto para quando o vidro não estiver
+/// disponível, e a única variante em que dá para julgar contraste de texto sem o borrão por baixo.
+struct FarolFlatGlassKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var farolFlatGlass: Bool {
+        get { self[FarolFlatGlassKey.self] }
+        set { self[FarolFlatGlassKey.self] = newValue }
+    }
+}
+
+private struct FarolGlassModifier: ViewModifier {
+    let tint: Color?
+    let frosted: Bool
+    @Environment(\.farolFlatGlass) private var flat
+
+    private var edge: some View {
+        RoundedRectangle(cornerRadius: 16)
+            .strokeBorder(tint?.opacity(0.55) ?? Color.white.opacity(0.08),
+                          lineWidth: tint == nil ? 0.5 : 1.2)
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if flat {
+            content
+                .background(RoundedRectangle(cornerRadius: 16).fill(Color(white: 0.13).opacity(0.92)))
+                .overlay(edge)
+        } else {
+            content.modifier(FarolRealGlass(tint: tint, frosted: frosted))
+        }
+    }
+}
+
+private struct FarolRealGlass: ViewModifier {
+    let tint: Color?
+    let frosted: Bool
+    @ViewBuilder
+    func body(content: Content) -> some View { content.farolGlassReal(tint: tint, frosted: frosted) }
+}
 
 private extension View {
     /// A floating glass panel. `tint` is the identity edge-light (never a fill); `frosted`
     /// clouds the pane for a stuck lane — the third encoding of that state.
     /// Falls back to a material on pre-26 systems so the screen degrades instead of breaking.
-    @ViewBuilder
     func farolGlass(tint: Color?, frosted: Bool) -> some View {
+        modifier(FarolGlassModifier(tint: tint, frosted: frosted))
+    }
+
+    @ViewBuilder
+    func farolGlassReal(tint: Color?, frosted: Bool) -> some View {
         if #available(iOS 26, macOS 26, visionOS 26, *) {
             self.glassEffect(
                 frosted ? .regular.interactive() : .regular,

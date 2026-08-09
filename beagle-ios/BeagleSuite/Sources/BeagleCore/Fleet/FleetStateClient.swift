@@ -61,7 +61,33 @@ public final class FleetStateClient {
     /// What ⌘↩ would clear (nil when nothing can be honestly approved with one keystroke).
     public var nextApprovable: LaneSnapshot? { FrotaBoard.oldestApprovable(lanes) }
 
+    /// Uma fonte PARADA: estado colado à mão, socket nenhum.
+    ///
+    /// Existe porque a Frota só podia ser vista com o cluster de pé E um agente parado no
+    /// instante certo — ou seja, quase nunca. Uma tela que só se inspeciona ao vivo é uma tela
+    /// que se projeta no escuro, e foi assim que ela chegou a três rodadas de "ainda tá ruim"
+    /// sem ninguém conseguir apontar o quê.
+    public static func fixture(
+        lanes: [LaneSnapshot],
+        loomd: LoomdHealth? = nil,
+        link: Link = .live,
+        lastFrameAt: Date? = Date()
+    ) -> FleetStateClient {
+        let c = FleetStateClient()
+        c.lanes = lanes
+        c.loomd = loomd
+        c.link = link
+        c.lastFrameAt = lastFrameAt
+        c.isFixture = true
+        return c
+    }
+
+    /// Trava dura: uma fonte parada NUNCA abre socket. Sem isto um snapshot dispararia rede de
+    /// verdade e, pior, sobrescreveria as lanes coladas com o que o cluster respondesse.
+    public private(set) var isFixture = false
+
     public func connect() {
+        guard !isFixture else { return }
         guard link != .live && link != .connecting else { return }
         guard let request = endpoint.loomRequest() else { link = .failed("bad endpoint"); return }
         closedByCaller = false
