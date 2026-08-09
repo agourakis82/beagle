@@ -143,7 +143,11 @@ export function fuseFleet(entries, loomdLanes) {
     if (!l) return { ...e, confidence: INFERRED, truthSource: "capture-pane" };
     return {
       ...e,
-      confidence: EXACT,
+      // 🚨 O confidence é do CONTRATO, também aqui. `loomdCard` já honra o campo que a fonte
+      // declara; cravar EXACT na fusão desfazia isso e reintroduzia a mentira num caminho só —
+      // uma lane que o loomd declarasse `inferred` (a de compatibilidade por PTY, que virá)
+      // sairia `exact` só por ter contraparte na tela. Achado da verificação adversarial.
+      confidence: l.confidence,
       truthSource: "loomd",
       state: l.state,
       // 🚨 NÃO herdar o detail da tela. `detail` é a EVIDÊNCIA que o card cita e que o leitor de

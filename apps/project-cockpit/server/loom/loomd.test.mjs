@@ -182,7 +182,9 @@ test("um card rotulado `exact` NUNCA cita evidência vinda da tela", () => {
   // Achado sério: `detail: l.detail || e.detail` fazia um card `exact` cair para o texto do
   // capture-pane quando o loomd não tinha evidência — regex vendida como protocolo, dentro do
   // card que existe justamente para provar a diferença. E o Swift lê esse texto em voz alta.
-  const semEvidencia = loomdCard({ lane: "codex-1", kind: "idle" }, 5);
+  // A fixture DECLARA `exact` porque agora o campo vem do contrato: card sem `confidence`
+  // degrada para `inferred`, que é o lado seguro. O invariante testado aqui é o do `detail`.
+  const semEvidencia = loomdCard({ lane: "codex-1", kind: "idle", confidence: "exact" }, 5);
   const daTela = [{ sid: "codex-1", state: "running", detail: "✻ Crunched for 12m — lido da TELA" }];
   const [f] = fuseFleet(daTela, new Map([["codex-1", semEvidencia]]));
   assert.equal(f.confidence, "exact");
@@ -190,7 +192,7 @@ test("um card rotulado `exact` NUNCA cita evidência vinda da tela", () => {
   assert.doesNotMatch(f.detail, /TELA/);
 
   // E quando o loomd TEM evidência, é a dele que aparece.
-  const comEvidencia = loomdCard({ lane: "codex-1", kind: "error", detail: "rpc recusado" }, 5);
+  const comEvidencia = loomdCard({ lane: "codex-1", kind: "error", detail: "rpc recusado", confidence: "exact" }, 5);
   const [g] = fuseFleet(daTela, new Map([["codex-1", comEvidencia]]));
   assert.equal(g.detail, "rpc recusado");
 });
@@ -202,4 +204,16 @@ test("o confidence vem do CONTRATO do loomd, não de uma constante nossa", () =>
   assert.equal(loomdCard({ lane: "a", kind: "idle", confidence: "exact" }, 1).confidence, "exact");
   assert.equal(loomdCard({ lane: "a", kind: "idle", confidence: "inferred" }, 1).confidence, "inferred");
   assert.equal(loomdCard({ lane: "a", kind: "idle" }, 1).confidence, "inferred", "campo ausente NÃO vira exact");
+});
+
+test("a fusão também honra o contrato: lane que o loomd declara `inferred` NÃO vira `exact`", () => {
+  // Achado adversarial: `loomdCard` passou a honrar o campo, mas `fuseFleet` cravava EXACT
+  // literal e desfazia isso — a mentira sobrevivia num caminho só. O caso é o da lane de
+  // compatibilidade por PTY, que o loomd já prevê e ainda não emite.
+  const daTela = [{ sid: "codex-1", state: "running", detail: "tela" }];
+  const cardInferido = loomdCard({ lane: "codex-1", kind: "idle", confidence: "inferred" }, 9);
+  const [f] = fuseFleet(daTela, new Map([["codex-1", cardInferido]]));
+  assert.equal(f.confidence, "inferred", "o loomd disse inferred; a fusão não pode promover");
+  const cardExato = loomdCard({ lane: "codex-1", kind: "idle", confidence: "exact" }, 9);
+  assert.equal(fuseFleet(daTela, new Map([["codex-1", cardExato]]))[0].confidence, "exact");
 });

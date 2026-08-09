@@ -170,12 +170,20 @@ sys.exit(0 if any(l.get("lane")==sys.argv[1] for l in d.get("lanes",[])) else 1)
 # ---------------------------------------------------------------------------
 # Semear a lane.
 #
-# Por que isto existe: o estado do loomd é uma REDUÇÃO sobre a trama, e a trama
-# começa vazia — `Trama::open` não relê o arquivo. Medido: com o daemon de pé e
-# o codex conectado, `/v2/state` responde `{"lanes":[]}`, porque nada ACONTECEU
-# ainda. Uma lane que nunca falou não é uma lane sobre a qual se possa afirmar
-# coisa alguma, e inventar uma entrada "ociosa" seria exatamente a mentira que o
-# loomd existe para não contar.
+# ⚠️ ESTE COMENTÁRIO ESTAVA MENTINDO e foi corrigido em 09-ago-2026. Ele dizia
+# que "`Trama::open` não relê o arquivo", o que deixou de ser verdade na mesma
+# rodada em que a releitura foi implementada — um runbook que descreve o
+# comportamento anterior é pior que nenhum, porque é confiável em aparência.
+#
+# HOJE: `Trama::open` REIDRATA do rabo do jsonl, então numa subida com diário o
+# `/v2/state` já responde a lane no primeiro segundo, com o estado e o threadId
+# retomados. O seed deixou de ser necessário para o board não nascer cego.
+#
+# Ele continua útil para UMA coisa: a PRIMEIRA subida, com diário vazio, onde
+# nada aconteceu ainda. Aí `/v2/state` responde `{"lanes":[]}` — e é a resposta
+# certa: uma lane que nunca falou não é uma lane sobre a qual se possa afirmar
+# coisa alguma, e inventar uma entrada "ociosa" seria a mentira que o loomd
+# existe para não contar. Por isso o seed não fabrica evento.
 #
 # Então o seed não fabrica evento: ele MANDA UM TURNO DE VERDADE. O que aparece
 # no board é a consequência observada dele. Se o codex estiver deslogado ou sem

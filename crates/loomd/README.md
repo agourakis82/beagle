@@ -70,6 +70,30 @@ Ligar uma lane de Claude é só configuração — nada de daemon novo:
 
 Para testar sem tocar em `settings.json` de lane nenhuma, use `claude --settings '<json>'`.
 
+## Durabilidade (o que atravessa um restart do daemon)
+
+`Trama::open` **relê o rabo do `trama.jsonl`** e daí saem três coisas: o `seq`, o estado das lanes
+e o `threadId` de cada uma. Não existe arquivo de estado paralelo — um segundo arquivo é uma
+segunda verdade, e as duas divergem.
+
+Consequências, medidas ao vivo em 09-ago-2026 (reinício do daemon com a lane `loom-1`):
+
+* **`seq` monotônico através de reinícios.** Antes: `[1..8, 1..8, 1..8]` no arquivo real — três
+  subidas com as mesmas chaves, e `?since=8` nunca mais entregava nada. Depois do restart o
+  arquivo seguiu `…15, 16, 17…`, e um cursor tirado ANTES (`?since=15`) devolveu exatamente os
+  eventos 16–24 de DEPOIS.
+* **O board não nasce cego.** `/v2/state` responde a lane no primeiro segundo, sem `--seed` e sem
+  turno novo. (Era `{"lanes":[]}` até alguém falar.)
+* **A subida FRIA retoma a thread.** O id vem da trama e o `thread/resume` sai no boot. Provado
+  pelo conteúdo, não pelo log: o número dado à lane ANTES do restart foi respondido DEPOIS.
+* Se o store do Codex não tiver mais aquela thread, a resposta de erro ao `thread/resume` faz o
+  id ser **esquecido** — senão todo `turn/start` seguinte bateria num id morto, para sempre.
+
+A releitura é de uma **janela do fim** (1 MiB, teto de 5 000 eventos em RAM): o custo do boot não
+pode crescer com o histórico. O `seq` continua exato porque, a partir daqui, o maior está na
+última linha. O jsonl legado mantém as chaves duplicadas que já tem — o diário é append-only e
+reescrevê-lo para "consertar o passado" seria pior que a duplicata.
+
 ## Depurar
 
 **`LOOMD_DEBUG=1` despeja o fio cru.** Use antes de deduzir: duas rodadas de raciocínio sobre a
@@ -90,6 +114,12 @@ forma das mensagens não acharam o que uma olhada no fio achou em uma.
    cliente que desconectou; foi assim que um `turn/start` deixou de ser enviado.
 5. **`sandbox_mode=read-only` bloqueia a escrita mesmo com a aprovação concedida.** Para provar
    efeito, use `workspace-write`.
+6. **Teste com caminho de `/tmp` fixo mente depois que `open` passou a reler.** Os testes da trama
+   usavam `loomd-test-1.jsonl` e só passavam porque a versão antiga IGNORAVA o conteúdo do
+   arquivo. Com a releitura, o resultado passaria a depender de quantas vezes a suíte já rodou
+   naquela máquina. Use `arquivo_novo()`, que apaga antes.
+7. **Retomar o `seq` pela ÚLTIMA linha não serve — tem que ser o MAIOR.** Numa subida mais curta
+   que a anterior, o último é menor que o maior, e a próxima chave colide com uma que já existe.
 
 ## Deriva de versão
 
@@ -105,5 +135,12 @@ falha alto se um campo de carga sumir. Rode antes de qualquer deploy do `loomd`.
 
 O `loomd` é Rust porque o andaime de supervisão é pequeno. **Se ele passar de ~500 linhas, ou se
 aparecer um segundo bug de vivacidade em review, a evidência empírica venceu e isto se reescreve
-em Elixir/OTP antes da lane 2 migrar.** Medição atual: **63 linhas** (`spawn` + reinício 29,
-`run_once` 34). Refaça a conta a cada rodada — o compromisso não vale nada sem ela.
+em Elixir/OTP antes da lane 2 migrar.** Refaça a conta a cada rodada — o compromisso não vale
+nada sem ela.
+
+Medição de 09-ago-2026, **método declarado** (linhas não vazias e não comentadas, `awk` do
+cabeçalho da função até o `}` de coluna 4): `spawn` + laço de reinício **33**, `run_once` **50** —
+total **83**. A rodada anterior anotou 29 + 34 = 63 sem declarar o método; a diferença é grande
+demais para vir das 4 linhas que a subida fria acrescentou, então **os dois números não são
+comparáveis** e este é o novo marco zero. Continua abaixo do teto de ~500, e nenhum bug de
+vivacidade novo apareceu nesta rodada.

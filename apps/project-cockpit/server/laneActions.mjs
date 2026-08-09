@@ -20,6 +20,7 @@ import { execFile } from "node:child_process";
 import {
   WORKSPACE_LANES, LANE_KEYS, LANE_WT_ROOT,
   laneSendKeyArgv, laneIsolateArgv, laneWorktreeCheckArgv,
+  loomdApproveArgv, parseLoomdHttp, loomdErrorOf,
 } from "./platform-bridge.mjs";
 
 /// States in which typing a `cd` at the lane is sound at all. Necessary, NOT sufficient: see the
@@ -54,6 +55,55 @@ export function decideKey({ lane, key, verdict }) {
     return { status: 409, error: `essa lane espera "${verdict.approveKey}", não "${key}"` };
   }
   return { ok: true };
+}
+
+// ─── APROVAR: um gesto, dois transportes ─────────────────────────────────────────────────
+//
+// ACHADO (2026-08-09): a única lane cujo pedido de aprovação é TIPADO era a única que o operador
+// não conseguia aprovar. `fuseFleet` zera o `approveKey` da lane servida pelo loomd — e está
+// certo, não há tecla: o loomd aprova por RPC. Mas o cockpit só sabia `tmux send-keys`, e
+// `decideKey` recusa explicitamente quem não tem `approveKey`. O card exato ficava decorativo.
+//
+// A rota nova é IRMÃ de `/key`, não uma substituição, e a separação é semântica:
+//
+//   POST …/key      → "entregue ESTA tecla a esta lane". O pedido nomeia a tecla; só faz sentido
+//                     onde existe um pane. Continua sendo a única porta do `esc` (interromper).
+//   POST …/approve  → "responda ao pedido que a lane está fazendo". O pedido NÃO nomeia
+//                     mecanismo; quem escolhe é o servidor, a partir de quem serve a lane.
+//
+// Por que não sobrecarregar `/key` com uma tecla fantasma: para a lane do loomd não existe tecla
+// nenhuma para nomear, e inventar uma (`y` que na verdade vira RPC) faria o cliente afirmar um
+// mecanismo que não é o que acontece — o mesmo tipo de mentira que o rótulo `exact` existe para
+// impedir. O card já traz o sinal tipado para desenhar o botão: `pendingApproval`, não `approveKey`.
+//
+// E o transporte é decidido no SERVIDOR, pelo último estado observado. Se o cliente decidisse,
+// ele decidiria com o card que tem na mão — que envelhece exatamente quando o loomd cai.
+
+// `decideScreenApprove` foi REMOVIDA junto com o ramo de tela desta rota. Ela existia para o
+// servidor escolher a tecla sozinho a partir do veredito de regex — e é isso que a verificação
+// adversarial derrubou. Aprovar lane de tela continua em `/key`, onde o cliente NOMEIA a tecla.
+/// Aprovação na lane servida pelo LOOMD. Puro.
+///
+/// 🚨 O allowlist NÃO é `WORKSPACE_LANES` — as lanes do loomd não estão lá (a de laboratório se
+/// chama `loom-1`). Ele é o conjunto que o loomd DECLAROU na última leitura, e é por isso que
+/// `card` chega aqui já resolvido pelo chamador: nenhum nome vindo do request escolhe o caminho.
+///
+/// E `mode !== "observed"` é 503, não "aprovei": se o loomd não respondeu nesta varredura, não
+/// existe pendência medida para responder. Deixar passar produziria um 200 para uma aprovação
+/// que ninguém entregou — indistinguível de sucesso na tela do operador.
+export function decideLoomdApprove({ lane, allow, card, truth }) {
+  const mode = truth?.mode || "unknown";
+  if (mode !== "observed") {
+    return {
+      status: 503,
+      error: `o loomd não respondeu nesta leitura (${mode}): ${truth?.error || "sem motivo declarado"} — não vou dizer que aprovei`,
+    };
+  }
+  if (!card) return { status: 404, error: `lane desconhecida: ${lane}` };
+  if (!card.pendingApproval) {
+    return { status: 409, error: `a lane está ${card.state} e não tem pedido de aprovação pendente — nada para responder` };
+  }
+  return { ok: true, pending: card.pendingApproval, allow: allow !== false };
 }
 
 /// Pure decision for moving a lane into its own worktree.
@@ -99,9 +149,24 @@ export function registerLaneActionRoutes(app, {
     return poller.get(lane) || { state: "unknown", approveKey: null };
   }
 
+  /// A lane é do loomd? A resposta é o ÚLTIMO ESTADO OBSERVADO, nunca o request. `lost` entra
+  /// junto de propósito: uma lane que o loomd servia e parou de servir continua sendo dele — o
+  /// caminho certo para ela é a recusa do loomd (503 com motivo), não cair para `send-keys` num
+  /// pane que não existe.
+  const servedByLoomd = (lane) =>
+    Boolean(poller.loomd(lane)) || (poller.loomdTruth().lost || []).includes(lane);
+
   app.post("/api/mobile/v1/lanes/:lane/key", async (req, res) => {
     const lane = String(req.params.lane || "");
     const key = String((req.body || {}).key || "");
+    // Antes do 404 genérico: a lane do loomd não é desconhecida, ela é de outro transporte, e
+    // dizer "desconhecida" mandaria o operador procurar um erro que não existe.
+    if (!WORKSPACE_LANES.includes(lane) && servedByLoomd(lane)) {
+      return res.status(409).json({
+        ok: false,
+        error: `a lane ${lane} é servida pelo loomd e não tem tecla — aprove em POST /api/mobile/v1/lanes/${lane}/approve`,
+      });
+    }
     if (!WORKSPACE_LANES.includes(lane)) return res.status(404).json({ ok: false, error: `lane desconhecida: ${lane}` });
 
     const verdict = await freshVerdict(lane, res);
@@ -126,6 +191,78 @@ export function registerLaneActionRoutes(app, {
         verdictBefore,
         state: after?.state || null, detail: after?.detail || "", observedAt: after?.observedAt || null,
       },
+    });
+  });
+
+  app.post("/api/mobile/v1/lanes/:lane/approve", async (req, res) => {
+    const lane = String(req.params.lane || "");
+    const allow = (req.body || {}).allow !== false;
+
+    // Porteiro barato ANTES de qualquer exec: um nome que não pertence a nenhuma das duas fontes
+    // não dispara nem uma varredura. O card que ele tocou veio de uma varredura, então toda lane
+    // legítima já está numa das duas listas.
+    if (!WORKSPACE_LANES.includes(lane) && !servedByLoomd(lane)) {
+      return res.status(404).json({ ok: false, error: `lane desconhecida: ${lane}` });
+    }
+
+    // Mesma disciplina de `/key`: decide-se sobre uma leitura de menos de um segundo. O sweep é o
+    // MESMO para as duas fontes (o bloco @@LOOMD: pega carona nele), então uma chamada atualiza
+    // a tela e o loomd de uma vez.
+    const verdict = await freshVerdict(lane, res);
+    if (!verdict) return;
+
+    if (servedByLoomd(lane)) {
+      const truth = poller.loomdTruth();
+      const card = poller.loomd(lane);
+      const d = decideLoomdApprove({ lane, allow, card, truth });
+      if (!d.ok) return res.status(d.status).json({ ok: false, error: d.error, data: { truth } });
+
+      const argv = loomdApproveArgv(ns, lane, d.allow);
+      if (!argv) return res.status(400).json({ ok: false, error: "ação recusada pelo allowlist" });
+      const { err, stdout, stderr } = await run(kubectl, argv, execFn);
+      const http = parseLoomdHttp(stdout);
+      // Sem código HTTP não houve resposta: exec falhou, curl não conectou ou estourou o teto.
+      // Isto é o oposto de sucesso e não pode virar 200.
+      if (http.code === null) {
+        return res.status(502).json({
+          ok: false,
+          error: `não consegui falar com o loomd dentro do pod: ${stderr || err?.message || "resposta sem código HTTP"}`,
+        });
+      }
+      if (http.code !== 200) {
+        // O motivo do loomd é melhor que o nosso: ele sabe se a lane não é supervisionada (404)
+        // ou se a pendência já foi respondida por outro caminho (409).
+        const reason = loomdErrorOf(http.body) || `HTTP ${http.code}`;
+        const status = http.code === 404 ? 404 : (http.code === 409 ? 409 : 502);
+        return res.status(status).json({ ok: false, error: `o loomd recusou: ${reason}`, data: { httpCode: http.code } });
+      }
+
+      await poller.refreshNow();
+      const after = poller.loomd(lane);
+      return res.json({
+        ok: true,
+        data: {
+          lane, allow: d.allow, via: "loomd", pending: d.pending,
+          state: after?.state || null, detail: after?.detail || "", observedAt: after?.observedAt || null,
+        },
+      });
+    }
+
+    // 🚨 Lane de TELA: esta rota NÃO aprova. Removido depois da verificação adversarial.
+    //
+    // O ramo anterior deixava o SERVIDOR escolher sozinho, por regex, a tecla a injetar numa das
+    // 11 lanes vivas. Medido com o classificador real: uma tela
+    //   `Bash(rm -rf /workspace/x) / Do you want to proceed? / ❯ 1. Yes / 2. No`
+    // devolve `approveKey: "enter"` — que é o DEFAULT do regex quando não casa `(y/n)`. Ou seja,
+    // um pedido sem tecla nomeada faria o cockpit confirmar um comando destrutivo escolhido por
+    // heurística. Isso é exatamente a fronteira que `/key` existe para manter: o cliente NOMEIA
+    // a tecla, e o servidor só verifica se ela é a certa para o que está na tela.
+    //
+    // Escopo desta rota é a lane servida pelo loomd, onde a aprovação é RPC tipada e não há
+    // tecla nenhuma para adivinhar.
+    return res.status(409).json({
+      ok: false,
+      error: `a lane ${lane} é servida por tela, não pelo loomd — aprove por /key nomeando a tecla que o card mostra`,
     });
   });
 

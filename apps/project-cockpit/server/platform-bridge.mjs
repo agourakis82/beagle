@@ -19,7 +19,8 @@ export const LOOMD_DELIM = "@@LOOMD:";
 /// não tem autenticação nenhuma e o ns beagle não tem NetworkPolicy, então a porta não é
 /// exposta ao cluster. O único caminho até ele é este exec, que já é autenticado pelo RBAC
 /// do cockpit — carona no transporte que já existe, zero superfície nova.
-export const LOOMD_STATE_URL = "http://127.0.0.1:4400/v2/state";
+export const LOOMD_BASE = "http://127.0.0.1:4400";
+export const LOOMD_STATE_URL = `${LOOMD_BASE}/v2/state`;
 /// Teto de espera do curl. NÃO negociável: este curl roda EM SÉRIE com os 11 capture-pane
 /// dentro do `timeout: 20000` do LanePoller. Um loomd travado (não morto) sem teto estouraria
 /// o sweep inteiro e envelheceria os 11 vereditos — o loomd derrubaria o board que veio melhorar.
@@ -243,6 +244,65 @@ export function laneWorktreeCheckArgv(ns, lane) {
   if (!s || !s.user || !WORKSPACE_LANES.includes(lane)) return null;
   const inner = `sh -c "test -d ${LANE_WT_ROOT}/${s.target} && echo yes || echo no"`;
   return ["-n", ns, "exec", "-i", s.pod, "-c", s.container, "--", ...tmuxSu(s, inner)];
+}
+
+// ─── APROVAR A LANE DO LOOMD: RPC, não tecla ─────────────────────────────────────────────
+// A lane servida pelo loomd não tem tecla para receber (`fuseFleet` zera o `approveKey` porque
+// não existe pane onde apertar): ela responde por `POST /v2/lanes/:lane/approve`. O transporte é
+// o MESMO da leitura — `kubectl exec` no pod do workspace, curl para 127.0.0.1 — justamente
+// para não abrir superfície nova: o loomd não tem autenticação nenhuma e continua sem porta
+// exposta ao cluster. O que autentica esta chamada é o RBAC do cockpit sobre o exec.
+
+/// Marcador do código HTTP que o `-w` do curl escreve DEPOIS do corpo.
+/// Sem ele um 409 do loomd ("essa lane não está esperando aprovação") chegaria como corpo com
+/// exit 0 do curl e viraria "aprovei" — a mentira exata que esta rodada existe para impedir.
+/// Não usamos `curl -f` porque `-f` come o corpo do erro, que é justamente o MOTIVO da recusa.
+export const LOOMD_HTTP_DELIM = "@@HTTP:";
+
+/// Charset de nome de lane que pode ser interpolado numa URL dentro de `sh -c`.
+/// Segunda tranca, não a primeira: o chamador já só aceita lanes que o loomd DECLAROU na última
+/// leitura. Esta aqui garante que, mesmo que o próprio loomd passe a declarar um nome hostil
+/// (o nome vem de `LOOMD_CODEX_LANES` no pod, não daqui), nada com metacaractere de shell ou com
+/// `/` e `.` — que dariam travessia de caminho no router do axum — chegue a ser montado.
+const SAFE_LOOMD_LANE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+export function loomdApproveArgv(ns, lane, allow) {
+  if (!SAFE_LOOMD_LANE.test(String(lane || ""))) return null;
+  const spec = SESSION_ALLOWLIST[WORKSPACE_LANES[0]];
+  // O corpo é uma das DUAS constantes literais abaixo — nada de texto de request vira JSON aqui.
+  const payload = allow === false ? '{"allow":false}' : '{"allow":true}';
+  const inner =
+    `curl -sS --max-time ${LOOMD_TIMEOUT_S} -X POST -H "Content-Type: application/json"` +
+    ` -d '${payload}' -w "\\n${LOOMD_HTTP_DELIM}%{http_code}"` +
+    ` ${LOOMD_BASE}/v2/lanes/${lane}/approve`;
+  return ["-n", ns, "exec", "-i", spec.pod, "-c", spec.container, "--", ...tmuxSu(spec, inner)];
+}
+
+/// { code, body } do stdout do exec acima. `code: null` = o curl não chegou a ter resposta HTTP
+/// (loomd fora do ar, exec falhou, timeout) — e isso NÃO pode ser tratado como sucesso.
+export function parseLoomdHttp(stdout) {
+  const lines = String(stdout || "").split("\n");
+  // De trás para frente de propósito: o corpo do loomd é JSON livre e poderia conter o marcador;
+  // a linha que o `-w` escreveu é sempre a última.
+  let idx = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].startsWith(LOOMD_HTTP_DELIM)) { idx = i; break; }
+  }
+  if (idx < 0) return { code: null, body: String(stdout || "").trim() };
+  const code = Number(lines[idx].slice(LOOMD_HTTP_DELIM.length).trim());
+  return {
+    code: Number.isInteger(code) && code >= 100 ? code : null,
+    body: lines.slice(0, idx).join("\n").trim(),
+  };
+}
+
+/// O `error` que o loomd manda no corpo (`{"ok":false,"error":"..."}`), ou null. O motivo dele é
+/// melhor que qualquer texto nosso: ele sabe se a lane não é supervisionada ou se não há pendência.
+export function loomdErrorOf(body) {
+  try {
+    const j = JSON.parse(String(body || ""));
+    return j && typeof j.error === "string" && j.error ? j.error : null;
+  } catch { return null; }
 }
 
 // Split the batched peek stdout into { lane: screenText }. Unknown labels are dropped.

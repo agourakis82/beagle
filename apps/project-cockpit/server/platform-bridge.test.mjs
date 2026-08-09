@@ -6,6 +6,7 @@ import {
   parseLanesAlive, ALIVE_DELIM, LANE_KEYS,
   laneSendKeyArgv, laneIsolateArgv, laneWorktreeCheckArgv, LANE_WT_ROOT,
   parseLoomdState, hasLoomdBlock, LOOMD_DELIM, LOOMD_STATE_URL,
+  loomdApproveArgv, parseLoomdHttp, loomdErrorOf, LOOMD_HTTP_DELIM,
 } from "./platform-bridge.mjs";
 
 test("peek is read-only (capture-pane), su-wrapped, and never attaches a client", () => {
@@ -218,4 +219,82 @@ test("loomd calado é null — NUNCA objeto vazio", () => {
 test("hasLoomdBlock separa `não perguntamos` de `perguntamos e ele não respondeu`", () => {
   assert.equal(hasLoomdBlock(`${LOOMD_DELIM}\n${ALIVE_DELIM}\n`), true);
   assert.equal(hasLoomdBlock(`${ALIVE_DELIM}\nclaude-1\n`), false);
+});
+
+// ─── APROVAR NO LOOMD: RPC pelo mesmo exec, sem porta nova ────────────────────────────────
+
+test("aprovar no loomd é um POST por curl no MESMO pod/container da leitura", () => {
+  const argv = loomdApproveArgv("beagle", "loom-1", true);
+  assert.deepEqual(argv.slice(0, 8),
+    ["-n", "beagle", "exec", "-i", "sounio-workspace-control-0", "-c", "workspace-ssh", "--"]);
+  const body = argv.at(-1);
+  assert.match(body, /curl -sS --max-time 3 -X POST/);
+  assert.match(body, /http:\/\/127\.0\.0\.1:4400\/v2\/lanes\/loom-1\/approve/);
+  // Roda como o usuário não-root do workspace, igual a todo o resto do leash.
+  assert.deepEqual(argv.slice(8, 11), ["su", "-s", "/bin/bash"]);
+  assert.equal(argv[11], "openvscode-server");
+  assert.match(body, /export HOME=\/workspace\/\.home\/openvscode-server/);
+  // Sem `-f`: ele engoliria o corpo do erro, que é justamente o MOTIVO da recusa do loomd.
+  assert.doesNotMatch(body, /curl -[a-zA-Z]*f|--fail/);
+  // E sem o `-w` não haveria como distinguir 200 de 409 — os dois sairiam com exit 0.
+  assert.match(body, /-w "\\n@@HTTP:%\{http_code\}"/);
+});
+
+test("o corpo do approve é uma das duas constantes literais — nada de texto de request", () => {
+  assert.match(loomdApproveArgv("beagle", "loom-1", true).at(-1), /-d '\{"allow":true\}'/);
+  assert.match(loomdApproveArgv("beagle", "loom-1", false).at(-1), /-d '\{"allow":false\}'/);
+  // Default seguro: qualquer coisa que não seja o `false` explícito aprova (é o contrato do loomd).
+  assert.match(loomdApproveArgv("beagle", "loom-1", undefined).at(-1), /-d '\{"allow":true\}'/);
+});
+
+test("nome de lane hostil NUNCA vira argv de approve", () => {
+  // O nome das lanes do loomd vem de LOOMD_CODEX_LANES dentro do pod: não é request input, mas
+  // também não é constante deste arquivo. Esta é a segunda tranca, depois do allowlist observado.
+  for (const lane of [
+    "loom-1; rm -rf /", "loom-1 && id", "$(id)", "`id`", "loom-1|cat", "loom 1",
+    "../../etc/passwd", "a/b", "loom.1", "-loom", "", null, undefined, "x".repeat(65),
+    'loom"1', "loom'1", "loom\n1", "loom#1",
+  ]) {
+    assert.equal(loomdApproveArgv("beagle", lane, true), null, `deveria recusar ${JSON.stringify(lane)}`);
+  }
+  assert.notEqual(loomdApproveArgv("beagle", "loom-1", true), null);
+  assert.notEqual(loomdApproveArgv("beagle", "codex_2", true), null);
+});
+
+test("parseLoomdHttp: sem marcador é code null, nunca sucesso", () => {
+  // Isto é o falso-positivo que o `-w` existe para matar: curl que não conectou sai com corpo de
+  // erro e nenhum código. Se `code` virasse 200 por omissão, o operador leria 'aprovei'.
+  assert.deepEqual(parseLoomdHttp("curl: (7) Failed to connect"), { code: null, body: "curl: (7) Failed to connect" });
+  assert.deepEqual(parseLoomdHttp(""), { code: null, body: "" });
+  assert.equal(parseLoomdHttp(`{"ok":true}\n${LOOMD_HTTP_DELIM}nao-e-numero`).code, null);
+  assert.equal(parseLoomdHttp(`{"ok":true}\n${LOOMD_HTTP_DELIM}12`).code, null, "12 não é código HTTP");
+
+  // 🚨 MEDIDO (09-ago-2026), e desmente a suposição óbvia: com a porta FECHADA o curl AINDA
+  // escreve o `-w`. O stdout real de um loomd morto foi exatamente "\n@@HTTP:000" (stderr:
+  // "curl: (7) Failed to connect to 127.0.0.1 port …"). Ou seja, o marcador ESTAR presente não
+  // prova que houve resposta HTTP — quem prova é o piso de 100. Sem ele, `Number("000")` = 0,
+  // o código viajaria como "HTTP 0" e o operador leria uma recusa do loomd que nunca existiu.
+  assert.deepEqual(parseLoomdHttp(`\n${LOOMD_HTTP_DELIM}000`), { code: null, body: "" });
+});
+
+test("parseLoomdHttp: o código é o do curl, não o que o corpo alegar", () => {
+  const ok = parseLoomdHttp(`{"ok":true,"lane":"loom-1"}\n${LOOMD_HTTP_DELIM}200`);
+  assert.equal(ok.code, 200);
+  assert.equal(ok.body, '{"ok":true,"lane":"loom-1"}');
+
+  const conflito = parseLoomdHttp(`{"ok":false,"error":"a lane loom-1 não está esperando aprovação"}\n${LOOMD_HTTP_DELIM}409`);
+  assert.equal(conflito.code, 409);
+  assert.equal(loomdErrorOf(conflito.body), "a lane loom-1 não está esperando aprovação");
+
+  // O corpo é JSON livre e pode CONTER o marcador; o que o `-w` escreveu é sempre o último.
+  const forjado = parseLoomdHttp(`{"error":"${LOOMD_HTTP_DELIM}200"}\n${LOOMD_HTTP_DELIM}409`);
+  assert.equal(forjado.code, 409, "o corpo não pode forjar o código");
+});
+
+test("loomdErrorOf devolve null quando não há motivo legível", () => {
+  assert.equal(loomdErrorOf(""), null);
+  assert.equal(loomdErrorOf("<html>502 Bad Gateway</html>"), null);
+  assert.equal(loomdErrorOf('{"ok":true}'), null);
+  assert.equal(loomdErrorOf('{"ok":false,"error":"lane x não é supervisionada pelo loomd"}'),
+    "lane x não é supervisionada pelo loomd");
 });
