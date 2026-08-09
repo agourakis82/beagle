@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   isT560Kind, deckExec, kubectlArgv, parseDeckSession,
   lanesPeekArgv, parseLanesPeek, WORKSPACE_LANES, PEEK_DELIM,
+  parseLanesAlive, ALIVE_DELIM, LANE_KEYS,
+  laneSendKeyArgv, laneIsolateArgv, laneWorktreeCheckArgv, LANE_WT_ROOT,
 } from "./platform-bridge.mjs";
 
 test("peek is read-only (capture-pane), su-wrapped, and never attaches a client", () => {
@@ -32,6 +34,67 @@ test("parseLanesPeek splits by lane and drops unknown labels", () => {
   assert.deepEqual(Object.keys(out).sort(), ["claude-1", "repo"]);
   assert.equal(out["claude-1"], "hello\nworld");
   assert.match(out["repo"], /\$ ls/);
+});
+
+test("the same peek reports which lanes tmux actually HAS", () => {
+  const body = lanesPeekArgv("beagle").at(-1);
+  assert.match(body, /echo "@@ALIVE:"; tmux ls -F "#\{session_name\}"/);
+  // The liveness block must come FIRST, so parseLanesPeek (which ignores anything before the
+  // first @@LANE:) keeps dropping it and the two parsers stay independent.
+  assert.ok(body.indexOf(ALIVE_DELIM) < body.indexOf(PEEK_DELIM));
+});
+
+test("parseLanesAlive: absent block is null, not an empty set", () => {
+  // "did not ask" must never be read as "nothing is alive" — that would blank the whole board.
+  assert.equal(parseLanesAlive("some unrelated output"), null);
+  assert.equal(parseLanesAlive(""), null);
+  const alive = parseLanesAlive(`${ALIVE_DELIM}\nclaude-1\nrepo\nnot-a-lane\n${PEEK_DELIM}claude-1\nhi\n`);
+  assert.deepEqual([...alive].sort(), ["claude-1", "repo"]);
+  assert.equal(alive.has("grok-cli1"), false, "a lane tmux does not list is NOT alive");
+  // An empty tmux (no sessions) is a real, distinguishable answer.
+  assert.equal(parseLanesAlive(`${ALIVE_DELIM}\n`).size, 0);
+});
+
+test("parseLanesPeek still ignores the liveness block that now precedes it", () => {
+  const out = parseLanesPeek(`${ALIVE_DELIM}\nclaude-1\nrepo\n${PEEK_DELIM}repo\n$ ls\n`);
+  assert.deepEqual(Object.keys(out), ["repo"]);
+});
+
+// ─── one-touch actions ───────────────────────────────────────────────────────────────────
+
+test("send-keys carries a NAMED key from a closed set — never text from a request", () => {
+  const a = laneSendKeyArgv("beagle", "codex-2", "y");
+  assert.deepEqual(a.slice(0, 8),
+    ["-n", "beagle", "exec", "-i", "sounio-workspace-control-0", "-c", "workspace-ssh", "--"]);
+  assert.deepEqual(a.slice(8, 13), ["su", "-s", "/bin/bash", "openvscode-server", "-c"]);
+  assert.match(a.at(-1), /export TMUX_TMPDIR=\/workspace\/\.home\/openvscode-server\/\.tmux;/);
+  assert.match(a.at(-1), / exec tmux send-keys -t codex-2 y$/);
+  assert.match(laneSendKeyArgv("beagle", "repo", "enter").at(-1), / exec tmux send-keys -t repo Enter$/);
+  assert.match(laneSendKeyArgv("beagle", "repo", "esc").at(-1), / exec tmux send-keys -t repo Escape$/);
+});
+
+test("send-keys refuses anything outside the two allowlists", () => {
+  assert.equal(laneSendKeyArgv("beagle", "repo", "rm -rf /"), null, "free text is not a key");
+  assert.equal(laneSendKeyArgv("beagle", "repo", "C-c"), null, "not in the closed set");
+  assert.equal(laneSendKeyArgv("beagle", "repo", ""), null);
+  assert.equal(laneSendKeyArgv("beagle", "repo; whoami", "y"), null, "lane must be allowlisted");
+  assert.equal(laneSendKeyArgv("beagle", "t560-beagle", "y"), null, "only workspace lanes, not deck sessions");
+  assert.equal(laneSendKeyArgv("beagle", "sounio-dev", "y"), null, "zellij is not a lane");
+  // The key set is small and named on purpose: it is the whole security argument.
+  assert.deepEqual(Object.keys(LANE_KEYS).sort(), ["enter", "esc", "y"]);
+  for (const v of Object.values(LANE_KEYS)) {
+    assert.match(v, /^[A-Za-z]{1,10}$/, "a key name must never contain a shell metacharacter");
+  }
+});
+
+test("isolate types a cd whose path comes from the lane NAME, and can be pre-checked", () => {
+  assert.match(laneIsolateArgv("beagle", "codex-1").at(-1),
+    new RegExp(` exec tmux send-keys -t codex-1 "cd ${LANE_WT_ROOT}/codex-1" Enter$`));
+  assert.equal(laneIsolateArgv("beagle", "../etc"), null);
+  assert.equal(laneIsolateArgv("beagle", "t560-beagle"), null);
+  assert.match(laneWorktreeCheckArgv("beagle", "codex-1").at(-1),
+    new RegExp(`test -d ${LANE_WT_ROOT}/codex-1 && echo yes \\|\\| echo no`));
+  assert.equal(laneWorktreeCheckArgv("beagle", "nope"), null);
 });
 
 test("allowlist: only known deck kinds; injection refused", () => {

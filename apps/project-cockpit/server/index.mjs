@@ -24,6 +24,7 @@ import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerPlatformRoutes } from "./platform-routes.mjs";
 import { OficinaPoller, registerOficinaRoutes } from "./oficina.mjs";
 import { ClaimRegistry, HazardPoller, registerCoordRoutes } from "./coord.mjs";
+import { registerLaneActionRoutes } from "./laneActions.mjs";
 import { classifyAuth } from "./auth-gate.mjs";
 import { workspaceQueryArgv as coordQueryArgv } from "./platform-bridge.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
@@ -15160,30 +15161,46 @@ const workspaceWss = new WebSocketServer({ noServer: true });
 const loomWss = new WebSocketServer({ noServer: true });
 const loomBroker = mountLoom();
 loomWss.on("connection", (ws) => loomBroker.handleConnection(ws));
+
+// ─── AGIR NA LANE — one named key, no attach ──────────────────────────────────────────────
+// Registered here (not next to the other mobile routes) because it needs the LanePoller that
+// mountLoom() builds. These are POSTs, so the SPA's GET "*" fallback never sees them, and they
+// inherit the global auth gate: a write without a real token is 401.
+registerLaneActionRoutes(app, {
+  poller: loomBroker.lanePoller,
+  kubectl: process.env.PROJECT_COCKPIT_KUBECTL || "/usr/local/bin/kubectl",
+  ns: process.env.PROJECT_COCKPIT_AGENT_NAMESPACE || "beagle",
+  execFn: nodeExecFile,
+});
 attachAgentWebSocket(agentWss);
 attachWorkspaceWebSocket(workspaceWss, { getProjectOrThrow });
 
 server.on("upgrade", (req, socket, head) => {
-  // Auth check for WebSocket upgrades
-  if (COCKPIT_AUTH_TOKEN) {
+  // Auth for WebSocket upgrades. Every terminal socket carries keystrokes INTO a live session,
+  // so it is classified as a WRITE: the forgeable `tailscale-user-login` header alone never
+  // suffices (see auth-gate.mjs — an in-cluster caller can simply send it).
+  //
+  // This used to be wrapped in `if (COCKPIT_AUTH_TOKEN) { … }`, which meant an empty or unmounted
+  // secret left EVERY socket — including /ws/loom, which can type into any lane — wide open. The
+  // HTTP gate was fixed to fail closed on 2026-08-08; the WS gate was not, and it also ignored
+  // the internal token. It now goes through the same classifier, so the two cannot drift again.
+  {
     const wsUrl = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-    const token = wsUrl.searchParams.get("token") || "";
-    // The iOS app authenticates the WS with the same x-cockpit-token header it sends on
-    // every mobile REST call (no ?token= in the URL — which would also pollute the kind
-    // capture downstream). Accept it here so the Command Deck terminal works over the
-    // public gateway too, not only over the tailnet (tailscale-user-login) path.
-    const headerToken = req.headers["x-cockpit-token"] || "";
-    const tsUser = req.headers["tailscale-user-login"];
-    const hasToken = token === COCKPIT_AUTH_TOKEN || headerToken === COCKPIT_AUTH_TOKEN;
-    // Every terminal socket carries keystrokes INTO a live session — it is a write path, not a
-    // read. So the forgeable `tailscale-user-login` header alone is no longer enough here (see
-    // auth-gate.mjs: an in-cluster caller can simply send it). A real token is required.
-    if (!hasToken) {
+    const verdict = classifyAuth({
+      method: "POST",                                  // an upgrade is a write path, always
+      path: (req.url || "").split("?")[0],
+      // The iOS/macOS clients send the same x-cockpit-token header they use on every REST call;
+      // ?token= stays supported for clients that cannot set headers.
+      bearer: wsUrl.searchParams.get("token") || "",
+      headerToken: req.headers["x-cockpit-token"] || "",
+      tsUser: req.headers["tailscale-user-login"] || "",
+      tokens: COCKPIT_AUTH_TOKENS,
+      allowOpen: ALLOW_OPEN,
+    });
+    if (!verdict.allow) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
-      if (tsUser) {
-        console.warn(`[auth] refused WS upgrade for ${req.url}: tailnet identity is not sufficient for a terminal (write path)`);
-      }
+      console.warn(`[auth] refused WS upgrade for ${req.url}: ${verdict.reason}`);
       return;
     }
   }

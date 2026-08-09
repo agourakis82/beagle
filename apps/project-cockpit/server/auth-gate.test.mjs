@@ -69,3 +69,32 @@ test("method casing cannot be used to smuggle a write past the read rule", () =>
     );
   }
 });
+
+// ─── WebSocket upgrades ──────────────────────────────────────────────────────────────────
+// index.mjs classifies every upgrade as a WRITE (method "POST"), because a terminal socket
+// carries keystrokes into a live session. These pin the posture the upgrade gate now inherits.
+
+test("a WS upgrade is a WRITE: tailnet identity alone never opens a terminal", () => {
+  const asUpgrade = (over) => classifyAuth({ method: "POST", path: "/ws/loom", tokens: TOKENS, ...over });
+  assert.equal(asUpgrade({ tsUser: "demetrios@me.com" }).allow, false, "a forgeable header must not type into a lane");
+  assert.equal(asUpgrade({ headerToken: [...TOKENS][0] }).allow, true, "x-cockpit-token is the real credential");
+  assert.equal(asUpgrade({ bearer: [...TOKENS][0] }).allow, true, "?token= stays supported");
+  assert.equal(asUpgrade({}).allow, false);
+});
+
+test("a WS upgrade with NO secret mounted fails CLOSED", () => {
+  // The bug this replaces: `if (COCKPIT_AUTH_TOKEN) { …check… }` — an empty secret skipped the
+  // whole check, leaving /ws/loom (which can type into any lane) open to anything in the cluster.
+  const noSecret = classifyAuth({ method: "POST", path: "/ws/loom", tokens: new Set() });
+  assert.equal(noSecret.allow, false);
+  assert.match(noSecret.reason, /no token configured/);
+  assert.equal(classifyAuth({ method: "POST", path: "/ws/loom", tokens: new Set(), allowOpen: true }).allow, true,
+    "opening it stays possible, but only as an explicit operator choice");
+});
+
+test("the internal token works on a socket too — the WS gate no longer checks a narrower set", () => {
+  // Measured drift: the old gate compared against PROJECT_COCKPIT_AUTH_TOKEN only, so
+  // PROJECT_COCKPIT_INTERNAL_AUTH_TOKEN authenticated on HTTP and was rejected on WS.
+  const both = new Set(["public-token", "internal-token"]);
+  assert.equal(classifyAuth({ method: "POST", path: "/ws/loom", tokens: both, headerToken: "internal-token" }).allow, true);
+});

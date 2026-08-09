@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LanePoller } from "./lanePoller.mjs";
-import { PEEK_DELIM } from "../platform-bridge.mjs";
+import { PEEK_DELIM, ALIVE_DELIM } from "../platform-bridge.mjs";
+
+const aliveBlock = (...lanes) => `${ALIVE_DELIM}\n${lanes.join("\n")}\n`;
 
 const screen = (lane, body) => `${PEEK_DELIM}${lane}\n${body}\n`;
 const ASKING = "   A pergunta: quer que eu rode o pré-registro agora?\n ╭────╮\n │ >  │\n ╰────╯\n";
@@ -57,6 +59,41 @@ test("an unchanged screen does not refresh lastOutputAt (so silence can age into
   assert.equal(p.get("codex-1").lastOutputAt, first, "no new output → age must accumulate");
   assert.equal(p.get("codex-1").state, "stuck");
   assert.equal(p.get("codex-1").observedAt, t, "but the observation itself is fresh");
+});
+
+test("a lane tmux does not list is EXITED, not a blank card guessing `unknown`", async () => {
+  // Measured 2026-08-09: grok-cli1/2 and codex-3 did not exist, capture-pane failed into stderr
+  // (discarded), and the board painted three cards for lanes that were never created.
+  const { p } = pollerWith(
+    aliveBlock("claude-1", "repo") + screen("claude-1", WORKING) + screen("grok-cli1", "") + screen("repo", SHELL),
+  );
+  await p.poll();
+  assert.equal(p.get("grok-cli1").state, "exited");
+  assert.match(p.get("grok-cli1").detail, /não existe no tmux/, "the card must say WHY it is empty");
+  assert.equal(p.get("grok-cli1").approveKey, null, "an absent lane offers no action");
+  assert.equal(p.get("claude-1").state, "running", "the live lanes are unaffected");
+  assert.equal(p.get("repo").state, "idle");
+});
+
+test("a read with no liveness block never claims a lane is gone", async () => {
+  // Old server, or output truncated before the block: we know nothing about existence, so the
+  // screen alone decides — silence about existence must not be read as absence.
+  const { p } = pollerWith(screen("claude-1", WORKING));
+  await p.poll();
+  assert.equal(p.get("claude-1").state, "running");
+});
+
+test("refreshNow awaits a sweep already in flight instead of firing a second one", async () => {
+  let calls = 0, done;
+  const p = new LanePoller({
+    kubectl: "k", ns: "n",
+    execFn: (bin, argv, opts, cb) => { calls++; done = () => cb(null, screen("repo", SHELL), ""); },
+  });
+  const a = p.refreshNow();
+  const b = p.refreshNow();
+  assert.equal(calls, 1, "one exec, not two");
+  done();
+  assert.deepEqual(await Promise.all([a, b]), [true, true], "both callers get the real result");
 });
 
 test("overlapping sweeps do not stack execs on a slow cluster", () => {

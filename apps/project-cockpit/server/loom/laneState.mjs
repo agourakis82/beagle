@@ -163,8 +163,14 @@ export function classifyLane({
   const lastLine = lastContentLine(lines);
   const question = /\?\s*$/.test(lastLine) ? lastLine : "";
 
+  // Not alive covers two cases the operator must be able to tell apart from `unknown`: the lane
+  // died, or it was never created at all. Both have no screen to quote, so when there is no last
+  // message we state the observation itself instead of showing an empty card.
   if (!alive) {
-    return { state: "exited", detail: last, question: "", working: false, atPrompt: false, awaitingInput: false, approveKey: null };
+    return {
+      state: "exited", detail: last || "sessão não existe no tmux",
+      question: "", working: false, atPrompt: false, awaitingInput: false, approveKey: null,
+    };
   }
   // A blank screen tells us nothing. Found live on codex-3, which reported "running" with no
   // evidence at all — exactly the confident-but-empty verdict this vocabulary exists to avoid.

@@ -11,6 +11,14 @@ export const PEEK_LINES = 25;
 export const PEEK_DELIM = "@@LANE:";
 /// Record separator for the batched receipt read.
 export const RECEIPT_DELIM = "@@RECEIPT:";
+/// Marks the liveness block that the batched peek emits BEFORE the per-lane screens.
+export const ALIVE_DELIM = "@@ALIVE:";
+
+// The ONLY keystrokes the cockpit may inject into a lane, by tmux key name. A closed set is the
+// whole security argument for one-touch approval: a named key is the same `y` he would press, it
+// is not a command. Anything a lane needs typed (a real answer to a real question) still requires
+// the terminal — see the `input` path on /ws/loom.
+export const LANE_KEYS = { enter: "Enter", y: "y", esc: "Escape" };
 
 // pod "@bridge" = resolve the t560 platform-bridge pod at call time; a literal name = that pod.
 // The 11 workspace agent lanes are tmux sessions on the workspace pod's OWN uid-owned socket:
@@ -125,13 +133,70 @@ export function zellijCleanupArgv(kind, ns) {
 // 11 clients would resize his real panes). The lane list is the allowlist constant — never
 // request input — so the interpolated loop carries no injection surface. Read-only by
 // construction: capture-pane cannot write to a pane.
+// The same exec also reports which sessions actually EXIST. Without it a lane that was never
+// created reads identically to one whose screen is blank — `capture-pane` sends "can't find pane"
+// to stderr, which is discarded, so the peek comes back empty and the classifier says `unknown`
+// ("advertised but never observed"). That painted cards for three lanes that do not exist.
 export function lanesPeekArgv(ns) {
   const lane0 = SESSION_ALLOWLIST[WORKSPACE_LANES[0]];
-  const script = WORKSPACE_LANES
-    .map((l) => `echo "${PEEK_DELIM}${l}"; tmux capture-pane -p -t ${l} -S -${PEEK_LINES} 2>/dev/null`)
+  const alive = `echo "${ALIVE_DELIM}"; tmux ls -F "#{session_name}" 2>/dev/null`;
+  const script = [alive]
+    .concat(WORKSPACE_LANES.map(
+      (l) => `echo "${PEEK_DELIM}${l}"; tmux capture-pane -p -t ${l} -S -${PEEK_LINES} 2>/dev/null`))
     .join("; ");
   const inner = `sh -c '${script}'`;
   return ["-n", ns, "exec", "-i", lane0.pod, "-c", lane0.container, "--", ...tmuxSu(lane0, inner)];
+}
+
+// The set of lanes tmux actually has, read from the leading @@ALIVE: block. Returns null — NOT an
+// empty set — when the block is absent, so a caller can tell "no lanes" apart from "did not ask".
+// Guessing "nothing is alive" from a truncated read would wipe the whole board.
+export function parseLanesAlive(stdout) {
+  const lines = String(stdout || "").split("\n");
+  const start = lines.findIndex((l) => l.startsWith(ALIVE_DELIM));
+  if (start < 0) return null;
+  const alive = new Set();
+  for (const line of lines.slice(start + 1)) {
+    if (line.startsWith(PEEK_DELIM) || line.startsWith(ALIVE_DELIM)) break;
+    const name = line.trim();
+    if (WORKSPACE_LANES.includes(name)) alive.add(name);
+  }
+  return alive;
+}
+
+// ─── ONE-TOUCH ACTIONS: send-keys, not attach ────────────────────────────────────────────
+// `tmux send-keys` delivers a keystroke WITHOUT becoming a client, so answering a prompt from
+// the Mac does not resize his panes (tmux sizes a window to its smallest attached client).
+// Both builders take the lane from the allowlist and the key from LANE_KEYS — no request text
+// is ever interpolated, which is what keeps this on the read-only side of the leash's spirit.
+
+/// Where `sounio-lane-worktrees` puts a lane's private tree. Derived from the lane NAME only.
+export const LANE_WT_ROOT = "/workspace/.wt";
+
+export function laneSendKeyArgv(ns, lane, key) {
+  const s = SESSION_ALLOWLIST[lane];
+  if (!s || !s.user || !WORKSPACE_LANES.includes(lane)) return null;
+  if (!Object.prototype.hasOwnProperty.call(LANE_KEYS, key)) return null;
+  const inner = `tmux send-keys -t ${s.target} ${LANE_KEYS[key]}`;
+  return ["-n", ns, "exec", "-i", s.pod, "-c", s.container, "--", ...tmuxSu(s, inner)];
+}
+
+// Move a lane into its own worktree. This types a `cd` at the lane's shell — it is only sound for
+// a lane at rest, which the caller enforces; typing into a running agent would go into its prompt.
+export function laneIsolateArgv(ns, lane) {
+  const s = SESSION_ALLOWLIST[lane];
+  if (!s || !s.user || !WORKSPACE_LANES.includes(lane)) return null;
+  const inner = `tmux send-keys -t ${s.target} "cd ${LANE_WT_ROOT}/${s.target}" Enter`;
+  return ["-n", ns, "exec", "-i", s.pod, "-c", s.container, "--", ...tmuxSu(s, inner)];
+}
+
+// Does the lane's worktree exist yet? `laneIsolateArgv` would otherwise type a `cd` into a
+// directory that is not there and leave the lane exactly where it was, silently.
+export function laneWorktreeCheckArgv(ns, lane) {
+  const s = SESSION_ALLOWLIST[lane];
+  if (!s || !s.user || !WORKSPACE_LANES.includes(lane)) return null;
+  const inner = `sh -c "test -d ${LANE_WT_ROOT}/${s.target} && echo yes || echo no"`;
+  return ["-n", ns, "exec", "-i", s.pod, "-c", s.container, "--", ...tmuxSu(s, inner)];
 }
 
 // Split the batched peek stdout into { lane: screenText }. Unknown labels are dropped.
