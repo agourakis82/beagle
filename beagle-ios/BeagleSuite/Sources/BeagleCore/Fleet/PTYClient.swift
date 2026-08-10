@@ -155,6 +155,7 @@ public final class PTYClient {
                             // shouldn't carry a stale failure count from long ago.
                             self.lastPongAt = Date()
                             self.retries = 0
+                            self.trace("pong ok")
                         }
                     }
                 }
