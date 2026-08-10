@@ -39,6 +39,10 @@ pub enum Kind {
     AwaitingInput,
     ApprovalAnswered,
     Idle,
+    /// Custo e janela de contexto do turno. Chega sem ser pedido (`usage_update`) e não existia
+    /// em nenhum outro lugar da plataforma. Escopo aqui é persistir e expor por `/turns`;
+    /// desenhar na tela é outra fatia.
+    Usage,
     Error,
     /// O vocabulário CRESCE a cada versão do CLI (medido: codex 58→70 notificações em 22
     /// versões, nada removido). Desconhecido é informação registrada, nunca falha.
@@ -396,6 +400,104 @@ pub fn codex_approval_reply(method: &str, allow: bool) -> serde_json::Value {
     serde_json::json!({ "decision": decision })
 }
 
+pub const FIXTURE_ACP: &str =
+    "../../docs/superpowers/fixtures/2026-08-10-acp-censo-modo-default.jsonl";
+
+impl ApprovalKind {
+    /// O ACP declara `toolCall.kind` — `edit` é reversível por git, `execute` não é. A
+    /// distinção não é cosmética: ela muda o rótulo do botão.
+    pub fn from_acp_kind(kind: &str) -> Self {
+        match kind {
+            "edit" => ApprovalKind::Patch,
+            "execute" => ApprovalKind::Command,
+            _ => ApprovalKind::Other,
+        }
+    }
+}
+
+/// Traduz uma `session/update` do ACP.
+///
+/// `None` significa **reconhecido e deliberadamente não persistido** — nunca "não entendi".
+/// O que não se entende vira `Kind::Unknown`, porque o vocabulário cresce a cada versão e um
+/// evento novo tem de aparecer no board, não sumir.
+pub fn from_acp_update(lane: &str, u: &serde_json::Value) -> Option<AgentEvent> {
+    let variante = u
+        .get("sessionUpdate")
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
+    let texto = |campo: &str| -> String {
+        u.pointer(&format!("/{campo}/text"))
+            .and_then(|x| x.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    match variante {
+        // Deltas de fala e de pensamento coalescem em RAM (`Trama::acumular_delta`) e não
+        // viram linha na trama: 30% do fluxo do ACP, e persistir cada pedaço encheria o
+        // arquivo de fragmentos que ninguém lê.
+        "agent_message_chunk" | "agent_thought_chunk" => None,
+        "user_message_chunk" => Some(
+            AgentEvent::new(lane, Kind::UserPrompt, Confidence::Exact).with_text(texto("content")),
+        ),
+        // Abre `pending`. Quem fecha é `tool_call_update` com `status: completed`.
+        "tool_call" => {
+            let mut e = AgentEvent::new(lane, Kind::ToolCall, Confidence::Exact).with_text(
+                u.get("title")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            );
+            e.tool = u.get("kind").and_then(|x| x.as_str()).map(str::to_string);
+            Some(e)
+        }
+        "tool_call_update" => {
+            // 🚨 5 mensagens por ferramenta, medido (35 para 7). Título refina, `content`
+            // chega, e SÓ ENTÃO vem `status: completed` com `rawOutput`. Persistir todas
+            // multiplicaria a trama por 2,5 sem acrescentar um fato.
+            if u.get("status").and_then(|x| x.as_str()) != Some("completed") {
+                return None;
+            }
+            let saida = u
+                .get("rawOutput")
+                .map(|x| {
+                    x.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| x.to_string())
+                })
+                .unwrap_or_default();
+            let mut e = AgentEvent::new(lane, Kind::ToolResult, Confidence::Exact).with_text(saida);
+            e.tool = u
+                .pointer("/_meta/claudeCode/toolName")
+                .and_then(|x| x.as_str())
+                .map(str::to_string);
+            Some(e)
+        }
+        "usage_update" => {
+            let usados = u.get("used").and_then(|x| x.as_u64()).unwrap_or(0);
+            let teto = u.get("size").and_then(|x| x.as_u64()).unwrap_or(0);
+            let custo = u
+                .pointer("/cost/amount")
+                .and_then(|x| x.as_f64())
+                .unwrap_or(0.0);
+            Some(
+                AgentEvent::new(lane, Kind::Usage, Confidence::Exact)
+                    .detail(format!("contexto {usados}/{teto} · USD {custo:.4}")),
+            )
+        }
+        // Registrados sem UI: não há tela de plano, e prometer uma aqui seria escopo que o
+        // spec explicitamente não pega.
+        "plan" | "plan_update" | "plan_removed" => None,
+        "available_commands_update"
+        | "config_option_update"
+        | "current_mode_update"
+        | "session_info_update" => None,
+        outro => Some(
+            AgentEvent::new(lane, Kind::Unknown, Confidence::Exact)
+                .detail(format!("session/update desconhecida: {outro}")),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -677,5 +779,80 @@ mod tests {
             Some("tu-7"),
             "sem isto o turno nasce sem alvo e não dá para interromper nem guiar"
         );
+    }
+
+    /// O REPLAY DOURADO: 70 linhas de fio REAL, capturadas com a credencial do operador numa
+    /// tarefa de verdade (ler, escrever, rodar shell). Rede de regressão feita de dado medido —
+    /// não de exemplo que eu inventei e que por isso concorda comigo por construção.
+    #[test]
+    fn replay_do_censo_acp_produz_a_trama_esperada() {
+        let bruto = std::fs::read_to_string(FIXTURE_ACP)
+            .expect("fixture do censo ACP — rode de dentro de crates/loomd");
+
+        let mut fala = 0;
+        let mut abriu = 0;
+        let mut fechou = 0;
+        let mut custo = 0;
+        let mut descartados = 0;
+
+        for l in bruto.lines().filter(|l| !l.trim().is_empty()) {
+            let env: serde_json::Value = serde_json::from_str(l).unwrap();
+            if env["dir"] != "\u{2190}" {
+                continue; // só o que o AGENTE mandou
+            }
+            let m = &env["msg"];
+            if m["method"] != "session/update" {
+                continue;
+            }
+            match from_acp_update("claude-4", &m["params"]["update"]) {
+                None => descartados += 1,
+                Some(e) => match e.kind {
+                    Kind::AgentMessage => fala += 1,
+                    Kind::ToolCall => abriu += 1,
+                    Kind::ToolResult => fechou += 1,
+                    Kind::Usage => custo += 1,
+                    _ => {}
+                },
+            }
+        }
+
+        // Contagens do censo, rodada 2 (modo default): 7 tool_call, 28 tool_call_update dos
+        // quais 7 fecham, 14 chunks de fala, 16 usage.
+        assert_eq!(abriu, 7, "toda ferramenta que abriu tem de virar ToolCall");
+        assert_eq!(
+            fechou, 7,
+            "so `status: completed` fecha — as outras 21 sao refino"
+        );
+        assert_eq!(custo, 16, "usage_update entrega custo por turno de graca");
+        assert_eq!(
+            fala, 0,
+            "chunk de fala NAO vai para a trama: coalesce em RAM"
+        );
+        assert_eq!(
+            descartados, 37,
+            "14 chunks + 21 refinos + 2 de config, medido na fixture"
+        );
+    }
+
+    #[test]
+    fn tool_call_update_sem_status_nao_persiste() {
+        let refino = serde_json::json!({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "toolu_1",
+            "title": "Edit medidas.txt",
+            "kind": "edit"
+        });
+        assert!(
+            from_acp_update("claude-4", &refino).is_none(),
+            "refino de titulo nao e evento — sao 5 mensagens por ferramenta, so 2 interessam"
+        );
+    }
+
+    #[test]
+    fn variante_desconhecida_vira_unknown_e_nao_desaparece() {
+        let novo = serde_json::json!({"sessionUpdate": "coisa_que_nao_existia_ontem"});
+        let e = from_acp_update("claude-4", &novo).expect("desconhecido e informacao");
+        assert_eq!(e.kind, Kind::Unknown);
+        assert!(e.detail.unwrap().contains("coisa_que_nao_existia_ontem"));
     }
 }

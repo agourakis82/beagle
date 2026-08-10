@@ -208,9 +208,31 @@ impl AcpLane {
         .await;
     }
 
-    /// Preenchida na Task 4.
-    async fn traduzir(&self, _m: &serde_json::Value) -> Option<()> {
-        None
+    async fn traduzir(&self, m: &serde_json::Value) -> Option<()> {
+        if m.get("method").and_then(|x| x.as_str()) != Some("session/update") {
+            return None;
+        }
+        let u = m.pointer("/params/update")?;
+        let variante = u
+            .get("sessionUpdate")
+            .and_then(|x| x.as_str())
+            .unwrap_or("");
+        if variante == "agent_message_chunk" || variante == "agent_thought_chunk" {
+            if let Some(t) = u.pointer("/content/text").and_then(|x| x.as_str()) {
+                self.trama.acumular_delta(&self.lane, t);
+            }
+            return Some(());
+        }
+        // Fala completa: o delta acumulado já foi entregue por partes, então limpa antes de
+        // registrar o evento inteiro — senão o próximo turno herda texto do anterior.
+        if variante == "tool_call" {
+            self.trama.limpar_delta(&self.lane);
+        }
+        if let Some(mut e) = crate::event::from_acp_update(&self.lane, u) {
+            e.session = self.sessao.lock().await.clone();
+            self.trama.append(e);
+        }
+        Some(())
     }
 
     /// Preenchida na Task 5.

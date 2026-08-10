@@ -328,6 +328,8 @@ fn urgency(k: Kind) -> u8 {
         Kind::TurnEnded | Kind::Idle => 3,
         Kind::SessionStarted => 4,
         Kind::SessionEnded => 5,
+        // Custo de turno: informativo, nunca pede atenção do operador.
+        Kind::Usage => 6,
         Kind::ApprovalAnswered | Kind::Unknown => 6,
     }
 }
