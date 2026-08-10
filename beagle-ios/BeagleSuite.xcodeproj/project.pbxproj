@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00F812AB7229A6E94A452495 /* BeagleWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */; };
+		C7DC2184FAE6492A82AB2E38 /* FalarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC5892B667084C3091937246 /* FalarView.swift */; };
 		029E94DF2B6FD3EFABFAF744 /* AgoraDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE98C9276CD162B3C8A73ACB /* AgoraDetailView.swift */; };
 		06BB7ABD02B36D11C5057D62 /* JournalingSuggestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */; };
 		07B8D37F69C9E4CB96C4998B /* MetalKitSceneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 079902F8466F54216CFC4A97 /* MetalKitSceneView.swift */; };
@@ -178,6 +179,7 @@
 		079902F8466F54216CFC4A97 /* MetalKitSceneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalKitSceneView.swift; sourceTree = "<group>"; };
 		0951959341AB2DEF24C1137B /* VoiceModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceModeView.swift; sourceTree = "<group>"; };
 		0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWatchApp.swift; sourceTree = "<group>"; };
+CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FalarView.swift; sourceTree = "<group>"; };
 		1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationModelsAgent.swift; sourceTree = "<group>"; };
 		116495C07A91879581E756AF /* MindPalaceSpatialDeskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MindPalaceSpatialDeskView.swift; sourceTree = "<group>"; };
 		148676E7FD99D57EF0457448 /* ExocortexTools.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExocortexTools.swift; sourceTree = "<group>"; };
@@ -513,6 +515,7 @@
 			isa = PBXGroup;
 			children = (
 				0F5D747E9BE19D4C2DAFD1E6 /* BeagleWatchApp.swift */,
+				CC5892B667084C3091937246 /* FalarView.swift */,
 			);
 			name = BeagleWatch;
 			path = BeagleSuite/Sources/BeagleWatch;
@@ -810,6 +813,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				00F812AB7229A6E94A452495 /* BeagleWatchApp.swift in Sources */,
+				C7DC2184FAE6492A82AB2E38 /* FalarView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

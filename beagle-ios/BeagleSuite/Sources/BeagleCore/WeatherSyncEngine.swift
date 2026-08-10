@@ -309,18 +309,26 @@ final class WeatherLocationProvider: NSObject, CLLocationManagerDelegate {
             manager.requestWhenInUseAuthorization()
             #endif
         }
+        #if os(watchOS)
+        // Mudança significativa de localização não existe no watchOS. E ficar
+        // com o GPS ligado num relógio come a bateria do plantão inteiro — usa
+        // requestLocation() abaixo, que é um disparo só.
+        #else
         if CLLocationManager.significantLocationChangeMonitoringAvailable() {
             manager.startMonitoringSignificantLocationChanges()
         } else {
             manager.startUpdatingLocation()
         }
+        #endif
         manager.requestLocation()
     }
 
     func requestOneShot() { manager.requestLocation() }
 
     func stop() {
-        manager.stopMonitoringSignificantLocationChanges()
+        #if !os(watchOS)
+        manager.stopMonitoringSignificantLocationChanges()   // não existe no watchOS
+        #endif
         manager.stopUpdatingLocation()
     }
 

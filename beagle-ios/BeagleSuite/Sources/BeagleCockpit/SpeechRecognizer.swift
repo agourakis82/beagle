@@ -320,6 +320,7 @@ final class SpeechRecognizer {
 
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         let inputNode = audioEngine.inputNode
+        guard prepararEntradaDeAudio(inputNode) else { stopRecording(); return }
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
 
         // Install converter if needed
@@ -526,6 +527,46 @@ final class SpeechRecognizer {
     /// Hard ceiling on audio retained by the legacy re-transcription loop.
     private static let legacyMaxRetainedSeconds: Double = 45
 
+    /// Prepara a sessão para GRAVAR e diz se a entrada abriu de verdade.
+    ///
+    /// Existe uma versão só porque a versão anterior existia em UM caminho e o app
+    /// voltou a fechar pelos outros dois. São três rotas que tocam o microfone
+    /// (SpeechAnalyzer, engine moderno, legado) e todas precisavam da mesma
+    /// verificação — consertar uma superfície compartilhada num call-site só é
+    /// consertar nada.
+    ///
+    /// E ela força a CATEGORIA antes de olhar o formato: depois que a voz do
+    /// companion passou a tocar áudio, a sessão podia ficar em `.playback`, onde
+    /// não existe rota de entrada. Aí `outputFormat` volta com sampleRate 0 e
+    /// `installTap` lança uma NSException de Objective-C — que o `do/catch` do
+    /// Swift NÃO pega. O app não trava: ele fecha.
+    @discardableResult
+    private func prepararEntradaDeAudio(_ node: AVAudioNode?) -> Bool {
+        #if canImport(AVFoundation) && os(iOS)
+        let sessao = AVAudioSession.sharedInstance()
+        do {
+            try sessao.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
+            try sessao.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            self.error = "Não consegui abrir o microfone: \(error.localizedDescription)"
+            return false
+        }
+        guard let node else {
+            self.error = "O microfone não abriu (motor de áudio indisponível)."
+            return false
+        }
+        let f = node.outputFormat(forBus: 0)
+        guard f.sampleRate > 0, f.channelCount > 0 else {
+            self.error = "O microfone não abriu (rota de áudio indisponível). "
+                       + "Se acabou de ouvir uma resposta, espere um instante e segure de novo."
+            return false
+        }
+        return true
+        #else
+        return false
+        #endif
+    }
+
     private func startRecordingLegacy() async {
         #if canImport(AVFoundation) && os(iOS)
         await startAudioEngine()
@@ -534,6 +575,7 @@ final class SpeechRecognizer {
         let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
         bufferRef.initialize(to: [])
 
+        guard prepararEntradaDeAudio(audioEngine?.inputNode) else { stopRecording(); return }
         let legacyFormat = audioEngine!.inputNode.outputFormat(forBus: 0)
         // The legacy path re-transcribes the WHOLE accumulated buffer every 2 s, so an
         // untruncated buffer makes long dictation cost O(n²) and eventually stall. Cap the
