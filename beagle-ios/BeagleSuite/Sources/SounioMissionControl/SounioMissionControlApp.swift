@@ -115,6 +115,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await Selftest.run() }
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// 🚨 GARANTE QUE EXISTE JANELA. Ele relatou "terminal travou" — e o `sample` mostrou a main
+    /// thread OCIOSA em `mach_msg_trap`, com **zero janelas**. O app não estava travado: estava
+    /// sem janela, e sem janela não há terminal nenhum. De fora, é indistinguível de travamento.
+    ///
+    /// A causa é a restauração de estado do SwiftUI: um app encerrado à força pode voltar com o
+    /// estado "nenhuma janela", e aí `WindowGroup` não cria nenhuma. `terminateAfterLastWindowClosed`
+    /// já era `true`, então fechar no X encerra — o buraco era só a subida.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        abrirJanelaSeNaoHouver()
+    }
+
+    /// Clicar no ícone do Dock com o app já rodando e sem janela.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows { abrirJanelaSeNaoHouver() }
+        return true
+    }
+
+    private func abrirJanelaSeNaoHouver() {
+        // `NSWindow` de painel/sheet não conta: procurar só as janelas que o usuário pode usar.
+        let usaveis = NSApplication.shared.windows.filter { $0.canBecomeMain && !$0.isExcludedFromWindowsMenu }
+        guard usaveis.isEmpty else { return }
+        // O caminho suportado é o mesmo comando do menu File — dispará-lo evita duplicar a
+        // construção da cena, que só o SwiftUI sabe fazer.
+        NSApplication.shared.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
+        if NSApplication.shared.windows.filter({ $0.canBecomeMain }).isEmpty {
+            NSLog("[mission-control] subi sem janela e não consegui abrir uma — File ▸ New Window")
+        }
+    }
 }
 
 enum Section: String, CaseIterable, Identifiable, Hashable {

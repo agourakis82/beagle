@@ -81,6 +81,11 @@ cat > "$DEST/Contents/Info.plist" <<'PLIST'
   <!-- Escuro por decisão: o Mission Control é uma tela de plantão, e o BeagleTheme resolve por
        aparência. Sem isto, um Mac em modo claro renderizava texto claro sobre fundo claro. -->
   <key>NSRequiresAquaSystemAppearance</key><false/>
+  <!-- 🚨 Não restaurar estado de janela. Medido: o app voltou de um encerramento à força com o
+       estado "nenhuma janela", e `WindowGroup` não criou nenhuma — main thread ociosa, zero
+       janelas, e de fora isso é indistinguível de travamento. O app é uma tela de plantão sobre
+       estado que vive no CLUSTER; não há nada de local que valha restaurar. -->
+  <key>NSQuitAlwaysKeepsWindows</key><false/>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <!-- 🚨 App Transport Security. Isto apareceu no PRIMEIRO uso do bundle: "cockpit não
        alcançável, não é conexão segura". O executável solto não passava pela checagem; um app com
