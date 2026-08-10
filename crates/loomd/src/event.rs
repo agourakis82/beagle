@@ -415,6 +415,60 @@ impl ApprovalKind {
     }
 }
 
+/// O pedido de permissão do ACP → o evento que a tela de aprovação consome.
+///
+/// O diff vem PRONTO em `content[{type:"diff", oldText, newText}]`. No `codex.rs` isso foi
+/// garimpado de campos não documentados; aqui é campo tipado e não se calcula nada.
+pub fn from_acp_permission(lane: &str, id: &str, params: &serde_json::Value) -> AgentEvent {
+    let kind = params
+        .pointer("/toolCall/kind")
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
+    let titulo = params
+        .pointer("/toolCall/title")
+        .and_then(|x| x.as_str())
+        .unwrap_or("permissao");
+
+    let mut e = AgentEvent::new(lane, Kind::AwaitingApproval, Confidence::Exact).with_text(titulo);
+    e.approval_id = Some(id.to_string());
+    e.approval_method = Some("session/request_permission".into());
+    e.approval_kind = Some(ApprovalKind::from_acp_kind(kind));
+
+    if let Some(cs) = params
+        .pointer("/toolCall/content")
+        .and_then(|x| x.as_array())
+    {
+        for c in cs {
+            if c.get("type").and_then(|x| x.as_str()) == Some("diff") {
+                let p = c.get("path").and_then(|x| x.as_str()).unwrap_or("");
+                let velho = c.get("oldText").and_then(|x| x.as_str()).unwrap_or("");
+                let novo = c.get("newText").and_then(|x| x.as_str()).unwrap_or("");
+                e.diff = Some(format!("--- {p}\n+++ {p}\n-{velho}\n+{novo}"));
+                break;
+            }
+        }
+    }
+    e
+}
+
+/// Escolhe a opção pelo `kind` DECLARADO. `options[0]` foi medido como `reject_once`: escolher
+/// por posição nega tudo, e a tela reporta sucesso.
+pub fn acp_option_id(params: &serde_json::Value, allow: bool) -> Option<String> {
+    let ops = params.get("options")?.as_array()?;
+    let procura = |k: &str| {
+        ops.iter()
+            .find(|o| o.get("kind").and_then(|x| x.as_str()) == Some(k))
+            .and_then(|o| o.get("optionId"))
+            .and_then(|x| x.as_str())
+            .map(str::to_string)
+    };
+    if allow {
+        procura("allow_always").or_else(|| procura("allow_once"))
+    } else {
+        procura("reject_once").or_else(|| procura("reject_always"))
+    }
+}
+
 /// Traduz uma `session/update` do ACP.
 ///
 /// `None` significa **reconhecido e deliberadamente não persistido** — nunca "não entendi".
@@ -854,5 +908,45 @@ mod tests {
         let e = from_acp_update("claude-4", &novo).expect("desconhecido e informacao");
         assert_eq!(e.kind, Kind::Unknown);
         assert!(e.detail.unwrap().contains("coisa_que_nao_existia_ontem"));
+    }
+
+    /// O pedido REAL, extraído da fixture. Escrever isto à mão seria escrever o que eu acho que
+    /// o protocolo manda — e foi exatamente assim que eu errei o `codex.rs` duas vezes.
+    fn pedido_real_da_fixture() -> serde_json::Value {
+        let bruto = std::fs::read_to_string(FIXTURE_ACP).expect("fixture");
+        for l in bruto.lines().filter(|l| !l.trim().is_empty()) {
+            let env: serde_json::Value = serde_json::from_str(l).unwrap();
+            if env["msg"]["method"] == "session/request_permission" {
+                return env["msg"]["params"].clone();
+            }
+        }
+        panic!("a fixture tem de conter request_permission — foi medido em modo default");
+    }
+
+    #[test]
+    fn permissao_de_edicao_vira_patch_com_o_diff_pronto() {
+        let p = pedido_real_da_fixture();
+        let e = from_acp_permission("claude-4", "42", &p);
+        assert_eq!(e.kind, Kind::AwaitingApproval);
+        assert_eq!(e.approval_kind, Some(ApprovalKind::Patch));
+        assert_eq!(e.approval_id.as_deref(), Some("42"));
+        let d = e
+            .diff
+            .expect("o ACP entrega o diff PRONTO — nao se calcula nada aqui");
+        assert!(d.contains("medidas.txt"));
+        assert!(d.contains("largura = 3"));
+    }
+
+    /// 🚨 `options[0]` é `reject_once` no que foi medido. Escolher por posição NEGA TUDO —
+    /// silenciosamente, e com a tela dizendo que aprovou.
+    #[test]
+    fn a_opcao_sai_do_kind_declarado_nunca_da_posicao() {
+        let p = pedido_real_da_fixture();
+        assert_eq!(
+            p["options"][0]["kind"], "reject_once",
+            "premissa do teste, da fixture"
+        );
+        assert_eq!(acp_option_id(&p, true).as_deref(), Some("allow_always"));
+        assert_eq!(acp_option_id(&p, false).as_deref(), Some("reject"));
     }
 }

@@ -191,6 +191,41 @@ impl AcpLane {
             }
             return;
         }
+        let metodo = m.get("method").and_then(|x| x.as_str()).unwrap_or("");
+        if m.get("id").is_some() && metodo == "session/request_permission" {
+            let rpc_id = m["id"].clone();
+            let id = rpc_id.to_string();
+            let params = m["params"].clone();
+
+            let (tx, rx) = oneshot::channel::<String>();
+            self.pending.lock().await.insert(id.clone(), tx);
+
+            let mut e = crate::event::from_acp_permission(&self.lane, &id, &params);
+            e.session = self.sessao.lock().await.clone();
+            self.trama.append(e);
+
+            // A resposta espera o operador em outra task: bloquear aqui pararia a leitura do
+            // stdout, e com ela toda a observação da lane. O turno fica parado — que é o
+            // comportamento correto, e a tela mostra "esperando você", não "travado".
+            let stdin = self.stdin.clone();
+            tokio::spawn(async move {
+                let escolha = rx.await.unwrap_or_default();
+                if escolha.is_empty() {
+                    return; // cancelado pela morte do filho: não há a quem responder
+                }
+                let opt = crate::event::acp_option_id(&params, escolha == "allow");
+                let resp = serde_json::json!({
+                    "jsonrpc":"2.0","id":rpc_id,
+                    "result":{"outcome":{"outcome":"selected","optionId":opt}}
+                });
+                let mut g = stdin.lock().await;
+                if let Some(si) = g.as_mut() {
+                    let _ = si.write_all(format!("{resp}\n").as_bytes()).await;
+                    let _ = si.flush().await;
+                }
+            });
+            return;
+        }
         let _ = self.traduzir(&m).await;
     }
 
@@ -235,8 +270,62 @@ impl AcpLane {
         Some(())
     }
 
-    /// Preenchida na Task 5.
-    async fn cancelar_pendentes(&self, _motivo: &str) {}
+    /// Construtor só de teste: sem filho, sem stdio. O vazamento se prova no mapa de
+    /// pendências, e subir um Node de verdade tornaria o teste lento e flaky sem provar mais.
+    #[cfg(test)]
+    pub(crate) fn nua_para_teste(
+        lane: &str,
+        trama: Arc<Trama>,
+        modo: &str,
+        sessao: Option<&str>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            lane: lane.to_string(),
+            stdin: Arc::new(Mutex::new(None)),
+            pending: Arc::new(Mutex::new(HashMap::new())),
+            sessao: Arc::new(Mutex::new(sessao.map(str::to_string))),
+            proximo_id: Arc::new(Mutex::new(10)),
+            trama,
+            modo: modo.to_string(),
+            cwd: "/tmp".into(),
+        })
+    }
+
+    /// Toda aprovação pendurada é resolvida como CANCELADA antes do respawn.
+    ///
+    /// Sem isto, a morte do filho deixa botões na tela que não respondem a ninguém — o único
+    /// ponto deste desenho em que a falha produz UI mentirosa em vez de UI ausente.
+    async fn cancelar_pendentes(&self, motivo: &str) {
+        let mut g = self.pending.lock().await;
+        for (id, tx) in g.drain() {
+            let _ = tx.send(String::new());
+            self.trama.append(
+                AgentEvent::new(&self.lane, Kind::ApprovalAnswered, Confidence::Exact)
+                    .detail(format!("aprovacao {id} cancelada: {motivo}")),
+            );
+        }
+    }
+
+    pub async fn answer(&self, approval_id: &str, allow: bool) -> Result<(), String> {
+        let tx = self
+            .pending
+            .lock()
+            .await
+            .remove(approval_id)
+            .ok_or_else(|| format!("aprovacao {approval_id} nao esta pendente"))?;
+        let _ = tx.send(if allow {
+            "allow".into()
+        } else {
+            "reject".into()
+        });
+        self.trama.append(
+            AgentEvent::new(&self.lane, Kind::ApprovalAnswered, Confidence::Exact).detail(format!(
+                "aprovacao {approval_id}: {}",
+                if allow { "permitida" } else { "negada" }
+            )),
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -315,5 +404,45 @@ mod tests {
         let caps = &ms[0]["params"]["clientCapabilities"]["fs"];
         assert_eq!(caps["readTextFile"], false);
         assert_eq!(caps["writeTextFile"], false);
+    }
+
+    /// O VAZAMENTO. É o único ponto deste desenho em que a falha produz UI MENTIROSA em vez de
+    /// UI ausente: um botão na tela do Mission Control que não responde a ninguém, para sempre.
+    #[tokio::test]
+    async fn morte_do_filho_resolve_toda_aprovacao_pendente() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", None);
+
+        let (tx, mut rx) = oneshot::channel::<String>();
+        lane.pending.lock().await.insert("77".into(), tx);
+
+        lane.cancelar_pendentes("adaptador morreu").await;
+
+        assert!(
+            lane.pending.lock().await.is_empty(),
+            "nenhuma pendencia pode sobrar"
+        );
+        assert!(
+            rx.try_recv().is_ok(),
+            "quem esperava a decisao tem de ser liberado"
+        );
+        let resp: Vec<_> = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::ApprovalAnswered)
+            .collect();
+        assert_eq!(
+            resp.len(),
+            1,
+            "a trama tem de registrar que a pendencia MORREU"
+        );
+        assert!(resp[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("adaptador morreu"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
