@@ -239,28 +239,42 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { abrirBase, consulta, consultaPCDT, carimbo } from "./bula-store.mjs";
 
-const BASE = process.env.BULA_DB || "/var/lib/bula/bula.sqlite";
-const base = abrirBase(BASE);
+// SKIP SÓ QUANDO NÃO HÁ BASE DECLARADA.
+//
+// `{ skip: semBase }` puro é a assinatura exata do problema que custou a semana:
+// 145 testes que existiam e nunca rodavam. Um teste que se pula sozinho em
+// silêncio não cobre nada.
+//
+// Regra: sem BULA_DB no ambiente (máquina de quem edita), pula — a base não
+// existe ali e isso é legítimo. COM BULA_DB definido e a base não abrindo,
+// FALHA — porque aí alguém quis rodar contra a base e ela não está lá.
+const BASE = process.env.BULA_DB;
+const base = BASE ? abrirBase(BASE) : null;
+if (BASE && !base) {
+  throw new Error(`BULA_DB=${BASE} definido mas a base não abriu — ` +
+    `teste clínico não pode passar em silêncio`);
+}
+const semBase = !BASE;
 
 // ---- os que impedem entregar a bula ERRADA ----
 
-test("aciclovir NAO casa com ganciclovir", { skip: !base }, () => {
+test("aciclovir NAO casa com ganciclovir", { skip: semBase }, () => {
   const r = consulta(base, "dose de aciclovir endovenoso");
   if (r) assert.ok(!/ganciclovir/i.test(r.generico), `casou errado: ${r.generico}`);
 });
 
-test("metformina nao traz a associacao com sitagliptina", { skip: !base }, () => {
+test("metformina nao traz a associacao com sitagliptina", { skip: semBase }, () => {
   const r = consulta(base, "dose de metformina");
   if (r) assert.ok(!/sitagliptin/i.test(r.generico), `trouxe associacao: ${r.generico}`);
 });
 
-test("farmaco ausente devolve null, nunca aproximacao", { skip: !base }, () => {
+test("farmaco ausente devolve null, nunca aproximacao", { skip: semBase }, () => {
   assert.equal(consulta(base, "dose de xisplogrina zeta"), null);
 });
 
 // ---- os que provam que serve ----
 
-test("enoxaparina devolve trecho com citacao", { skip: !base }, () => {
+test("enoxaparina devolve trecho com citacao", { skip: semBase }, () => {
   const r = consulta(base, "dose profilatica de enoxaparina");
   assert.ok(r, "nao achou enoxaparina");
   assert.match(r.generico, /enoxaparin/i);
@@ -268,7 +282,7 @@ test("enoxaparina devolve trecho com citacao", { skip: !base }, () => {
   assert.ok(r.texto.length > 50, "texto curto demais");
 });
 
-test("carimbo tem os quatro campos", { skip: !base }, () => {
+test("carimbo tem os quatro campos", { skip: semBase }, () => {
   const c = carimbo(base);
   assert.ok(Number(c.farmacos) > 0);
   assert.equal(c.hash.length, 64);
@@ -473,12 +487,56 @@ export function pareceClinica(pergunta) {
 }
 ```
 
-- [ ] **Passo 4: rodar e ver passar**
+- [ ] **Passo 4: o teste que impede a duplicação de virar divergência**
+
+A regex é duplicada de propósito — o app precisa dela offline, e buscá-la do servidor faria ela sumir justamente quando não há rede. Mas duplicação sem verificação é como as duas versões divergem em silêncio, que é o que este desenho existe para matar.
+
+Acrescentar em `bula-store.test.mjs`:
+
+```javascript
+import { readFileSync } from "node:fs";
+
+test("a regex do servidor e a do app sao IDENTICAS", () => {
+  // A duplicacao e deliberada: o app precisa do portao offline, e buscar a regra
+  // do servidor a faria sumir sem rede. O preco da duplicacao e ESTE teste — sem
+  // ele, as duas divergem em silencio e a mesma pergunta consulta bula com rede e
+  // nao consulta sem.
+  const swift = readFileSync(
+    process.env.CONVERSATION_STORE ||
+    "../../beagle-ios/BeagleSuite/Sources/BeagleCore/ConversationStore.swift", "utf8");
+  const bloco = swift.split("intencaoClinica")[1] ?? "";
+  // Extrai os termos entre parenteses do padrao Swift, separados por |
+  const termosSwift = new Set(
+    (bloco.match(/\\b\(([^)]+)\)/)?.[1] ?? "").split("|").map((t) => t.trim()).filter(Boolean));
+  const termosJS = new Set(
+    (INTENCAO_CLINICA_FONTE.match(/\\b\(([^)]+)\)/)?.[1] ?? "").split("|").map((t) => t.trim()).filter(Boolean));
+  assert.ok(termosSwift.size > 10, "nao consegui ler os termos do Swift");
+  const soNoSwift = [...termosSwift].filter((t) => !termosJS.has(t));
+  const soNoJS = [...termosJS].filter((t) => !termosSwift.has(t));
+  assert.deepEqual([soNoSwift, soNoJS], [[], []],
+    `portoes divergiram — so no Swift: ${soNoSwift}; so no JS: ${soNoJS}`);
+});
+```
+
+Para isso funcionar, `bula-store.mjs` exporta a fonte do padrão:
+
+```javascript
+export const INTENCAO_CLINICA_FONTE =
+  "\\b(dose|doses|posologia|dosagem|mg|mcg|ampola|comprimido|esquema|" +
+  "tratamento|tratar|profilaxia|conduta|protocolo|ajuste|diluic|infus|" +
+  "prescrev|prescric|receit|administr|via oral|intraveno|antibiotic|" +
+  "quanto de|quantas|posso dar|pode dar)";
+const INTENCAO_CLINICA = new RegExp(INTENCAO_CLINICA_FONTE, "i");
+```
+
+Se o arquivo Swift não estiver acessível (rodando dentro do pod), o teste pula com `skip` — mas a variável `CONVERSATION_STORE` permite apontá-lo explicitamente no ambiente de desenvolvimento, onde ele deve rodar.
+
+- [ ] **Passo 5: rodar e ver passar**
 
 Rodar: `cd apps/project-cockpit && npm test 2>&1 | grep -E "^# (tests|pass|fail)"`
 Esperado: `fail 1` (a pré-existente do `fetchSounioState`), nada novo.
 
-- [ ] **Passo 5: commit**
+- [ ] **Passo 6: commit**
 
 ```bash
 git add apps/project-cockpit/server/bula-store.mjs apps/project-cockpit/server/bula-store.test.mjs
@@ -1129,9 +1187,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { abrirBase, consulta } from "./bula-store.mjs";
 
-const AMPLA = abrirBase(process.env.BULA_DB || "/var/lib/bula/bula.sqlite");
-const ESTREITA = abrirBase(process.env.BULA_DB_FORMULARIO || "/var/lib/bula/bula-formulario.sqlite");
-const temAsDuas = Boolean(AMPLA && ESTREITA);
+// Mesma regra do bula-store.test: sem as variáveis, pula; com elas e sem base,
+// FALHA. O teste de paridade é a garantia central do desenho — ele passar em
+// silêncio por falta de base seria a pior forma de ele mentir.
+const CAMINHO_A = process.env.BULA_DB;
+const CAMINHO_B = process.env.BULA_DB_FORMULARIO;
+const AMPLA = CAMINHO_A ? abrirBase(CAMINHO_A) : null;
+const ESTREITA = CAMINHO_B ? abrirBase(CAMINHO_B) : null;
+if ((CAMINHO_A && !AMPLA) || (CAMINHO_B && !ESTREITA)) {
+  throw new Error("base declarada mas não aberta — paridade não pode passar em silêncio");
+}
+const semAsDuas = !CAMINHO_A || !CAMINHO_B;
 
 const PERGUNTAS = [
   "dose profilatica de enoxaparina",
@@ -1141,7 +1207,7 @@ const PERGUNTAS = [
   "dose de fenitoina",
 ];
 
-test("as duas bases devolvem o MESMO farmaco e a MESMA citacao", { skip: !temAsDuas }, () => {
+test("as duas bases devolvem o MESMO farmaco e a MESMA citacao", { skip: semAsDuas }, () => {
   for (const q of PERGUNTAS) {
     const a = consulta(AMPLA, q);
     const b = consulta(ESTREITA, q);
@@ -1152,7 +1218,7 @@ test("as duas bases devolvem o MESMO farmaco e a MESMA citacao", { skip: !temAsD
   }
 });
 
-test("o texto entregue e o mesmo para os farmacos comuns", { skip: !temAsDuas }, () => {
+test("o texto entregue e o mesmo para os farmacos comuns", { skip: semAsDuas }, () => {
   const a = consulta(AMPLA, "dose profilatica de enoxaparina");
   const b = consulta(ESTREITA, "dose profilatica de enoxaparina");
   if (a && b) assert.equal(a.texto, b.texto);
