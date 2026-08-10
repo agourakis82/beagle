@@ -99,6 +99,17 @@ check_alert_delivery_path() {
   fi
 }
 
+# O caminho de entrega é conferido acima, mas só QUANDO alguém roda este script. O que garante
+# que ele siga íntegro entre duas execuções é a sonda — e uma sonda ausente é indistinguível de
+# uma sonda que nunca achou nada.
+check_alert_path_guard() {
+  if "${KCTL[@]}" -n beagle get cronjob darwin-alert-path-guard >/dev/null 2>&1; then
+    pass "sonda darwin-alert-path-guard instalada (vigia a rota raiz entre execuções deste script)"
+  else
+    fail "sonda darwin-alert-path-guard AUSENTE — um helm upgrade calaria o alarme sem aviso"
+  fi
+}
+
 # Toda PrometheusRule viva precisa de arquivo no repo. Seis existiam SÓ no cluster até
 # 10-ago-2026 — entre elas as que vigiam nó fora de Ready e Prometheus caído. Regra aplicada à mão
 # e não versionada morre com o namespace, e ninguém sabe o que faltou.
@@ -243,6 +254,7 @@ main() {
   check_deployment_ready darwin-platform darwin-alert-sink
   check_rules_captured
   check_alert_delivery_path
+  check_alert_path_guard
 
   echo
   echo "== Dashboards =="

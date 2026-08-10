@@ -1,0 +1,201 @@
+# darwin-alert-path-guard — a sonda que vigia o VIGIA.
+#
+# 🚨 POR QUE EXISTE, e o problema é de forma, não de bug. Em 10-ago-2026 o alarme do cluster foi
+# consertado (commits 495ed205 + c1856386): as 59 regras deixaram de morrer no receptor `"null"`
+# e passaram a chegar no ntfy. Mas metade do conserto é um **patch pós-helm** — o
+# `spec.alertmanagerConfiguration` no CR do Alertmanager. Um `helm upgrade` do kube-prometheus-stack
+# o desfaz **em silêncio**, e o alarme volta a ser mudo exatamente como esteve por 140 dias.
+#
+# Um alarme que pode voltar a ser mudo sem ninguém saber não está consertado; está de folga.
+#
+# A EXIGÊNCIA LÓGICA desta sonda: **ela não pode avisar pelo Alertmanager.** Usar o canal vigiado
+# para reportar a falha do próprio canal é circular — quando houver o que dizer, o caminho estará
+# quebrado. Então ela fala direto com o ntfy, como as sondas irmãs do ns `beagle`
+# (`sounio-loomd-ensure`, `sounio-lanes-ensure`, `companion-health`).
+#
+# 🚨 POR QUE ELA RODA EM `beagle` E NÃO EM `darwin-platform`. Medido antes de aplicar:
+# `darwin-platform` tem `pod-security.kubernetes.io/enforce: baseline`, e um pod com
+# AppArmor/seccomp `Unconfined` é **Forbidden** ali — não avisado, REJEITADO. O CronJob seria
+# criado, os Jobs seriam criados, e os pods nunca nasceriam: uma sonda que não roda, parecendo
+# instalada. E o `Unconfined` não é opcional — sem ele o `curl` morre em
+# `getaddrinfo() thread failed to start` ao resolver DNS. Então ela mora em `beagle`, junto das
+# irmãs, e só LÊ de darwin-platform: SA aqui, Role lá, RoleBinding cruzando os dois.
+#
+# O que ela confere — as TRÊS pernas, porque qualquer uma sozinha já cala o alarme:
+#   1. a rota RAIZ do config gerado não entrega em `"null"`;
+#   2. algum receptor aponta para o `darwin-alert-sink`;
+#   3. o segredo `ntfy-auth` existe em `darwin-platform` (sem ele o sink sobe em audit-only,
+#      responde 202 para tudo e não avisa ninguém).
+#
+# Ela NÃO conserta. Reaplicar o patch sozinha esconderia a causa — e a causa (alguém rodou helm)
+# é o que ele precisa saber. Diagnóstico e ação separados de propósito.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: darwin-alert-path-guard
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: darwin-alert-path-guard
+    app.kubernetes.io/part-of: darwin-observability
+---
+# Permissão MÍNIMA de verdade: um único secret, nomeado. Uma sonda com `get secrets` amplo em
+# darwin-platform poderia ler as credenciais do Grafana e do Alertmanager — e o que ela precisa é
+# de um arquivo de configuração.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: darwin-alert-path-guard
+  namespace: darwin-platform
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames:
+      - alertmanager-darwin-observability-alertmanager-generated
+      - ntfy-auth
+    verbs: ["get"]
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["alertmanagers"]
+    resourceNames: ["darwin-observability-alertmanager"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: darwin-alert-path-guard
+  namespace: darwin-platform
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: darwin-alert-path-guard
+subjects:
+  - kind: ServiceAccount
+    name: darwin-alert-path-guard
+    # A SA vive em `beagle`; o Role vive onde estão os recursos. Sujeito de outro namespace é
+    # permitido, e é o que mantém o privilégio mínimo sem mover a sonda para um namespace que a
+    # rejeitaria.
+    namespace: beagle
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: darwin-alert-path-guard
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: darwin-alert-path-guard
+    app.kubernetes.io/part-of: darwin-observability
+spec:
+  # A cada 6h. O que ela pega é uma mudança HUMANA (helm upgrade), não uma flutuação — vigiar de
+  # minuto em minuto gastaria exec sem antecipar nada, e um aviso a cada 6h ainda chega antes do
+  # próximo incidente.
+  schedule: "17 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      ttlSecondsAfterFinished: 3600
+      template:
+        spec:
+          restartPolicy: Never
+          serviceAccountName: darwin-alert-path-guard
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            # 🚨 O perfil AppArmor padrão do nó bloqueia `pthread_create`, e o `curl` morre em
+            # `getaddrinfo() thread failed to start` ao resolver DNS. Medido em 10-ago-2026:
+            # sem isto, 5 POSTs ao ntfy → 000 000 000 000 000. `seccompProfile: Unconfined`
+            # sozinho NÃO cobre. Ver project_cronjobs_clusterip_dl380.
+            appArmorProfile:
+              type: Unconfined
+          containers:
+            - name: guard
+              image: bitnami/kubectl:latest
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: NTFY_URL
+                  value: http://ntfy.beagle.svc.cluster.local
+                - name: NTFY_TOPIC
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: topic, optional: true } }
+                - name: NTFY_USER
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: user, optional: true } }
+                - name: NTFY_PASSWORD
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: password, optional: true } }
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -uo pipefail
+                  NS=darwin-platform
+                  AM=darwin-observability-alertmanager
+                  PROBLEMAS=()
+
+                  # ── 1. a rota raiz ────────────────────────────────────────────────────────
+                  CFG=$(kubectl -n "$NS" get secret \
+                    "alertmanager-$AM-generated" \
+                    -o jsonpath='{.data.alertmanager\.yaml\.gz}' 2>/dev/null | base64 -d | gunzip 2>/dev/null)
+
+                  if [ -z "$CFG" ]; then
+                    PROBLEMAS+=("o config gerado do Alertmanager está ilegível — o caminho não é verificável")
+                  else
+                    # A raiz é a primeira linha `receiver:` dentro do bloco `route:`.
+                    RAIZ=$(printf '%s\n' "$CFG" | awk '/^route:/{f=1;next} f&&/^  receiver:/{print $2;exit}')
+                    case "$RAIZ" in
+                      '"null"'|null|'')
+                        PROBLEMAS+=("a rota RAIZ entrega em '${RAIZ:-vazio}' — todo alerta sem rota específica é DESCARTADO") ;;
+                    esac
+                    printf '%s\n' "$CFG" | grep -q 'darwin-alert-sink' \
+                      || PROBLEMAS+=("nenhum receptor aponta para o darwin-alert-sink")
+                  fi
+
+                  # ── 2. o CR ainda usa o config global ─────────────────────────────────────
+                  # É ESTE campo que o helm upgrade apaga. Descoberto por seletor, o operator
+                  # injeta `namespace="darwin-platform"` na rota, e os 19 alertas sem esse rótulo
+                  # (NodeNotReady, PrometheusDown, CoreDNSTargetDown…) voltam a cair no nulo.
+                  GLOBAL=$(kubectl -n "$NS" get alertmanager "$AM" \
+                    -o jsonpath='{.spec.alertmanagerConfiguration.name}' 2>/dev/null)
+                  [ "$GLOBAL" = "darwin-alert-routing" ] \
+                    || PROBLEMAS+=("o CR do Alertmanager NÃO aponta para o config global (está '${GLOBAL:-vazio}') — provável helm upgrade; rode apply-darwin-observability-control-plane-patches.sh")
+
+                  # ── 3. o sink tem para onde mandar ────────────────────────────────────────
+                  kubectl -n "$NS" get secret ntfy-auth >/dev/null 2>&1 \
+                    || PROBLEMAS+=("ntfy-auth ausente em $NS — o sink sobe em audit-only, responde 202 para tudo e não avisa ninguém")
+
+                  # ── o aviso ───────────────────────────────────────────────────────────────
+                  avisa() {
+                    if [ -z "${NTFY_TOPIC:-}" ]; then echo "(sem NTFY_TOPIC — não há como avisar)"; return 1; fi
+                    local args=(-s -o /dev/null -w '%{http_code}' --max-time 15
+                      -H "Title: $1" -H "Priority: $2" -H "Tags: $3")
+                    [ -n "${NTFY_USER:-}" ] && args+=(-u "$NTFY_USER:$NTFY_PASSWORD")
+                    # `-u "$U:$P"` montado no ARRAY, não por `${VAR:+-u "..."}`: aquela forma expande
+                    # SEM aplicar as aspas e o curl recebe aspas literais. Mesma família da
+                    # armadilha que já imprimiu uma chave aqui.
+                    local code
+                    code=$(curl "${args[@]}" -d "$4" "$NTFY_URL/$NTFY_TOPIC")
+                    # O veredito é o STATUS. `curl -s -o /dev/null` engole 401 e sai com 0 — um
+                    # despertador que falha calado é pior que nenhum.
+                    case "$code" in
+                      2*) echo "aviso entregue (ntfy $code)"; return 0 ;;
+                      *)  echo "AVISO NÃO ENTREGUE (ntfy $code)"; return 1 ;;
+                    esac
+                  }
+
+                  if [ ${#PROBLEMAS[@]} -eq 0 ]; then
+                    echo "caminho de alarme íntegro: raiz=$RAIZ · config global=$GLOBAL · ntfy-auth presente"
+                    exit 0
+                  fi
+
+                  echo "PROBLEMAS:"; printf '  - %s\n' "${PROBLEMAS[@]}"
+                  CORPO=$(printf '%s\n' "${PROBLEMAS[@]}" | sed 's/^/- /')
+                  # Prioridade máxima e sem dedup: isto significa que o cluster inteiro está
+                  # alertando para o vazio. Não é uma métrica ruim — é a perda da capacidade de
+                  # saber que algo vai mal.
+                  avisa "ALARME DO CLUSTER ESTA MUDO" "urgent" "rotating_light,mute" \
+                    "O caminho de alerta quebrou. Enquanto isso, NENHUM alerta chega:
+                  $CORPO"
+                  # Falhar o job deixa rastro no k8s mesmo que o ntfy também esteja fora.
+                  exit 1
+              resources:
+                requests: { cpu: 10m, memory: 64Mi }
+                limits: { cpu: 200m, memory: 256Mi }
