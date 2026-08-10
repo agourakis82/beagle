@@ -26,8 +26,10 @@ struct SounioMissionControlApp: App {
                     .keyboardShortcut("1", modifiers: .command)
                 Button("Oficina") { NotificationCenter.default.post(name: .missionControlGo, object: Section.oficina) }
                     .keyboardShortcut("2", modifiers: .command)
-                Button("Terminais") { NotificationCenter.default.post(name: .missionControlGo, object: Section.terminals) }
+                Button("Sessão") { NotificationCenter.default.post(name: .missionControlGo, object: Section.sessao) }
                     .keyboardShortcut("3", modifiers: .command)
+                Button("Terminais") { NotificationCenter.default.post(name: .missionControlGo, object: Section.terminals) }
+                    .keyboardShortcut("4", modifiers: .command)
             }
         }
     }
@@ -51,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 enum Section: String, CaseIterable, Identifiable, Hashable {
-    case frota, oficina, terminals
+    case frota, oficina, sessao, terminals
     var id: String { rawValue }
 
     /// Each entry names the operational question it answers — if a section cannot state one,
@@ -60,6 +62,7 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .frota:     return "Frota"
         case .oficina:   return "Oficina"
+        case .sessao:    return "Sessão"
         case .terminals: return "Terminais"
         }
     }
@@ -67,6 +70,7 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .frota:     return "quem precisa de você"
         case .oficina:   return "está verde? o que quebrou?"
+        case .sessao:    return "conversar com uma lane"
         case .terminals: return "entrar numa lane"
         }
     }
@@ -74,6 +78,7 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .frota:     return "dot.radiowaves.left.and.right"
         case .oficina:   return "wrench.and.screwdriver"
+        case .sessao:    return "bubble.left.and.text.bubble.right"
         case .terminals: return "apple.terminal"
         }
     }
@@ -116,6 +121,10 @@ struct MissionControlWindow: View {
                     })
                 case .oficina:
                     OficinaView()
+                case .sessao:
+                    // A lane de protocolo tem CONVERSA; a de terminal tem scrollback. As duas categorias
+                    // convivem de propósito — nenhuma das 11 muda de natureza sem ele mandar.
+                    SessionView(lane: FleetEndpoint.loomdLanes.first ?? "loom-1")
                 case .terminals:
                     FleetTerminalsView(initialAgent: openLane)
                 }
