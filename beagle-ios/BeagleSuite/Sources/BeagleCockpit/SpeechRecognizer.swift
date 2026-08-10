@@ -326,6 +326,20 @@ final class SpeechRecognizer {
         // Install converter if needed
         let converter = AVAudioConverter(from: hardwareFormat, to: audioFormat)
 
+        // removeTap ANTES de installTap — SEMPRE.
+        //
+        // Instalar um tap num barramento que já tem um faz o AVAudioEngine lançar
+        // `required condition is false: nullptr == Tap()`: exceção de Objective-C,
+        // SIGABRT, o app FECHA. O do/catch do Swift não pega.
+        //
+        // Havia cinco installTap e um único removeTap, no encerramento. Bastava um
+        // caminho não passar por ele — turno cancelado, app em segundo plano no
+        // meio do gesto, microfone reaberto logo após a voz tocar — para o
+        // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
+        // no-op. Não existe motivo para não fazer sempre.
+
+        inputNode.removeTap(onBus: 0)
+
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { [weak self] buffer, _ in
             guard let self else { return }
 
@@ -436,6 +450,20 @@ final class SpeechRecognizer {
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
         let converter = AVAudioConverter(from: hardwareFormat, to: audioFormat)
+
+        // removeTap ANTES de installTap — SEMPRE.
+        //
+        // Instalar um tap num barramento que já tem um faz o AVAudioEngine lançar
+        // `required condition is false: nullptr == Tap()`: exceção de Objective-C,
+        // SIGABRT, o app FECHA. O do/catch do Swift não pega.
+        //
+        // Havia cinco installTap e um único removeTap, no encerramento. Bastava um
+        // caminho não passar por ele — turno cancelado, app em segundo plano no
+        // meio do gesto, microfone reaberto logo após a voz tocar — para o
+        // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
+        // no-op. Não existe motivo para não fazer sempre.
+
+        inputNode.removeTap(onBus: 0)
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { buffer, _ in
             if let converter {
@@ -583,6 +611,20 @@ final class SpeechRecognizer {
         // dictation on this path at all.
         let legacyCapSamples = Int(legacyFormat.sampleRate * Self.legacyMaxRetainedSeconds)
 
+        // removeTap ANTES de installTap — SEMPRE.
+        //
+        // Instalar um tap num barramento que já tem um faz o AVAudioEngine lançar
+        // `required condition is false: nullptr == Tap()`: exceção de Objective-C,
+        // SIGABRT, o app FECHA. O do/catch do Swift não pega.
+        //
+        // Havia cinco installTap e um único removeTap, no encerramento. Bastava um
+        // caminho não passar por ele — turno cancelado, app em segundo plano no
+        // meio do gesto, microfone reaberto logo após a voz tocar — para o
+        // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
+        // no-op. Não existe motivo para não fazer sempre.
+
+        audioEngine?.inputNode.removeTap(onBus: 0)
+
         audioEngine?.inputNode.installTap(onBus: 0, bufferSize: 4096, format: legacyFormat) { [weak self] buffer, _ in
             if let lvl = Self.normalizedLevel(of: buffer) { self?.publishLevel(lvl) }
             let channelData = buffer.floatChannelData?[0]
@@ -630,6 +672,20 @@ final class SpeechRecognizer {
 
         let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
         bufferRef.initialize(to: [])
+
+        // removeTap ANTES de installTap — SEMPRE.
+        //
+        // Instalar um tap num barramento que já tem um faz o AVAudioEngine lançar
+        // `required condition is false: nullptr == Tap()`: exceção de Objective-C,
+        // SIGABRT, o app FECHA. O do/catch do Swift não pega.
+        //
+        // Havia cinco installTap e um único removeTap, no encerramento. Bastava um
+        // caminho não passar por ele — turno cancelado, app em segundo plano no
+        // meio do gesto, microfone reaberto logo após a voz tocar — para o
+        // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
+        // no-op. Não existe motivo para não fazer sempre.
+
+        inputNode.removeTap(onBus: 0)
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { buffer, _ in
             let channelData = buffer.floatChannelData?[0]
