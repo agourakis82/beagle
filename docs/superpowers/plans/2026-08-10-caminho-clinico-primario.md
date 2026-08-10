@@ -254,6 +254,17 @@ de 'isto nao vai te acompanhar offline' em vez de supor."
 
 ### Task 3: `bula-store.mjs` — consulta e citação no servidor
 
+**PREMISSA CORRIGIDA (antes de executar):** o plano escrevia `import { DatabaseSync } from "node:sqlite"`. Esse módulo **só existe no Node 22**, e o cockpit roda **Node 20.20.2**. Medido no pod: `node:sqlite` ausente, `better-sqlite3` não instalado, `sqlite3` CLI ausente.
+
+O que o pod TEM: **`python3` com o módulo `sqlite3` da stdlib, e FTS5 funcionando com o mesmo tokenizador do app** (`unicode61 remove_diacritics 2`) — verificado por execução.
+
+Três saídas foram consideradas:
+- subir o Node para 22 → mexe no runtime inteiro no meio do plano;
+- compilar `better-sqlite3` → módulo nativo, exige ferramenta de build na imagem;
+- **consultar via um auxiliar Python** → zero dependência nova, zero mudança de imagem.
+
+Escolhida a terceira. `bula-store.mjs` mantém EXATAMENTE a mesma interface pública (`abrirBase`, `consulta`, `consultaPCDT`, `carimbo`), então as Tasks 5 a 9 não mudam — só a implementação por dentro. O custo é um `spawn` de ~40ms por consulta, ruído diante dos 10+ segundos de uma resposta de chat.
+
 Espelha a API que o app já tem em Swift. Não sabe o que é LLM, não conversa com ninguém: recebe texto, devolve trecho ou nada.
 
 **Arquivos:**
@@ -352,7 +363,29 @@ Esperado: FALHA — módulo não existe.
 // devolve trecho ou nada. E por isso que ele e testavel sozinho, e ele e a peca
 // de que depende a seguranca clinica.
 
-import { DatabaseSync } from "node:sqlite";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+
+// O Node 20 nao tem `node:sqlite` (chegou no 22) e o pod nao tem better-sqlite3
+// nem o CLI do sqlite3. Tem python3 com sqlite3 da stdlib e FTS5 com o MESMO
+// tokenizador do app — verificado no pod. Consultar por ele custa ~40ms de
+// spawn, ruido diante dos 10+ segundos de uma resposta de chat, e evita subir o
+// runtime inteiro ou compilar modulo nativo no meio do caminho.
+const AUXILIAR = join(dirname(fileURLToPath(import.meta.url)), "bula_consulta.py");
+
+/** Roda o auxiliar Python e devolve o JSON. Erro vira null: base indisponivel e
+ *  um estado que o chamador trata, nao uma excecao que derruba o chat. */
+function perguntar(caminho, operacao, argumento = "") {
+  try {
+    const saida = execFileSync("python3", [AUXILIAR, caminho, operacao, argumento],
+      { encoding: "utf8", timeout: 5000, maxBuffer: 8 * 1024 * 1024 });
+    return JSON.parse(saida);
+  } catch {
+    return null;
+  }
+}
 
 /** Palavras que NUNCA devem virar nome de farmaco na extracao. */
 const PARADAS = new Set([
