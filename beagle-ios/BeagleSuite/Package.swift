@@ -39,9 +39,22 @@ let package = Package(
         // Shared core: API client, truth system, models, Tailnet resolver,
         // Observation-framework data stores, on-device LLM engine.
         // No UI. Platform-agnostic (except watchOS excludes MLX).
+        // Ponte Objective-C: converte NSException de áudio em NSError.
+        //
+        // Swift não captura NSException, e é assim que o AVAudioEngine sinaliza
+        // erro de programação. Sem esta ponte o processo recebe SIGABRT e o app
+        // simplesmente fecha — foi o que aconteceu quatro vezes com o microfone.
+        //
+        // Alvo separado porque SPM não mistura Swift e Objective-C no mesmo alvo.
+        .target(
+            name: "BeagleAudioGuard",
+            path: "Sources/BeagleAudioGuard",
+            publicHeadersPath: "include"
+        ),
         .target(
             name: "BeagleCore",
             dependencies: [
+                "BeagleAudioGuard",
                 // macOS fica de fora destes de propósito: swift-transformers não
                 // compila para macOS com o toolchain atual (Hub/Config.swift,
                 // ObjectKey), e era isso que impedia `swift test` de rodar — os

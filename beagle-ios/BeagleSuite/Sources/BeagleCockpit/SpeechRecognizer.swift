@@ -338,7 +338,11 @@ final class SpeechRecognizer {
         // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
         // no-op. Não existe motivo para não fazer sempre.
 
-        inputNode.removeTap(onBus: 0)
+        if let falha = GuardaDeAudio.protegido("abrir o microfone", { inputNode.removeTap(onBus: 0) }) {
+
+            self.error = falha; self.stopRecording(); return
+
+        }
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { [weak self] buffer, _ in
             guard let self else { return }
@@ -463,7 +467,11 @@ final class SpeechRecognizer {
         // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
         // no-op. Não existe motivo para não fazer sempre.
 
-        inputNode.removeTap(onBus: 0)
+        if let falha = GuardaDeAudio.protegido("abrir o microfone", { inputNode.removeTap(onBus: 0) }) {
+
+            self.error = falha; self.stopRecording(); return
+
+        }
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { buffer, _ in
             if let converter {
@@ -488,6 +496,10 @@ final class SpeechRecognizer {
 
         do {
             engine.prepare()
+            // start() também lança NSException (formato inválido, rota sumida).
+            if let falha = GuardaDeAudio.protegido("iniciar o áudio", { engine.prepare() }) {
+                self.error = falha; return
+            }
             try engine.start()
         } catch {
             self.error = "Could not start ambient audio: \(error.localizedDescription)"
@@ -652,7 +664,11 @@ final class SpeechRecognizer {
         // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
         // no-op. Não existe motivo para não fazer sempre.
 
-        audioEngine?.inputNode.removeTap(onBus: 0)
+        if let falha = GuardaDeAudio.protegido("abrir o microfone", { self.audioEngine?.inputNode.removeTap(onBus: 0) }) {
+
+            self.error = falha; self.stopRecording(); return
+
+        }
 
         audioEngine?.inputNode.installTap(onBus: 0, bufferSize: 4096, format: legacyFormat) { [weak self] buffer, _ in
             if let lvl = Self.normalizedLevel(of: buffer) { self?.publishLevel(lvl) }
@@ -714,7 +730,11 @@ final class SpeechRecognizer {
         // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
         // no-op. Não existe motivo para não fazer sempre.
 
-        inputNode.removeTap(onBus: 0)
+        if let falha = GuardaDeAudio.protegido("abrir o microfone", { inputNode.removeTap(onBus: 0) }) {
+
+            self.error = falha; self.stopRecording(); return
+
+        }
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { buffer, _ in
             let channelData = buffer.floatChannelData?[0]
@@ -729,6 +749,10 @@ final class SpeechRecognizer {
 
         do {
             engine.prepare()
+            // start() também lança NSException (formato inválido, rota sumida).
+            if let falha = GuardaDeAudio.protegido("iniciar o áudio", { engine.prepare() }) {
+                self.error = falha; return
+            }
             try engine.start()
         } catch {
             self.error = "Could not start ambient audio: \(error.localizedDescription)"
@@ -824,6 +848,10 @@ final class SpeechRecognizer {
 
         do {
             engine.prepare()
+            // start() também lança NSException (formato inválido, rota sumida).
+            if let falha = GuardaDeAudio.protegido("iniciar o áudio", { engine.prepare() }) {
+                self.error = falha; return
+            }
             try engine.start()
         } catch {
             self.error = "Could not start audio: \(error.localizedDescription)"
