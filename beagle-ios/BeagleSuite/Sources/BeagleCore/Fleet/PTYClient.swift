@@ -22,6 +22,16 @@ public final class PTYClient {
     public private(set) var state: State = .idle
     /// Monotonic counter bumped on every output chunk — drives unread/activity badges.
     public private(set) var activity: Int = 0
+
+    /// O título que o processo remoto anunciou (OSC 0/2). O tmux publica ali o que a lane está
+    /// fazendo — informação que existia no fio e era descartada.
+    public var titulo: String?
+    /// Quantas vezes o sino tocou desde a última vez que ele olhou. Um agente que termina toca o
+    /// sino; contar é o que permite a aba mostrar "aconteceu algo aqui" sem roubar o foco.
+    public private(set) var sinos: Int = 0
+
+    public func tocouSino() { sinos += 1 }
+    public func limparSinos() { sinos = 0 }
     /// Set by the view: receives raw lane output bytes (already on the main actor).
     public var onBytes: (([UInt8]) -> Void)?
 

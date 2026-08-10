@@ -74,10 +74,30 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
         }
 
         // Unused delegate hooks (required by the protocol)
-        public func setTerminalTitle(source: TerminalView, title: String) {}
+        /// O título que o processo remoto anuncia (OSC 0/2) — o `tmux` publica ali o que a lane
+        /// está fazendo. Estava descartado; agora o chip da aba pode mostrá-lo.
+        public func setTerminalTitle(source: TerminalView, title: String) {
+            let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { return }
+            client.titulo = t
+        }
         public func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         public func scrolled(source: TerminalView, position: Double) {}
-        public func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
+        /// Um link clicado no terminal. Estava vazio — e agentes imprimem URL o tempo todo (PR,
+        /// build, issue). Clicar não fazia nada, em silêncio.
+        ///
+        /// ⚠️ Só `http`/`https` são abertos. O terminal exibe texto de PROCESSO REMOTO: um
+        /// `file://` abriria caminho da máquina local a partir de algo que veio de fora, e
+        /// esquemas customizados podem disparar outro app. Aqui a regra é a mesma do resto: o que
+        /// vem de fora não escolhe o que a máquina faz.
+        public func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {
+            guard let url = URL(string: link),
+                  let esquema = url.scheme?.lowercased(),
+                  esquema == "http" || esquema == "https" else { return }
+            #if canImport(AppKit)
+            NSWorkspace.shared.open(url)
+            #endif
+        }
         /// O programa REMOTO pedindo para copiar (OSC 52). Estava vazio: um `tmux` ou um agente
         /// que copia para a área de transferência não chegava a lugar nenhum, em silêncio.
         public func clipboardCopy(source: TerminalView, content: Data) {
@@ -90,7 +110,18 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
             #endif
         }
         public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
-        public func bell(source: TerminalView) {}
+        /// O SINO. Vazio até agora, e é o aviso mais útil que existe aqui: um agente que termina
+        /// ou que precisa de decisão toca o sino, e o terminal engolia.
+        ///
+        /// `NSSound.beep()` e não som próprio: o sistema já respeita o volume e o modo silencioso
+        /// que ele escolheu. Um som nosso ignoraria os dois.
+        public func bell(source: TerminalView) {
+            #if canImport(AppKit)
+            NSSound.beep()
+            NSApp.requestUserAttention(.informationalRequest)
+            #endif
+            client.tocouSino()
+        }
     }
 }
 #endif

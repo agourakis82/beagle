@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit
 import BeagleCore
 import BeagleWorkbenchKit
+import SwiftTerm
 
 /// SOUNIO MISSION CONTROL — the macOS half of the house.
 ///
@@ -42,6 +43,36 @@ struct SounioMissionControlApp: App {
                 Divider()
                 Button("Selecionar tudo") { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
                     .keyboardShortcut("a", modifiers: .command)
+            }
+
+            // BUSCA. O `TerminalView` já tem o painel; ele só nunca era chamado.
+            // ⚠️ `performFindPanelAction` faz `sender as? NSMenuItem` e desiste se não for —
+            // mandar `from: nil` falharia em SILÊNCIO, com menu existindo e atalho respondendo.
+            // Por isso `enviarBusca` monta um NSMenuItem com a tag.
+            CommandGroup(replacing: .textEditing) {
+                Button("Buscar…") { _ = enviarBusca(.showFindPanel) }
+                    .keyboardShortcut("f", modifiers: .command)
+                Button("Buscar próximo") { _ = enviarBusca(.next) }
+                    .keyboardShortcut("g", modifiers: .command)
+                Button("Buscar anterior") { _ = enviarBusca(.previous) }
+                    .keyboardShortcut("g", modifiers: [.command, .shift])
+                Button("Usar seleção para buscar") { _ = enviarBusca(.setFindString) }
+                    .keyboardShortcut("e", modifiers: .command)
+            }
+
+            // O que o SwiftTerm NÃO tem, porque depende da aplicação.
+            CommandMenu("Terminal") {
+                Button("Aumentar fonte") { enviarAoTerminal(#selector(TerminalView.aumentarFonte(_:))) }
+                    .keyboardShortcut("+", modifiers: .command)
+                Button("Diminuir fonte") { enviarAoTerminal(#selector(TerminalView.diminuirFonte(_:))) }
+                    .keyboardShortcut("-", modifiers: .command)
+                Button("Tamanho original") { enviarAoTerminal(#selector(TerminalView.fonteOriginalTamanho(_:))) }
+                    .keyboardShortcut("0", modifiers: .command)
+                Divider()
+                // ⌘K limpa o que está DESENHADO, sem mandar nada pelo socket: mandar `^L` seria
+                // digitar no agente, e num prompt de agente isso vira entrada, não comando.
+                Button("Limpar tela") { enviarAoTerminal(#selector(TerminalView.limparTela(_:))) }
+                    .keyboardShortcut("k", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
                 Button("Frota") { NotificationCenter.default.post(name: .missionControlGo, object: Section.frota) }
