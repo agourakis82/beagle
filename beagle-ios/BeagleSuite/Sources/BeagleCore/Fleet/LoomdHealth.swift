@@ -34,6 +34,18 @@ public struct LoomdHealth: Sendable, Equatable {
     public let readAt: Date?
     /// Quantas lanes a fonte servia na última leitura boa.
     public let lanes: Int
+
+    /// Os NOMES das lanes que o loomd supervisiona — o roster VIVO, vindo de quem sabe.
+    ///
+    /// 🚨 Existe para matar uma duplicação real: `FleetEndpoint.loomdLanes` era uma constante que
+    /// espelhava `SOUNIO_LOOMD_LANES` no launcher do pod. Ao adotar `codex-4` a lane subiu,
+    /// respondeu, apareceu no `/v2/state` — e o app NÃO a listava. O allowlist é consultado antes
+    /// de montar qualquer POST, então a lane era descartada em silêncio, sem erro e sem log. Eu
+    /// editei os dois lados à mão, que é exatamente como duas listas divergem.
+    ///
+    /// Vazio COM `mode != .observed` significa "não sei", nunca "não há lane" — confundir os dois
+    /// esvaziaria a lista justamente numa queda do loomd.
+    public let roster: [String]
     /// As lanes que ela servia e parou de servir, NOMEADAS. Sem isto a queda seria "um card a
     /// menos", que é exatamente a forma de perda que ninguém percebe.
     public let lost: [String]
@@ -50,6 +62,7 @@ public struct LoomdHealth: Sendable, Equatable {
         observedAt: Date? = nil,
         readAt: Date? = nil,
         lanes: Int = 0,
+        roster: [String] = [],
         lost: [String] = [],
         error: String? = nil,
         everObserved: Bool = false
@@ -58,6 +71,7 @@ public struct LoomdHealth: Sendable, Equatable {
         self.observedAt = observedAt
         self.readAt = readAt
         self.lanes = lanes
+        self.roster = roster
         self.lost = lost
         self.error = error
         self.everObserved = everObserved
@@ -73,6 +87,7 @@ public struct LoomdHealth: Sendable, Equatable {
         self.observedAt = Self.date(obj["observedAt"])
         self.readAt = Self.date(obj["readAt"])
         self.lanes = (obj["lanes"] as? Int) ?? 0
+        self.roster = (obj["roster"] as? [Any])?.compactMap { $0 as? String } ?? []
         self.lost = (obj["lost"] as? [Any])?.compactMap { $0 as? String } ?? []
         let motivo = (obj["error"] as? String) ?? ""
         self.error = motivo.isEmpty ? nil : motivo

@@ -28,13 +28,23 @@ public struct SessionView: View {
     /// o objeto misturaria a conversa de duas. Quem navega é o dono da cena.
     private let onTrocarLane: ((String) -> Void)?
 
-    public init(store: SessionStore, onTrocarLane: ((String) -> Void)? = nil) {
+    /// As lanes de protocolo, injetadas. A Sessão NÃO descobre roster — ela mostra uma sessão. Quem
+    /// sabe quais lanes existem é o servidor (via `FleetStateClient.loomdRoster`), e quem navega é
+    /// a cena. Deixar a view consultar uma constante global foi o que criou a duplicação que este
+    /// commit paga.
+    private let roster: [String]
+
+    public init(store: SessionStore, roster: [String] = FleetEndpoint.loomdLanes,
+                onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: store)
+        self.roster = roster
         self.onTrocarLane = onTrocarLane
     }
 
-    public init(lane: String, onTrocarLane: ((String) -> Void)? = nil) {
+    public init(lane: String, roster: [String] = FleetEndpoint.loomdLanes,
+                onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: SessionStore(lane: lane))
+        self.roster = roster
         self.onTrocarLane = onTrocarLane
     }
 
@@ -62,9 +72,9 @@ public struct SessionView: View {
             // Com mais de uma lane de protocolo o nome fixo deixa de ser cabeçalho e passa a ser
             // uma mentira sobre onde você está. Com uma só, o seletor não aparece — um menu de um
             // item é ruído que ainda pede um clique para não fazer nada.
-            if FleetEndpoint.loomdLanes.count > 1 {
+            if roster.count > 1 {
                 Menu {
-                    ForEach(FleetEndpoint.loomdLanes, id: \.self) { l in
+                    ForEach(roster, id: \.self) { l in
                         Button(l) { onTrocarLane?(l) }
                     }
                 } label: {

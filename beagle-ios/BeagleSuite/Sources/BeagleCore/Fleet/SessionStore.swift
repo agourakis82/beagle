@@ -157,7 +157,12 @@ public final class SessionStore {
     public private(set) var note: String?
     public private(set) var lastPollAt: Date?
 
-    private var cursor = 0
+    /// O maior `seq` já visto. LEGÍVEL de propósito: era `private`, e por isso o teste que dizia
+    /// guardar a monotonicidade do cursor ficava VERDE com a regressão aplicada — `apply` guarda o
+    /// cursor mas não o observa, então a consequência (o próximo poll pedir do lugar errado) não
+    /// era alcançável por nenhuma asserção. Estado que decide a próxima requisição precisa ser
+    /// observável, senão o teste sobre ele é teatro.
+    public private(set) var cursor = 0
     private let endpoint: FleetEndpoint
     private let session: URLSession
     private var loop: Task<Void, Never>?

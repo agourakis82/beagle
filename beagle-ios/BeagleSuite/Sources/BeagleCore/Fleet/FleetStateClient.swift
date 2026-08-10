@@ -30,6 +30,24 @@ public final class FleetStateClient {
     /// sobre o que ninguém afirmou, ela fica calada.
     public private(set) var loomd: LoomdHealth?
 
+    /// As lanes de protocolo, do SERVIDOR quando ele soube dizer; da semente antes disso.
+    ///
+    /// 🚨 A duplicação que isto mata: `FleetEndpoint.loomdLanes` era uma constante espelhando
+    /// `SOUNIO_LOOMD_LANES` no launcher do pod. Editei os dois lados à mão ao adotar `codex-4`, o
+    /// que é exatamente como duas listas divergem — e o allowlist é consultado antes de montar
+    /// qualquer POST, então uma lane fora dele é descartada em silêncio.
+    ///
+    /// A semente permanece porque a primeira tela precisa existir antes do primeiro frame; e o
+    /// roster do servidor só manda quando ele DISSE algo (`mode == .observed`). Um roster vazio numa
+    /// queda do loomd significa "não sei", não "não há lane" — tratar os dois igual esvaziaria a
+    /// lista justamente quando a fonte caiu.
+    public var loomdRoster: [String] {
+        guard let l = loomd, l.mode == .observed, !l.roster.isEmpty else {
+            return FleetEndpoint.loomdLanes
+        }
+        return l.roster
+    }
+
     /// Trava: a fonte já respondeu nesta sessão. É o que separa QUEDA de AUSÊNCIA, e portanto
     /// o que decide se a faixa aparece — sem ela, um deploy sem loomd nenhum ganharia banner
     /// permanente, que é como um aviso vira papel de parede.
