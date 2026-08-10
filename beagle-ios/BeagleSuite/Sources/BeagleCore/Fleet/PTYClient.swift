@@ -19,6 +19,13 @@ public final class PTYClient {
         case idle, connecting, connected, reconnecting, failed(String)
     }
 
+    /// Local error for a dead socket that never throws on its own — the ping watchdog
+    /// tripped instead of `receive()` (see the half-open-socket defect this file exists to fix).
+    private enum KeepaliveError: LocalizedError {
+        case pongTimeout
+        var errorDescription: String? { "pong timeout — socket presumed half-open" }
+    }
+
     public private(set) var state: State = .idle
     /// Monotonic counter bumped on every output chunk — drives unread/activity badges.
     public private(set) var activity: Int = 0
@@ -46,6 +53,23 @@ public final class PTYClient {
     private var lastCols = 0
     private var lastRows = 0
 
+    // MARK: - Keepalive (ping/pong watchdog)
+    //
+    // `URLSessionWebSocketTask.receive()` does not throw on a half-open socket (server gone,
+    // no FIN/RST ever arrives) — it just hangs forever, and the client sits in `.connected`
+    // showing a live terminal that will never receive another byte. A ping/pong heartbeat is
+    // the only way to notice: if the pong never comes back within the watchdog window, we treat
+    // that exactly like a `receive()` failure and go through the same drop → backoff → retry path.
+
+    private var pingLoop: Task<Void, Never>?
+    private var lastPongAt: Date = .distantPast
+    private let pingIntervalSeconds: UInt64 = 15
+    private let pongTimeoutSeconds: TimeInterval = 45
+    /// Guards against `receive()` throwing and the ping watchdog firing for the same dead
+    /// socket at nearly the same instant — without this, both paths would independently
+    /// schedule a reconnect and the client would briefly run two connect attempts.
+    private var dropInFlight = false
+
     public init(agent: String, endpoint: FleetEndpoint = FleetEndpoint()) {
         self.agent = agent
         self.endpoint = endpoint
@@ -57,6 +81,7 @@ public final class PTYClient {
         guard let request = endpoint.loomRequest() else {
             state = .failed("bad endpoint"); return
         }
+        dropInFlight = false
         state = (retries == 0) ? .connecting : .reconnecting
         let t = session.webSocketTask(with: request)
         task = t
@@ -67,6 +92,7 @@ public final class PTYClient {
             sendRaw(FleetEndpoint.resizeFrame(sid: agent, cols: lastCols, rows: lastRows))
         }
         startReceiveLoop()
+        startPingLoop()
     }
 
     private func startReceiveLoop() {
@@ -89,6 +115,48 @@ public final class PTYClient {
                 } catch {
                     self.handleDrop(error)
                     break
+                }
+            }
+        }
+    }
+
+    /// Ping every ~15s and watch for the pong. Two failure shapes matter here, both treated as
+    /// a drop: `sendPing`'s own completion handler calling back with an error, and — the case
+    /// that actually bit us — `sendPing` itself hanging on a half-open socket, caught by the
+    /// wall-clock watchdog before the next tick fires.
+    private func startPingLoop() {
+        pingLoop?.cancel()
+        lastPongAt = Date()   // don't fail before the first tick has a chance to ping
+        pingLoop = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(self.pingIntervalSeconds))
+                guard !Task.isCancelled else { break }
+                guard let t = self.task else { break }
+
+                if PTYClient.deveDerrubar(
+                    ultimoPong: self.lastPongAt.timeIntervalSinceReferenceDate,
+                    agora: Date().timeIntervalSinceReferenceDate,
+                    tetoSegundos: self.pongTimeoutSeconds
+                ) {
+                    self.trace("pong watchdog expired — treating as drop")
+                    self.handleDrop(KeepaliveError.pongTimeout)
+                    break
+                }
+
+                t.sendPing { [weak self] error in
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        if let error {
+                            self.trace("ping failed: \(error)")
+                            self.handleDrop(error)
+                        } else {
+                            // Live socket confirmed: a connection that's been up for hours
+                            // shouldn't carry a stale failure count from long ago.
+                            self.lastPongAt = Date()
+                            self.retries = 0
+                        }
+                    }
                 }
             }
         }
@@ -124,17 +192,42 @@ public final class PTYClient {
     }
 
     private func handleDrop(_ error: Error) {
+        guard !dropInFlight else { return }
+        dropInFlight = true
         task = nil
-        guard retries < maxRetries else {
-            state = .failed(error.localizedDescription); return
-        }
+        receiveLoop?.cancel(); receiveLoop = nil
+        pingLoop?.cancel(); pingLoop = nil
         retries += 1
-        state = .reconnecting
-        let delayMs = min(8000, 250 * (1 << min(retries, 5)))
+        // The lane NEVER gives up for good — `.failed` is shown past `maxRetries` purely so the
+        // UI can tell the operator something's wrong, but the retry loop below keeps running
+        // with a capped backoff regardless, so the network coming back brings the lane back
+        // without the operator reopening the app.
+        state = retries >= maxRetries ? .failed(error.localizedDescription) : .reconnecting
+        let delayMs = PTYClient.proximoAtrasoMs(retries: retries)
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(delayMs))
+            self?.dropInFlight = false
             self?.connect()
         }
+    }
+
+    /// Pure: has too long passed since the last pong to still trust the socket?
+    /// Extracted so the 45s watchdog window is assertable without ever sleeping 45s.
+    /// `nonisolated` (and free of any instance state) so tests can call it synchronously
+    /// without hopping onto the main actor.
+    nonisolated static func deveDerrubar(ultimoPong: TimeInterval, agora: TimeInterval, tetoSegundos: TimeInterval) -> Bool {
+        (agora - ultimoPong) > tetoSegundos
+    }
+
+    /// Pure: exponential backoff with a ~30s ceiling, floor at 500ms so it never tight-loops.
+    /// No upper bound on `retries` — the client keeps retrying forever, it just stops growing
+    /// the delay past the ceiling. (This is what replaces the old `retries < maxRetries`
+    /// permanent give-up that made a network blip fatal to a lane forever.)
+    nonisolated static func proximoAtrasoMs(retries: Int) -> Int {
+        let tetoMs = 30_000
+        let expoente = min(max(retries, 1), 7)
+        let bruto = 250 * (1 << expoente)
+        return min(tetoMs, bruto)
     }
 
     /// DEBUG breadcrumb on stderr — a terminal that attaches to nothing looks identical to a
@@ -161,6 +254,7 @@ public final class PTYClient {
 
     public func disconnect() {
         receiveLoop?.cancel(); receiveLoop = nil
+        pingLoop?.cancel(); pingLoop = nil
         sendRaw(FleetEndpoint.unsubscribeFrame(sid: agent))   // detach without killing the lane
         task?.cancel(with: .goingAway, reason: nil); task = nil
         state = .idle; retries = 0
