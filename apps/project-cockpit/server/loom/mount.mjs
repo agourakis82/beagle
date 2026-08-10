@@ -63,5 +63,6 @@ export function mountLoom() {
   lanePoller.start();
   broker.lanePoller = lanePoller;   // exposed for /api introspection + shutdown
   broker.startStatePump();
+  broker.startHeartbeat();
   return broker;
 }

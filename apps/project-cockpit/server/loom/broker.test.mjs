@@ -11,8 +11,10 @@ function fakeSession(sid, kind) {
   return s;
 }
 function fakeSocket() {
-  const s = { sent: [], handlers: {}, on(ev,f){ s.handlers[ev]=f; }, send(str){ s.sent.push(JSON.parse(str)); },
-    recv(obj){ s.handlers.message(JSON.stringify(obj)); } };
+  const s = { sent: [], handlers: {}, pinged: 0, terminated: false,
+    on(ev,f){ s.handlers[ev]=f; }, send(str){ s.sent.push(JSON.parse(str)); },
+    recv(obj){ s.handlers.message(JSON.stringify(obj)); },
+    ping(){ s.pinged++; }, terminate(){ s.terminated = true; } };
   return s;
 }
 
@@ -169,4 +171,54 @@ test("o patch de lane única também carrega `confidence` — senão o rótulo c
   const exact = patches.find((m) => m.sid === "codex-1");
   assert.equal(exact.confidence, "exact");
   assert.equal(exact.state, "idle", "o veredito do protocolo, não o do stream");
+});
+
+// ─── Heartbeat: sockets meio-abertos não disparam `close` — o tick tem de reapar sozinho ────
+
+test("heartbeat: tick on a live socket sends a ping and marks it awaiting pong", () => {
+  const broker = new Broker({ sessionFactory: fakeSession });
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  broker._heartbeatTick();
+  assert.equal(sock.pinged, 1);
+  assert.equal(sock.__vivo, false);
+});
+
+test("heartbeat: two ticks without a pong reaps the socket and frees its subscription", () => {
+  let dematerialized = 0;
+  const factory = (sid, kind) => {
+    const s = fakeSession(sid, kind);
+    s.dematerialize = () => { dematerialized++; };
+    return s;
+  };
+  const broker = new Broker({ sessionFactory: factory });
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+  sock.recv({ t: "create", kind: "codex" });
+  const sessMsg = sock.sent.filter((m) => m.t === "sessions").at(-1);
+  const sid = sessMsg.sessions[0].sid;
+  sock.recv({ t: "subscribe", sid });
+
+  broker._heartbeatTick();   // 1st tick: ping sent, no pong yet — not reaped yet
+  assert.equal(sock.terminated, false);
+  broker._heartbeatTick();   // 2nd tick: still no pong since last ping — reaped
+
+  assert.equal(sock.terminated, true, "meio-aberto tem de ser derrubado explicitamente");
+  assert.equal(broker._clients.has(sock), false, "removido de _clients sem esperar por `close`");
+  assert.equal(dematerialized, 1, "a sessão que ele assinava é liberada, não fica presa");
+});
+
+test("heartbeat: a pong between ticks keeps the socket alive", () => {
+  const broker = new Broker({ sessionFactory: fakeSession });
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  broker._heartbeatTick();       // ping sent, __vivo=false
+  sock.handlers.pong();          // client answers before the next tick
+  broker._heartbeatTick();       // should ping again, not reap
+
+  assert.equal(sock.terminated, false);
+  assert.equal(sock.pinged, 2);
+  assert.equal(broker._clients.has(sock), true);
 });

@@ -27,6 +27,35 @@ export class Broker {
     this._pump?.unref?.();
   }
   stopStatePump() { clearInterval(this._pump); this._pump = null; }
+  /// ws ping/pong keepalive. A half-open socket (peer vanished without a FIN/RST — a laptop
+  /// that slept, a NAT that dropped the mapping) never fires `close`, so nothing here relies
+  /// on it: the tick itself does the same cleanup `close` would have done.
+  startHeartbeat({ intervalMs = 20000 } = {}) {
+    this._heartbeat = setInterval(() => this._heartbeatTick(), intervalMs);
+    this._heartbeat?.unref?.();
+  }
+  stopHeartbeat() { clearInterval(this._heartbeat); this._heartbeat = null; }
+  _heartbeatTick() {
+    let reaped = 0;
+    for (const sock of [...this._clients]) {
+      if (sock.__vivo !== true) {
+        // Missed the previous ping's pong — presumed half-open. Reap explicitly; do not
+        // wait for `close` to fire, because on a half-open socket it never will.
+        if (typeof sock.terminate === "function") sock.terminate();
+        else sock.close?.();
+        const sids = [...(this._subs.get(sock) || [])];
+        this._clients.delete(sock); this._subs.delete(sock);
+        for (const sid of sids) this._maybeDetach(sid);
+        reaped++;
+      } else {
+        sock.__vivo = false;
+        sock.ping?.();
+      }
+    }
+    if (reaped) {
+      console.log(`[loom] heartbeat reaped ${reaped} dead client(s) (clients=${this._clients.size})`);
+    }
+  }
   _wire(session) {
     session.onData((d) => this._toSubscribers(session.sid, { t: "data", sid: session.sid, bytes: d }));
     session.onExit(() => { this._broadcastState(session.sid); this._broadcastSessions(); });
@@ -123,9 +152,11 @@ export class Broker {
 
   handleConnection(sock) {
     this._clients.add(sock); this._subs.set(sock, new Set());
+    sock.__vivo = true;
     console.log(`[loom] client connected (clients=${this._clients.size}, sessions=${this._sessions.size})`);
     this._send(sock, this._sessionsFrame());
     sock.on("message", (raw) => this._onMessage(sock, raw));
+    sock.on("pong", () => { sock.__vivo = true; });
     sock.on("close", () => {
       const sids = [...(this._subs.get(sock) || [])];
       this._clients.delete(sock); this._subs.delete(sock);
