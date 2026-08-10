@@ -40,7 +40,7 @@ spec:
             - name: BEAGLE_GIT_BRANCH
               value: reconcile/unify-beagle
             - name: BEAGLE_GIT_REF
-              value: "e79f8c82"
+              value: "e0f1da5d"
           command:
             - /bin/sh
             - -lc
@@ -53,7 +53,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: sessao-e79f8c82
+              value: turno-e0f1da5d
           args:
             - "--dockerfile=/workspace/apps/project-cockpit/Dockerfile"
             - "--context=dir:///workspace"
