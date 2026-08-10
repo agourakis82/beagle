@@ -320,7 +320,7 @@ final class SpeechRecognizer {
 
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         let inputNode = audioEngine.inputNode
-        guard prepararEntradaDeAudio(inputNode) else { stopRecording(); return }
+        guard entradaValida(inputNode) else { stopRecording(); return }
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
 
         // Install converter if needed
@@ -568,6 +568,35 @@ final class SpeechRecognizer {
     /// não existe rota de entrada. Aí `outputFormat` volta com sampleRate 0 e
     /// `installTap` lança uma NSException de Objective-C — que o `do/catch` do
     /// Swift NÃO pega. O app não trava: ele fecha.
+    /// SÓ valida a entrada. NÃO toca na sessão de áudio.
+    ///
+    /// Esta separação é o conserto de um erro meu: eu tinha posto
+    /// `prepararEntradaDeAudio` (que troca a categoria e reativa a sessão) em
+    /// caminhos onde `startAudioEngine()` JÁ tinha configurado tudo e o motor JÁ
+    /// estava rodando. Mexer na sessão de áudio com o motor em execução invalida
+    /// o formato dos nós e faz o AVAudioEngine lançar exceção de Objective-C —
+    /// SIGABRT, o app fecha, e o do/catch do Swift não pega.
+    ///
+    /// Regra: configurar a sessão SÓ antes de dar start. Depois disso, apenas
+    /// verificar.
+    private func entradaValida(_ node: AVAudioNode?) -> Bool {
+        #if canImport(AVFoundation) && os(iOS)
+        guard let node else {
+            self.error = "O microfone não abriu (motor de áudio indisponível)."
+            return false
+        }
+        let f = node.outputFormat(forBus: 0)
+        guard f.sampleRate > 0, f.channelCount > 0 else {
+            self.error = "O microfone não abriu (rota de áudio indisponível). "
+                       + "Se acabou de ouvir uma resposta, espere um instante e tente de novo."
+            return false
+        }
+        return true
+        #else
+        return false
+        #endif
+    }
+
     @discardableResult
     private func prepararEntradaDeAudio(_ node: AVAudioNode?) -> Bool {
         #if canImport(AVFoundation) && os(iOS)
@@ -603,7 +632,7 @@ final class SpeechRecognizer {
         let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
         bufferRef.initialize(to: [])
 
-        guard prepararEntradaDeAudio(audioEngine?.inputNode) else { stopRecording(); return }
+        guard entradaValida(audioEngine?.inputNode) else { stopRecording(); return }
         let legacyFormat = audioEngine!.inputNode.outputFormat(forBus: 0)
         // The legacy path re-transcribes the WHOLE accumulated buffer every 2 s, so an
         // untruncated buffer makes long dictation cost O(n²) and eventually stall. Cap the
