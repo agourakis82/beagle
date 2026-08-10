@@ -16,6 +16,7 @@
 //! pelo id no store do próprio CLI. É isso que torna este daemon descartável de propósito.
 mod codex;
 mod event;
+mod supervisao;
 mod trama;
 
 use axum::{
@@ -36,7 +37,8 @@ struct App {
 #[tokio::main]
 async fn main() {
     let addr = std::env::var("LOOMD_ADDR").unwrap_or_else(|_| "127.0.0.1:4400".into());
-    let jsonl = std::env::var("LOOMD_TRAMA").unwrap_or_else(|_| "/workspace/.loomd/trama.jsonl".into());
+    let jsonl =
+        std::env::var("LOOMD_TRAMA").unwrap_or_else(|_| "/workspace/.loomd/trama.jsonl".into());
     let bin = std::env::var("LOOMD_CODEX_BIN").unwrap_or_else(|_| "codex".into());
     let cwd = std::env::var("LOOMD_CWD").unwrap_or_else(|_| "/workspace/sounio".into());
     let cargs: Vec<String> = std::env::var("LOOMD_CODEX_ARGS")
@@ -54,7 +56,10 @@ async fn main() {
     // Forma: `lane[:cwd]`, separado por vírgula. Sem `:`, cai no `LOOMD_CWD` — o que mantém a
     // configuração de uma lane só exatamente como era.
     //   LOOMD_CODEX_LANES="loom-1:/workspace/.wt/loom-1,codex-4:/workspace/.wt/codex-4"
-    let lanes = parse_lanes(&std::env::var("LOOMD_CODEX_LANES").unwrap_or_default(), &cwd);
+    let lanes = parse_lanes(
+        &std::env::var("LOOMD_CODEX_LANES").unwrap_or_default(),
+        &cwd,
+    );
 
     let trama = Arc::new(Trama::open(&jsonl));
     let mut map = HashMap::new();
@@ -63,9 +68,15 @@ async fn main() {
         // Declara ANTES de subir: uma lane que o daemon supervisiona precisa existir no board
         // mesmo antes do primeiro turno, senão a adoção parece ter falhado.
         trama.declarar(l);
-        map.insert(l.clone(), codex::CodexLane::spawn(l, &bin, c, cargs.clone(), trama.clone()));
+        map.insert(
+            l.clone(),
+            codex::CodexLane::spawn(l, &bin, c, cargs.clone(), trama.clone()),
+        );
     }
-    let app_state = App { trama: trama.clone(), codex: Arc::new(map) };
+    let app_state = App {
+        trama: trama.clone(),
+        codex: Arc::new(map),
+    };
 
     let app = Router::new()
         .route("/livez", get(|| async { "ok" }))
@@ -134,10 +145,16 @@ async fn approve(
     Json(b): Json<ApproveBody>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
     let Some(l) = a.codex.get(&lane) else {
-        return err(axum::http::StatusCode::NOT_FOUND, format!("lane {lane} não é supervisionada pelo loomd"));
+        return err(
+            axum::http::StatusCode::NOT_FOUND,
+            format!("lane {lane} não é supervisionada pelo loomd"),
+        );
     };
     let Some((id, method)) = a.trama.pending(&lane) else {
-        return err(axum::http::StatusCode::CONFLICT, format!("a lane {lane} não está esperando aprovação"));
+        return err(
+            axum::http::StatusCode::CONFLICT,
+            format!("a lane {lane} não está esperando aprovação"),
+        );
     };
     match l.answer(&id, b.allow).await {
         Ok(()) => (
@@ -174,7 +191,10 @@ pub fn parse_lanes(spec: &str, padrao: &str) -> Vec<(String, String)> {
             // `lane:` com cwd vazio é erro de digitação, não pedido de cwd vazio — cai no padrão,
             // que é o comportamento seguro. Um cwd vazio faria o `current_dir` do processo
             // depender de onde o daemon subiu.
-            _ => (s.trim_end_matches(':').trim().to_string(), padrao.to_string()),
+            _ => (
+                s.trim_end_matches(':').trim().to_string(),
+                padrao.to_string(),
+            ),
         })
         .filter(|(l, _)| !l.is_empty())
         .collect()
@@ -187,10 +207,16 @@ async fn interrupt(
     Path(lane): Path<String>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
     let Some(l) = a.codex.get(&lane) else {
-        return err(axum::http::StatusCode::NOT_FOUND, format!("lane {lane} não é supervisionada pelo loomd"));
+        return err(
+            axum::http::StatusCode::NOT_FOUND,
+            format!("lane {lane} não é supervisionada pelo loomd"),
+        );
     };
     match l.interrupt().await {
-        Ok(()) => (axum::http::StatusCode::ACCEPTED, Json(serde_json::json!({"ok":true,"lane":lane}))),
+        Ok(()) => (
+            axum::http::StatusCode::ACCEPTED,
+            Json(serde_json::json!({"ok":true,"lane":lane})),
+        ),
         Err(e) => err(axum::http::StatusCode::CONFLICT, e),
     }
 }
@@ -203,13 +229,22 @@ async fn steer(
     Json(b): Json<PromptBody>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
     let Some(l) = a.codex.get(&lane) else {
-        return err(axum::http::StatusCode::NOT_FOUND, format!("lane {lane} não é supervisionada pelo loomd"));
+        return err(
+            axum::http::StatusCode::NOT_FOUND,
+            format!("lane {lane} não é supervisionada pelo loomd"),
+        );
     };
     if b.text.trim().is_empty() {
-        return err(axum::http::StatusCode::BAD_REQUEST, "guiar exige texto".to_string());
+        return err(
+            axum::http::StatusCode::BAD_REQUEST,
+            "guiar exige texto".to_string(),
+        );
     }
     match l.steer(&b.text).await {
-        Ok(()) => (axum::http::StatusCode::ACCEPTED, Json(serde_json::json!({"ok":true,"lane":lane}))),
+        Ok(()) => (
+            axum::http::StatusCode::ACCEPTED,
+            Json(serde_json::json!({"ok":true,"lane":lane})),
+        ),
         Err(e) => err(axum::http::StatusCode::CONFLICT, e),
     }
 }
@@ -220,17 +255,26 @@ async fn prompt(
     Json(b): Json<PromptBody>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
     let Some(l) = a.codex.get(&lane) else {
-        return err(axum::http::StatusCode::NOT_FOUND, format!("lane {lane} não é supervisionada pelo loomd"));
+        return err(
+            axum::http::StatusCode::NOT_FOUND,
+            format!("lane {lane} não é supervisionada pelo loomd"),
+        );
     };
     // 202: aceito. O turno acontece de forma assíncrona e TUDO que ele fizer aparece na trama —
     // é lá que se acompanha, não no corpo desta resposta.
     match l.prompt(&b.text).await {
-        Ok(()) => (axum::http::StatusCode::ACCEPTED, Json(serde_json::json!({"ok":true,"lane":lane}))),
+        Ok(()) => (
+            axum::http::StatusCode::ACCEPTED,
+            Json(serde_json::json!({"ok":true,"lane":lane})),
+        ),
         Err(e) => err(axum::http::StatusCode::BAD_GATEWAY, e),
     }
 }
 
-fn err(code: axum::http::StatusCode, msg: String) -> (axum::http::StatusCode, Json<serde_json::Value>) {
+fn err(
+    code: axum::http::StatusCode,
+    msg: String,
+) -> (axum::http::StatusCode, Json<serde_json::Value>) {
     (code, Json(serde_json::json!({"ok": false, "error": msg})))
 }
 
@@ -241,19 +285,25 @@ mod tests {
     #[test]
     fn uma_lane_sem_cwd_continua_usando_o_padrao() {
         // A configuração que já existia não pode mudar de sentido por causa desta feature.
-        assert_eq!(parse_lanes("loom-1", "/workspace/sounio"),
-                   vec![("loom-1".to_string(), "/workspace/sounio".to_string())]);
+        assert_eq!(
+            parse_lanes("loom-1", "/workspace/sounio"),
+            vec![("loom-1".to_string(), "/workspace/sounio".to_string())]
+        );
     }
 
     #[test]
     fn cada_lane_ganha_o_seu_diretorio() {
         // O ponto da mudança: duas lanes no mesmo cwd é o hazard "mesma árvore", criado de dentro.
         assert_eq!(
-            parse_lanes("loom-1:/workspace/.wt/loom-1, codex-4:/workspace/.wt/codex-4", "/padrao"),
+            parse_lanes(
+                "loom-1:/workspace/.wt/loom-1, codex-4:/workspace/.wt/codex-4",
+                "/padrao"
+            ),
             vec![
                 ("loom-1".to_string(), "/workspace/.wt/loom-1".to_string()),
                 ("codex-4".to_string(), "/workspace/.wt/codex-4".to_string()),
-            ]);
+            ]
+        );
     }
 
     #[test]
@@ -262,7 +312,12 @@ mod tests {
         // cwd vazio: um cwd vazio faria o `current_dir` do processo depender de onde o daemon subiu.
         assert_eq!(parse_lanes("", "/p"), vec![]);
         assert_eq!(parse_lanes(" , ,, ", "/p"), vec![]);
-        assert_eq!(parse_lanes("a:,  b : /x  ,:", "/p"),
-                   vec![("a".to_string(), "/p".to_string()), ("b".to_string(), "/x".to_string())]);
+        assert_eq!(
+            parse_lanes("a:,  b : /x  ,:", "/p"),
+            vec![
+                ("a".to_string(), "/p".to_string()),
+                ("b".to_string(), "/x".to_string())
+            ]
+        );
     }
 }

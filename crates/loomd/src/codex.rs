@@ -7,7 +7,9 @@
 //! vivacidade — passar de ~500 linhas, ou aparecer um segundo bug de vivacidade em review, a
 //! evidência empírica venceu e o `loomd` se reescreve em Elixir/OTP antes da lane 2 migrar.
 //! Este arquivo é o lugar onde essa conta é feita.
-use crate::event::{codex_approval_reply, from_codex_notification, thread_id, AgentEvent, Confidence, Kind};
+use crate::event::{
+    codex_approval_reply, from_codex_notification, thread_id, AgentEvent, Confidence, Kind,
+};
 use crate::trama::Trama;
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -38,7 +40,13 @@ impl CodexLane {
     /// Sobe a lane e a mantém viva. O supervisor reinicia o filho quando ele morre; a SESSÃO
     /// não se perde nisso, porque quem a guarda é o store do próprio Codex (`thread/resume`).
     /// É por isso que este daemon pode ser descartável.
-    pub fn spawn(lane: &str, bin: &str, cwd: &str, args: Vec<String>, trama: Arc<Trama>) -> Arc<Self> {
+    pub fn spawn(
+        lane: &str,
+        bin: &str,
+        cwd: &str,
+        args: Vec<String>,
+        trama: Arc<Trama>,
+    ) -> Arc<Self> {
         // 🚨 A SUBIDA FRIA. Até 09-ago-2026 o id da thread nascia `None`: o `thread/resume`
         // abaixo só cobria a morte do app-server FILHO com o daemon vivo. Reiniciado o daemon,
         // a lane abria sessão NOVA — sem contexto — e a anterior ficava órfã no store do Codex.
@@ -57,23 +65,9 @@ impl CodexLane {
         });
         let (l, b, c, a) = (lane.to_string(), bin.to_string(), cwd.to_string(), args);
         let this = me.clone();
-        tokio::spawn(async move {
-            let mut backoff_ms = 500u64;
-            loop {
-                match this.run_once(&b, &c, &a).await {
-                    Ok(()) => backoff_ms = 500,
-                    Err(e) => {
-                        this.trama.append(
-                            AgentEvent::new(&l, Kind::Error, Confidence::Exact)
-                                .detail(format!("app-server caiu: {e}")),
-                        );
-                    }
-                }
-                // Teto baixo de propósito: uma lane que não sobe tem que reaparecer no board
-                // rápido, não sumir por dez minutos de backoff exponencial.
-                tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                backoff_ms = (backoff_ms * 2).min(15_000);
-            }
+        crate::supervisao::supervisionar(l, me.trama.clone(), move || {
+            let (this, b, c, a) = (this.clone(), b.clone(), c.clone(), a.clone());
+            async move { this.run_once(&b, &c, &a).await }
         });
         me
     }
@@ -154,7 +148,10 @@ impl CodexLane {
             let id = m["id"].to_string();
             if is_approval(method) {
                 let (tx, rx) = oneshot::channel();
-                self.pending.lock().await.insert(id.clone(), (method.to_string(), tx));
+                self.pending
+                    .lock()
+                    .await
+                    .insert(id.clone(), (method.to_string(), tx));
 
                 let mut e = AgentEvent::new(&self.lane, Kind::AwaitingApproval, Confidence::Exact);
                 e.approval_id = Some(id.clone());
@@ -179,12 +176,14 @@ impl CodexLane {
                 let raw_id = m["id"].clone();
                 tokio::spawn(async move {
                     if let Ok(verdict) = rx.await {
-                        let reply = serde_json::json!({"jsonrpc":"2.0","id":raw_id,"result":verdict});
+                        let reply =
+                            serde_json::json!({"jsonrpc":"2.0","id":raw_id,"result":verdict});
                         if let Some(w) = stdin.lock().await.as_mut() {
                             let _ = w.write_all(format!("{reply}\n").as_bytes()).await;
                             let _ = w.flush().await;
                         }
-                        let mut done = AgentEvent::new(&lane, Kind::ApprovalAnswered, Confidence::Exact);
+                        let mut done =
+                            AgentEvent::new(&lane, Kind::ApprovalAnswered, Confidence::Exact);
                         done.approval_method = Some(meth);
                         trama.append(done);
                     }
@@ -192,7 +191,8 @@ impl CodexLane {
             } else {
                 // Requisição que não sabemos responder: responder VAZIO e seguir. Ignorar
                 // deixaria o agente pendurado para sempre esperando um id que nunca volta.
-                self.send(serde_json::json!({"jsonrpc":"2.0","id":m["id"],"result":{}})).await;
+                self.send(serde_json::json!({"jsonrpc":"2.0","id":m["id"],"result":{}}))
+                    .await;
             }
             return;
         }
@@ -207,11 +207,17 @@ impl CodexLane {
             // ficava eternamente em `session_started` sem ninguém poder dizer o motivo.
             // Um supervisor que não sabe dizer por que falhou não é supervisor.
             if let Some(e) = m.get("error") {
-                let msg = e.get("message").and_then(|x| x.as_str()).map(str::to_string)
+                let msg = e
+                    .get("message")
+                    .and_then(|x| x.as_str())
+                    .map(str::to_string)
                     .unwrap_or_else(|| e.to_string());
                 self.trama.append(
-                    AgentEvent::new(&self.lane, Kind::Error, Confidence::Exact)
-                        .detail(format!("rpc id={} recusado: {}", m.get("id").unwrap_or(&serde_json::Value::Null), msg)),
+                    AgentEvent::new(&self.lane, Kind::Error, Confidence::Exact).detail(format!(
+                        "rpc id={} recusado: {}",
+                        m.get("id").unwrap_or(&serde_json::Value::Null),
+                        msg
+                    )),
                 );
                 // Retomar uma thread que o store não tem mais (CODEX_HOME trocado, store limpo,
                 // versão nova do CLI) é o caso normal de um id vindo do diário de ONTEM.
@@ -294,7 +300,8 @@ impl CodexLane {
         self.send(serde_json::json!({
             "jsonrpc":"2.0","id":902,"method":"turn/interrupt",
             "params":{"threadId": tid, "turnId": turn}
-        })).await;
+        }))
+        .await;
         Ok(())
     }
 
@@ -312,16 +319,23 @@ impl CodexLane {
                 "expectedTurnId": turn,
                 "input":[{"type":"text","text": text}]
             }
-        })).await;
+        }))
+        .await;
         Ok(())
     }
 
     /// A thread e o turno com quem falar. Recusa CEDO e com motivo: pedir para interromper uma
     /// lane parada é erro do chamador, não falha de transporte, e o 409 tem que dizer isso.
     async fn alvo_de_turno(&self) -> Result<(String, String), String> {
-        let tid = self.thread.lock().await.clone()
+        let tid = self
+            .thread
+            .lock()
+            .await
+            .clone()
             .ok_or_else(|| "a lane ainda não abriu thread — não há turno".to_string())?;
-        let turn = self.trama.current_turn(&self.lane)
+        let turn = self
+            .trama
+            .current_turn(&self.lane)
             .ok_or_else(|| "nenhum turno em curso nesta lane".to_string())?;
         Ok((tid, turn))
     }
@@ -339,10 +353,13 @@ impl CodexLane {
                 // `session_started` que a própria notificação `thread/started` produz.
                 self.send(serde_json::json!({
                     "jsonrpc":"2.0","id":900,"method":"thread/start","params":{"cwd": self.cwd}
-                })).await;
+                }))
+                .await;
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
                 loop {
-                    if let Some(t) = self.thread.lock().await.clone() { break t; }
+                    if let Some(t) = self.thread.lock().await.clone() {
+                        break t;
+                    }
                     if std::time::Instant::now() > deadline {
                         return Err("thread/start não respondeu em 20s".into());
                     }
@@ -353,7 +370,8 @@ impl CodexLane {
         self.send(serde_json::json!({
             "jsonrpc":"2.0","id":901,"method":"turn/start",
             "params":{"threadId": tid, "input":[{"type":"text","text": text}]}
-        })).await;
+        }))
+        .await;
         Ok(tid)
     }
 
@@ -425,7 +443,9 @@ mod tests {
             &serde_json::json!({"jsonrpc":"2.0","id":901,"error":{"message":"stream error"}})
         ));
         // Resume que deu certo, obviamente, não apaga nada.
-        assert!(!e_falha_de_resume(&serde_json::json!({"jsonrpc":"2.0","id":2,"result":{}})));
+        assert!(!e_falha_de_resume(
+            &serde_json::json!({"jsonrpc":"2.0","id":2,"result":{}})
+        ));
     }
 
     #[tokio::test]
@@ -451,7 +471,13 @@ mod tests {
         );
 
         // E uma lane sem passado no diário nasce sem thread — não se inventa id.
-        let virgem = CodexLane::spawn("lane-nova", "/bin/true", "/tmp", vec![], Arc::new(Trama::open(&p)));
+        let virgem = CodexLane::spawn(
+            "lane-nova",
+            "/bin/true",
+            "/tmp",
+            vec![],
+            Arc::new(Trama::open(&p)),
+        );
         assert_eq!(virgem.thread_atual().await, None);
     }
     /// O caminho de erro que ninguém tinha exercido: o `codex app-server` que NÃO sobe.
@@ -469,23 +495,40 @@ mod tests {
         let t = std::sync::Arc::new(crate::trama::Trama::open(
             std::env::temp_dir().join("loomd-test-nao-sobe.jsonl"),
         ));
-        CodexLane::spawn("lane-fantasma", "/nao/existe/codex", "/tmp", vec![], t.clone());
+        CodexLane::spawn(
+            "lane-fantasma",
+            "/nao/existe/codex",
+            "/tmp",
+            vec![],
+            t.clone(),
+        );
 
         // O laço de reinício tem backoff; basta uma volta para o erro aparecer na trama.
         for _ in 0..40 {
-            if !t.since(0, Some("lane-fantasma")).is_empty() { break; }
+            if !t.since(0, Some("lane-fantasma")).is_empty() {
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         let ev = t.since(0, Some("lane-fantasma"));
-        assert!(!ev.is_empty(), "uma lane que não sobe NÃO pode ficar muda na trama");
         assert!(
-            ev.iter().any(|e| matches!(e.kind, crate::event::Kind::Error)),
+            !ev.is_empty(),
+            "uma lane que não sobe NÃO pode ficar muda na trama"
+        );
+        assert!(
+            ev.iter()
+                .any(|e| matches!(e.kind, crate::event::Kind::Error)),
             "o sintoma tem que ser um Error com o motivo, não silêncio: {:?}",
             ev.iter().map(|e| e.kind).collect::<Vec<_>>()
         );
-        let motivo = ev.iter().find(|e| matches!(e.kind, crate::event::Kind::Error))
-            .and_then(|e| e.detail.clone()).unwrap_or_default();
-        assert!(motivo.contains("caiu"), "o evento tem que carregar o motivo: {motivo}");
+        let motivo = ev
+            .iter()
+            .find(|e| matches!(e.kind, crate::event::Kind::Error))
+            .and_then(|e| e.detail.clone())
+            .unwrap_or_default();
+        assert!(
+            motivo.contains("caiu"),
+            "o evento tem que carregar o motivo: {motivo}"
+        );
     }
-
 }
