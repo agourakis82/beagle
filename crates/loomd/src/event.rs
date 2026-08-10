@@ -237,10 +237,30 @@ pub fn from_codex_notification(lane: &str, method: &str, p: &serde_json::Value) 
         "item/agentMessage/delta" => Kind::Delta,
         // `item.type` é quem discrimina: `userMessage` é o operador, `agentMessage` é a fala do
         // agente, o resto é ferramenta. Mandar os três para `ToolCall` apagava a conversa.
-        "item/started" | "item/completed" => match item_type(p).as_deref() {
+        //
+        // 🚨 MEDIDO AO VIVO (10-ago-2026): `item/started` e `item/completed` chegam para o MESMO
+        // item, e eu registrava os dois — a trama saiu com o prompt dele duplicado (seq 48 e 49)
+        // e a resposta do agente duas vezes, a primeira VAZIA (seq 52 sem texto, 53 com). Numa
+        // tela de conversa isso é a pergunta aparecendo duas vezes.
+        //
+        // Fala só existe quando termina: no `started` o texto ainda não chegou. Ferramenta é o
+        // contrário — o valor dela é aparecer ENQUANTO roda, senão um comando de 40s não dá sinal
+        // nenhum até acabar. Daí a assimetria.
+        "item/started" => match item_type(p).as_deref() {
+            Some("userMessage") | Some("agentMessage") => return None,
+            _ => Kind::ToolCall,
+        },
+        "item/completed" => match item_type(p).as_deref() {
             Some("userMessage") => Kind::UserPrompt,
             Some("agentMessage") => Kind::AgentMessage,
-            _ => Kind::ToolCall,
+            // A ferramenta já entrou na trilha no `started`. Repetir a mesma linha ao terminar só
+            // dobra o ruído; só vale registrar de novo se o fim trouxe conteúdo (a saída).
+            _ => {
+                if item_text(p.get("item")?).is_none() {
+                    return None;
+                }
+                Kind::ToolResult
+            }
         },
         "error" => Kind::Error,
         "thread/status/changed" => {
@@ -274,7 +294,7 @@ pub fn from_codex_notification(lane: &str, method: &str, p: &serde_json::Value) 
             e.tool = s(p, "itemId");
             e.text = s(p, "delta");
         }
-        Kind::ToolCall | Kind::AgentMessage | Kind::UserPrompt => {
+        Kind::ToolCall | Kind::ToolResult | Kind::AgentMessage | Kind::UserPrompt => {
             let item = p.get("item");
             e.tool = item_type(p);
             // O que foi DITO — pelo agente ou pelo operador. Sem isso não há como provar que uma
@@ -433,17 +453,48 @@ mod tests {
     fn item_type_separa_quem_falou() {
         // Mandar os três para `ToolCall` apagava a conversa: não dava para saber o que o
         // operador pediu nem o que o agente respondeu.
-        let faz = |tipo: &str| {
+        let faz = |metodo: &str, tipo: &str| {
             let p = serde_json::json!({
                 "threadId": "th-1", "turnId": "tu-1",
                 "item": { "type": tipo, "text": "oi" }
             });
-            from_codex_notification("codex-1", "item/started", &p).unwrap().kind
+            from_codex_notification("codex-1", metodo, &p).map(|e| e.kind)
         };
-        assert_eq!(faz("userMessage"), Kind::UserPrompt);
-        assert_eq!(faz("agentMessage"), Kind::AgentMessage);
-        assert_eq!(faz("commandExecution"), Kind::ToolCall);
-        assert_eq!(faz("fileChange"), Kind::ToolCall, "o que não é fala é ferramenta");
+        assert_eq!(faz("item/completed", "userMessage"), Some(Kind::UserPrompt));
+        assert_eq!(faz("item/completed", "agentMessage"), Some(Kind::AgentMessage));
+        assert_eq!(faz("item/started", "commandExecution"), Some(Kind::ToolCall));
+    }
+
+    #[test]
+    fn a_fala_entra_UMA_vez_e_a_ferramenta_aparece_enquanto_roda() {
+        // 🚨 MEDIDO AO VIVO: `item/started` e `item/completed` chegam para o MESMO item. Eu
+        // registrava os dois, e a trama saiu com o prompt do operador DUPLICADO (seq 48 e 49) e a
+        // resposta do agente duas vezes — a primeira vazia, porque no `started` o texto ainda não
+        // existe. Numa tela de conversa isso é a pergunta aparecendo duas vezes.
+        let item = |tipo: &str, texto: Option<&str>| {
+            let mut i = serde_json::json!({ "type": tipo });
+            if let Some(t) = texto { i["text"] = serde_json::json!(t); }
+            serde_json::json!({ "threadId": "th-1", "item": i })
+        };
+
+        // Fala: só quando termina.
+        assert!(from_codex_notification("c", "item/started", &item("agentMessage", None)).is_none(),
+            "no started a fala ainda não existe — registrá-la cria uma linha vazia");
+        assert!(from_codex_notification("c", "item/started", &item("userMessage", Some("oi"))).is_none());
+        assert_eq!(
+            from_codex_notification("c", "item/completed", &item("agentMessage", Some("resposta"))).unwrap().text.as_deref(),
+            Some("resposta"));
+
+        // Ferramenta: o contrário. Aparece ao COMEÇAR, senão um comando de 40s fica sem sinal.
+        assert_eq!(
+            from_codex_notification("c", "item/started", &item("commandExecution", None)).unwrap().kind,
+            Kind::ToolCall);
+        // E não se repete ao terminar, a menos que o fim traga conteúdo (a saída).
+        assert!(from_codex_notification("c", "item/completed", &item("reasoning", None)).is_none(),
+            "fim sem conteúdo é a mesma linha de novo");
+        assert_eq!(
+            from_codex_notification("c", "item/completed", &item("commandExecution", Some("exit 0"))).unwrap().kind,
+            Kind::ToolResult);
     }
 
     #[test]
