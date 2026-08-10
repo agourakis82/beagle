@@ -14,6 +14,7 @@
 //! Persistência na camada certa: o tmux persiste PIXELS (depois de um restart do pod ele te dá
 //! um scrollback morto). Aqui o diário guarda o que ACONTECEU e a sessão do agente é retomada
 //! pelo id no store do próprio CLI. É isso que torna este daemon descartável de propósito.
+mod acp;
 mod codex;
 mod event;
 mod supervisao;
