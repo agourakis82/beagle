@@ -82,4 +82,58 @@ final class FleetEndpointTests: XCTestCase {
         XCTAssertEqual(obj?["data"] as? String, "echo \"hi\"\n")
         XCTAssertEqual(obj?["t"] as? String, "input")
     }
+    // ─── A Sessão: prompt e conversa ────────────────────────────────────────────────────────
+
+    /// 🚨 A regressão que este teste guarda saiu na TELA como "erro 404 no canto superior".
+    ///
+    /// `laneTurnsRequest` montava `jsonRequest(path: "/…/turns?since=0")`, e
+    /// `URLComponents.path` **percent-encoda o `?`**: a URL saía `/…/turns%3Fsince=0`, uma rota que
+    /// não existe. Compilava, tipava, e o servidor devolvia 404. Nenhum teste de lógica pegaria —
+    /// só um que olha a URL PRONTA.
+    func testOsTurnosVaoComQueryDeVerdadeNaoComOPathEncodado() {
+        let ep = FleetEndpoint(host: "cockpit.exemplo", token: "t")
+        let url = ep.laneTurnsRequest(sid: "loom-1", since: 42)?.url
+        XCTAssertEqual(url?.path, "/api/mobile/v1/lanes/loom-1/turns",
+                       "o caminho não pode carregar a query")
+        XCTAssertEqual(url?.query, "since=42", "a query tem que ser query")
+        XCTAssertFalse(url?.absoluteString.contains("%3F") ?? true,
+                       "um `?` encodado no caminho é exatamente o 404 que apareceu na tela")
+        XCTAssertEqual(url?.absoluteString,
+                       "http://cockpit.exemplo/api/mobile/v1/lanes/loom-1/turns?since=42")
+    }
+
+    func testOTokenViajaNoCabecalhoNuncaNaURL() {
+        // Invariante que o repo já guardava para as outras rotas: segredo em URL vaza em log de
+        // proxy e em histórico. As rotas novas entram sob a mesma regra.
+        let ep = FleetEndpoint(host: "cockpit.exemplo", token: "segredo-do-cockpit")
+        for req in [ep.laneTurnsRequest(sid: "loom-1", since: 0),
+                    ep.lanePromptRequest(sid: "loom-1", text: "oi")] {
+            XCTAssertEqual(req?.value(forHTTPHeaderField: "x-cockpit-token"), "segredo-do-cockpit")
+            XCTAssertFalse(req?.url?.absoluteString.contains("segredo") ?? true)
+        }
+    }
+
+    func testOPromptViajaNoCORPOSerializado() {
+        // O texto nunca entra na URL nem é concatenado à mão — o servidor o repassa pelo stdin de
+        // um exec, e um texto com metacaractere no lugar errado seria injeção de shell.
+        let ep = FleetEndpoint(host: "cockpit.exemplo", token: "t")
+        let veneno = "oi\"; rm -rf /workspace; echo $(whoami)"
+        let req = ep.lanePromptRequest(sid: "loom-1", text: veneno)
+        XCTAssertEqual(req?.httpMethod, "POST")
+        XCTAssertFalse(req?.url?.absoluteString.contains("rm -rf") ?? true)
+        let corpo = (try? JSONSerialization.jsonObject(with: req?.httpBody ?? Data())) as? [String: String]
+        XCTAssertEqual(corpo?["text"], veneno, "o corpo é JSON serializado, com o texto intacto")
+    }
+
+    func testLaneComNomeHostilNaoViraRequest() {
+        // O `sid` entra no CAMINHO da URL. A tranca de verdade é do servidor; esta evita construir
+        // um request condenado — e evita que um nome com `/` produza uma rota inventada.
+        let ep = FleetEndpoint(host: "cockpit.exemplo", token: "t")
+        for ruim in ["", "../admin", "loom 1", "loom/1", String(repeating: "x", count: 65)] {
+            XCTAssertNil(ep.laneTurnsRequest(sid: ruim, since: 0), "aceitou sid ruim: \(ruim)")
+            XCTAssertNil(ep.lanePromptRequest(sid: ruim, text: "oi"), "aceitou sid ruim: \(ruim)")
+        }
+        XCTAssertNil(ep.laneTurnsRequest(sid: "loom-1", since: -1), "cursor negativo não é cursor")
+    }
+
 }

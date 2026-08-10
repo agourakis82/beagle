@@ -60,27 +60,72 @@ mkdir -p "$DEST/Contents/MacOS" "$DEST/Contents/Resources"
 cp "$BIN" "$DEST/Contents/MacOS/$APP_NAME"
 cp "$PKG/.build/AppIcon.icns" "$DEST/Contents/Resources/AppIcon.icns"
 
-cat > "$DEST/Contents/Info.plist" <<PLIST
+# O heredoc abaixo é QUOTADO de propósito: dentro dele nada de $ ou de crase é interpretado.
+# 🚨 Já custou: uma crase num COMENTÁRIO do plist foi EXECUTADA como comando, e o texto
+# desapareceu do arquivo gerado. Plist é DADO — dado não passa por shell. Os valores entram
+# depois, por sed sobre marcadores @@…@@.
+cat > "$DEST/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>$APP_NAME</string>
-  <key>CFBundleDisplayName</key><string>$APP_NAME</string>
-  <key>CFBundleExecutable</key><string>$APP_NAME</string>
-  <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
+  <key>CFBundleName</key><string>@@APP_NAME@@</string>
+  <key>CFBundleDisplayName</key><string>@@APP_NAME@@</string>
+  <key>CFBundleExecutable</key><string>@@APP_NAME@@</string>
+  <key>CFBundleIdentifier</key><string>@@BUNDLE_ID@@</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1</string>
-  <key>CFBundleVersion</key><string>$(date +%Y%m%d%H%M)</string>
+  <key>CFBundleVersion</key><string>@@BUILD@@</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <!-- Escuro por decisão: o Mission Control é uma tela de plantão, e o BeagleTheme resolve por
        aparência. Sem isto, um Mac em modo claro renderizava texto claro sobre fundo claro. -->
   <key>NSRequiresAquaSystemAppearance</key><false/>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+  <!-- 🚨 App Transport Security. Isto apareceu no PRIMEIRO uso do bundle: "cockpit não
+       alcançável, não é conexão segura". O executável solto não passava pela checagem; um app com
+       Info.plist passa, e o ATS bloqueia http:// por padrão. Medido no Mac: o cockpit responde 200
+       em http e 000 em https — não há TLS escutando no tailnet.
+
+       A exceção é ESCOPADA ao domínio do tailnet, nunca NSAllowsArbitraryLoads. E ela tem
+       justificativa em vez de ser desvio: o tailnet é WireGuard, então o tráfego já é cifrado e
+       autenticado na camada de rede; o que falta é TLS dentro de um túnel que já não é público.
+       Abrir para o mundo inteiro só para alcançar um host próprio trocaria uma inconveniência por
+       uma perda real.
+
+       Se um dia o cockpit terminar TLS no tailnet (tailscale cert), esta exceção sai e o
+       FleetEndpoint passa a nascer em wss. -->
+  <key>NSAppTransportSecurity</key>
+  <dict>
+    <key>NSExceptionDomains</key>
+    <dict>
+      <key>tail21cbc4.ts.net</key>
+      <dict>
+        <key>NSIncludesSubdomains</key><true/>
+        <key>NSExceptionAllowsInsecureHTTPLoads</key><true/>
+      </dict>
+    </dict>
+  </dict>
 </dict>
 </plist>
 PLIST
+
+BUILD_STAMP="$(date +%Y%m%d%H%M)"
+/usr/bin/sed -i "" \
+  -e "s|@@APP_NAME@@|$APP_NAME|g" \
+  -e "s|@@BUNDLE_ID@@|$BUNDLE_ID|g" \
+  -e "s|@@BUILD@@|$BUILD_STAMP|g" \
+  "$DEST/Contents/Info.plist"
+
+# O plist malformado faz o app abrir SEM ícone e sem nome, e não diz por quê. Então ele é
+# conferido aqui, e a exceção de ATS é conferida por VALOR — não por "o texto está no arquivo".
+plutil -lint "$DEST/Contents/Info.plist" >/dev/null \
+  || { echo "FALHA: Info.plist inválido" >&2; exit 1; }
+[ "$(plutil -extract CFBundleName raw -o - "$DEST/Contents/Info.plist")" = "$APP_NAME" ] \
+  || { echo "FALHA: o nome não foi substituído no plist" >&2; exit 1; }
+ATS=$(/usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSExceptionDomains:tail21cbc4.ts.net:NSExceptionAllowsInsecureHTTPLoads' "$DEST/Contents/Info.plist" 2>/dev/null || true)
+[ "$ATS" = "true" ] \
+  || { echo "FALHA: sem a exceção de ATS do tailnet o app diria 'não é conexão segura'" >&2; exit 1; }
 
 printf 'APPL????' > "$DEST/Contents/PkgInfo"
 

@@ -176,7 +176,7 @@ public struct FleetEndpoint: Sendable {
     /// quando o poll não trouxe novidade, o caso comum).
     public func laneTurnsRequest(sid: String, since: Int) -> URLRequest? {
         guard Self.isLaneName(sid), since >= 0 else { return nil }
-        return jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/turns?since=\(since)")
+        return jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/turns", query: ["since": String(since)])
     }
 
     /// Charset de nome de lane que pode entrar num caminho de URL. Espelha `SAFE_LOOMD_LANE` do
@@ -195,11 +195,18 @@ public struct FleetEndpoint: Sendable {
         return req
     }
 
-    private func jsonRequest(path: String) -> URLRequest? {
+    /// 🚨 `query` é parâmetro SEPARADO, e tem que ser. `URLComponents.path` percent-encoda o `?`,
+    /// então passar `"/…/turns?since=0"` como caminho produzia `/…/turns%3Fsince=0` — uma rota que
+    /// não existe, e o servidor respondia **404**. Apareceu como "erro 404 no canto" na Sessão, e
+    /// nenhuma compilação nem teste de tipo pegaria: a string estava perfeita, o lugar era errado.
+    private func jsonRequest(path: String, query: [String: String] = [:]) -> URLRequest? {
         var c = URLComponents()
         c.scheme = (scheme == "wss") ? "https" : "http"
         c.host = host
         c.path = path
+        if !query.isEmpty {
+            c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        }
         guard let url = c.url else { return nil }
         var req = URLRequest(url: url)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
