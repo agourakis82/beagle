@@ -123,8 +123,39 @@ public func enviarBusca(_ acao: NSFindPanelAction) -> Bool {
 @MainActor @discardableResult public func terminalCopiar() -> Bool {
     enviarAoTerminal(#selector(TerminalView.copy(_:)))
 }
+/// Colar — LENDO o pasteboard aqui, em vez de delegar ao `paste(_:)` do SwiftTerm.
+///
+/// 🚨 MEDIDO com o app instrumentado: o comando CHEGAVA ao terminal (`paste: -> ENTREGUE`) e
+/// nenhum byte saía no fio depois. O `paste(_:)` do SwiftTerm faz
+/// `insertText(clipboard.string(forType: .string) ?? "", …)`, e o `insertText` só age
+/// `if let str = string as? NSString` — pasteboard sem `.string` vira `""` e some, em silêncio.
+///
+/// Lendo aqui a diferença é observável: se não há texto, isto devolve `false` e o chamador pode
+/// dizer por quê. Um "colar" que devolve sucesso sem colar é a falha silenciosa que já custou
+/// três rodadas nesta mesma tecla.
+///
+/// `.string` primeiro; depois RTF/HTML convertidos para texto puro, porque copiar de um navegador
+/// ou de um PDF costuma trazer só o tipo rico — e o operador não deveria precisar saber disso.
 @MainActor @discardableResult public func terminalColar() -> Bool {
-    enviarAoTerminal(#selector(TerminalView.paste(_:)))
+    guard let v = TerminalAtivo.view else { return false }
+    guard let texto = textoDaAreaDeTransferencia(), !texto.isEmpty else { return false }
+    v.send(txt: texto)
+    return true
+}
+
+/// O texto da área de transferência, tentando as formas que importam na prática.
+@MainActor public func textoDaAreaDeTransferencia() -> String? {
+    let pb = NSPasteboard.general
+    if let t = pb.string(forType: .string), !t.isEmpty { return t }
+    // Copiar de navegador/PDF costuma oferecer só o tipo rico.
+    for tipo in [NSPasteboard.PasteboardType.rtf, .html] {
+        if let d = pb.data(forType: tipo),
+           let a = try? NSAttributedString(data: d, options: [:], documentAttributes: nil),
+           !a.string.isEmpty {
+            return a.string
+        }
+    }
+    return nil
 }
 @MainActor @discardableResult public func terminalSelecionarTudo() -> Bool {
     enviarAoTerminal(#selector(TerminalView.selectAll(_:)))

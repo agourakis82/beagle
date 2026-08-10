@@ -119,6 +119,36 @@ final class DespachoTerminalTests: XCTestCase {
     }
 
     @MainActor
+    func testCOLARsemTextoADMITEQueNaoColou() {
+        // 🚨 A regressão exata, e ela era invisível: o comando CHEGAVA ao terminal e nenhum byte
+        // saía. `TerminalView.paste(_:)` faz `insertText(clipboard.string(forType:.string) ?? "")`,
+        // e `insertText` só age `if let str = string as? NSString` — pasteboard sem `.string` vira
+        // `""` e desaparece em silêncio, com o comando reportando sucesso.
+        //
+        // Lendo o pasteboard aqui, "não havia o que colar" é DIZÍVEL.
+        let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
+        TerminalAtivo.registrar(tv)
+        NSPasteboard.general.clearContents()
+        XCTAssertFalse(terminalColar(), "sem texto, colar tem que admitir que não colou")
+        XCTAssertNil(textoDaAreaDeTransferencia())
+    }
+
+    @MainActor
+    func testCOLARaceitaTipoRICO() {
+        // Copiar de navegador ou PDF costuma oferecer só RTF/HTML. O operador não deveria precisar
+        // saber disso para colar um código de OAuth que veio de uma página.
+        let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
+        TerminalAtivo.registrar(tv)
+        let rico = NSAttributedString(string: "codigo-do-navegador")
+        let d = try! rico.data(from: NSRange(location: 0, length: rico.length),
+                               documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setData(d, forType: .rtf)
+        XCTAssertEqual(textoDaAreaDeTransferencia(), "codigo-do-navegador",
+                       "só RTF no pasteboard ainda é texto colável")
+    }
+
+    @MainActor
     func testABuscaEXIGENSMenuItemComTag() {
         // `performFindPanelAction` faz `sender as? NSMenuItem` e desiste em silêncio se não for.
         // Este teste guarda a razão de `enviarBusca` montar o item em vez de mandar `from: nil`.
