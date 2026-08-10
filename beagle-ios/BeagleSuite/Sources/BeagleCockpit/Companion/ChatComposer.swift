@@ -133,6 +133,16 @@ struct ChatComposer: View {
                 .font(BeagleFont.caption.font)
                 .foregroundStyle(BeagleTheme.postureWarm)
                 .padding(.horizontal, BeagleSpacing.xs)
+        } else if let aviso = avisoTemporario, !aviso.isEmpty {
+            // Recusa explicada, com prazo. Some sozinha para não virar ruído fixo.
+            Text(aviso)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .padding(.horizontal, BeagleSpacing.xs)
+                .task(id: aviso) {
+                    try? await Task.sleep(for: .seconds(3))
+                    avisoTemporario = nil
+                }
         }
     }
 
@@ -175,6 +185,9 @@ struct ChatComposer: View {
     /// Voice may only arm when the bar is idle: not while editing text (a long press inside a
     /// TextField is the system's cursor/selection gesture), not while an attachment is pending
     /// (that turn belongs to the arrow), and not mid-stream.
+    /// Recusa explicada. Um botão que não faz nada é pior que um que diz não.
+    @State private var avisoTemporario: String?
+
     private var canArmVoice: Bool { !hasContent && !focused && !isStreaming }
 
     private var voiceAccessibilityLabel: String {
@@ -195,7 +208,33 @@ struct ChatComposer: View {
             holdEngagedAt = nil
             return
         }
-        guard canArmVoice || voice.isListening else { return }
+        // TOCAR NO MICROFONE COM O TECLADO ABERTO É INTENÇÃO CLARA: ele quer falar.
+        //
+        // Antes isto era `guard canArmVoice else { return }` — um RETURN SILENCIOSO.
+        // E `canArmVoice` exige `!focused`, ou seja, teclado FECHADO. Como não
+        // existia botão para recolher o teclado, o microfone ficava inalcançável
+        // por construção: ele tocava e não acontecia nada, sem uma palavra na tela.
+        // Os dois defeitos que ele relatou (o teclado que não abaixa e o microfone
+        // que não responde) eram o MESMO defeito.
+        //
+        // Agora, em vez de recusar: fecha o teclado e abre o microfone. Recusar
+        // algo que o usuário pediu sem explicar é a pior resposta possível.
+        if focused && !voice.isListening {
+            recolherTeclado()
+            Task<Void, Never> {
+                // Um respiro para o teclado sair e a sessão de áudio assentar —
+                // abrir o microfone no mesmo instante disputa a rota de áudio.
+                try? await Task.sleep(for: .milliseconds(250))
+                await voice.toggleLatched()
+            }
+            return
+        }
+        guard canArmVoice || voice.isListening else {
+            // Sobra um caso só: ele está respondendo. Dizer isso é melhor que
+            // um botão morto.
+            if isStreaming { avisoTemporario = "espera ele terminar de responder" }
+            return
+        }
         Task<Void, Never> { await voice.toggleLatched() }
     }
 
@@ -282,6 +321,29 @@ struct ChatComposer: View {
                 .lineLimit(1...6)
                 .focused($focused)
                 .padding(.vertical, 4)
+                // BOTÃO DE RECOLHER, acima do teclado.
+                //
+                // Havia .scrollDismissesKeyboard(.interactively) e mais nada. Num
+                // chat a lista já está no fim: arrastar para baixo ROLA o
+                // conteúdo, não fecha o teclado. Na prática não existia saída — e
+                // ele não conseguia LER a conversa, que é metade do uso.
+                //
+                // Uma barra acima do teclado é o lugar onde a Apple treinou todo
+                // mundo a procurar, e funciona com o polegar da mão que segura o
+                // telefone.
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button {
+                            recolherTeclado()
+                        } label: {
+                            Label("recolher", systemImage: "keyboard.chevron.compact.down")
+                                .font(BeagleFont.caption.font)
+                        }
+                        .tint(BeagleTheme.truthObserved)
+                        .accessibilityLabel("Recolher o teclado")
+                    }
+                }
         }
     }
 
@@ -290,6 +352,15 @@ struct ChatComposer: View {
     /// the real remaining disappearing bug.) Streaming is shown as a quiet ring around the
     /// still full-opacity arrow, not a gray dim — the button is never hidden and never looks
     /// "broken". It lives in its own property purely so the type-checker can cope.
+    /// Fecha o teclado. Também usado pelo toque na conversa.
+    func recolherTeclado() {
+        focused = false
+        #if canImport(UIKit)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
+        #endif
+    }
+
     private var actionButton: some View {
         // The ternary is INSIDE the closure, not on the Button: two partially-applied method
         // references as a ternary is what the type-checker choked on, and swapping the Button
