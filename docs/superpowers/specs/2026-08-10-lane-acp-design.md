@@ -200,8 +200,12 @@ resultado escolhe entre duas coisas que são um *trade-off do operador*, não um
 - **`default`** — cada decisão perigosa aparece na tela (medido: 3 pedidos numa tarefa de dois
   arquivos), ao custo de a lane parar esperando.
 
-Enquanto isso não estiver medido, o padrão do código é **`default`**: é o único modo em que a via de
-aprovação está comprovadamente viva. Um modo que silencia eventos nunca é o padrão seguro aqui.
+**MEDIDO (Task 1 do plano):** `auto` emitiu ZERO `request_permission` na mesma tarefa em que
+`default` emitiu 3 — o classificador aprova sozinho e nada aparece na tela. O modo é **`default`**:
+a lane para esperando decisão, e cada decisão perigosa fica visível no Mission Control. Isso
+DIVERGE de propósito do `defaultMode: auto` das 3 lanes TUI, porque ali o operador está olhando o
+terminal e aqui ele está olhando a Frota. Evidência em
+`fixtures/2026-08-10-acp-censo-modo-auto.jsonl`.
 
 ## §3 As 3 lanes atuais — observação por transcript, zero configuração
 
