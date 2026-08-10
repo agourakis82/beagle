@@ -280,3 +280,24 @@ test("o turno em curso atravessa — é o que acende parar/guiar", () => {
   assert.equal(fundido.find((x) => x.sid === "loom-1").currentTurn, "tu-7",
     "a fusão não pode desfazer o contrato — já aconteceu antes");
 });
+
+test("🚨 o truth publica os NOMES das lanes, não só a contagem", () => {
+  // A dívida que isto paga: o app mantinha `loomdLanes = ["loom-1"]` espelhando
+  // `SOUNIO_LOOMD_LANES` no launcher do pod. Ao adotar `codex-4` eu editei os dois lados à mão —
+  // que é exatamente como duas listas divergem. Quem sabe é o loomd, e ele já diz.
+  const v = new LoomdView();
+  v.ingest(state([lane({ lane: "codex-4" }), lane({ lane: "loom-1" })]), 1000);
+  const t = v.truth();
+  assert.deepEqual(t.roster, ["codex-4", "loom-1"], "ordenado: ordem instável leria como mudança");
+  assert.equal(t.lanes, 2, "a contagem continua, para quem só quer o número");
+});
+
+test("sem loomd, o roster é vazio — e vazio não é 'não sei'", () => {
+  // O cliente distingue: `mode` diz se a leitura vale. Um roster vazio com mode=absent significa
+  // "não há informação", e o cliente tem que cair no seu fallback em vez de esvaziar a lista.
+  const v = new LoomdView();
+  v.ingest("sem bloco nenhum", 1000);
+  const t = v.truth();
+  assert.deepEqual(t.roster, []);
+  assert.notEqual(t.mode, "observed", "e o modo diz que não se pode confiar no vazio");
+});

@@ -232,6 +232,16 @@ export class LoomdView {
       observedAt: this._observedAt,
       readAt: this._readAt,
       lanes: this._lanes.size,
+      // 🚨 OS NOMES, não só a contagem. Até 10-ago-2026 o app mantinha uma constante
+      // `loomdLanes = ["loom-1"]` que espelhava `SOUNIO_LOOMD_LANES` no launcher do pod — duas
+      // fontes para a mesma verdade. Ao adotar `codex-4` a lane subiu, respondeu, apareceu no
+      // /v2/state e o app NÃO a listava: `actionableLanes` é o allowlist consultado antes de
+      // montar qualquer POST, e sem estar lá a lane chega no frame e é descartada em silêncio.
+      // Eu editei os dois lados à mão, o que é exatamente como as duas listas divergem.
+      //
+      // Quem SABE é o loomd, e ele já diz. Ordenado para o frame ser estável entre leituras —
+      // um roster que muda de ordem faria o cliente pensar que o conjunto mudou.
+      roster: [...this._lanes.keys()].sort(),
       lost: [...this._lost],
       error: mode === "observed" ? null : (this._error || (mode === "stale" ? "loomd sem resposta nova" : null)),
     };
