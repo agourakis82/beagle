@@ -25,6 +25,34 @@ if [ ! -f "$SEC" ]; then
   cp "/Users/demetriosagourakis/Developer/beagle/$SEC" "$SEC" && echo "[instalar] Secrets.plist copiado"
 fi
 
+# O TOKEN DO APP PRECISA FUNCIONAR — testado, não comparado.
+#
+# Em 09-ago outra sessão rotacionou o token do cockpit, atualizou o Secret do
+# cluster e NÃO atualizou este Secrets.plist. Compilei e instalei em cima dele
+# várias vezes. Ele escrevia no companion e nada voltava — 401 antes de qualquer
+# coisa — e levou um dia até alguém desconfiar do token.
+#
+# Falha silenciosa clássica: o app compilava, instalava, abria. Só não conversava.
+#
+# Testa a CAPACIDADE (este token é aceito?) em vez de comparar com uma cópia. É a
+# mesma lição do proxy OAuth, onde uma guarda verificava se a variável EXISTIA e
+# ela existia — com um placeholder dentro.
+APP_TOKEN=$(plutil -extract COCKPIT_MOBILE_TOKEN raw -o - "$SEC" 2>/dev/null || true)
+if [ -n "$APP_TOKEN" ]; then
+  CODIGO=$(curl -s -o /dev/null -m 25 -w "%{http_code}" -X POST \
+    -H "content-type: application/json" -H "x-cockpit-token: $APP_TOKEN" \
+    --data '{"space":"personal","prompt":"ping"}' \
+    https://beagle.chiuratto.ai/api/mobile/v1/companion/grounding 2>/dev/null || echo 000)
+  case "$CODIGO" in
+    200) echo "[instalar] token do app é aceito pelo servidor" ;;
+    401|403)
+      echo "[instalar] ERRO: o token deste app é RECUSADO pelo servidor (HTTP $CODIGO)."
+      echo "[instalar] Instalar assim entrega um app mudo. Atualize Secrets.plist com o token vigente."
+      echo "INSTALL_EXIT=1"; exit 1 ;;
+    *) echo "[instalar] AVISO: não consegui testar o token (HTTP $CODIGO) — seguindo" ;;
+  esac
+fi
+
 echo "[instalar] compilando (assinado)"
 xcodebuild -project BeagleSuite.xcodeproj -scheme BeagleCockpit \
   -destination "generic/platform=iOS" \
