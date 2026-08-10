@@ -75,39 +75,55 @@ class TesteCasamentoPorPalavraInteira(unittest.TestCase):
     """Achado de revisao (rodada 1): 'epinephrine' e substring de
     'norepinephrine bitartrate', e 'omeprazole' e substring de
     'esomeprazole magnesium' -- farmacos DIFERENTES, nao uma associacao do
-    mesmo ativo. Casamento por substring solta deixaria os dois entrarem
-    como candidatos ao alvo errado; hoje isso so nao quebra por 'sorte
-    estrutural' (o rotulo certo tem generic_name exatamente igual ao alvo).
-    Aqui a droga ERRADA recebe um texto de dosagem muito maior que a droga
-    CERTA -- se o casamento fosse por substring, ela ainda venceria via
-    peso() (texto mais completo). O teste so passa se o candidato errado for
-    excluido ANTES de peso() entrar em jogo, por nao bater na palavra
-    inteira."""
+    mesmo ativo.
 
-    def test_epinephrine_nao_traz_norepinephrine(self):
+    ACHADO DE REVISAO (rodada 2): a primeira versao destes testes usava
+    'EPINEPHRINE'/'OMEPRAZOLE' -- generic_name EXATAMENTE igual ao alvo --
+    como candidato certo. O revisor rodou esses mesmos casos contra a
+    funcao ANTIGA (substring solta, sem \b, commit 23269944) e eles
+    passaram do mesmo jeito: exato = any(g == alvo_n ...) em peso() ja
+    garante a vitoria do candidato certo, entao a fronteira de palavra
+    nunca era exercitada. O teste provava o RESULTADO, nao o MECANISMO --
+    se alguem removesse o \b numa refatoracao futura, nenhum teste pegaria.
+
+    Corrigido: aqui o candidato CERTO tem um SAL DIFERENTE do alvo
+    ('epinephrine hydrochloride' para o alvo 'epinephrine',
+    'omeprazole magnesium' para o alvo 'omeprazole') -- generic_name NAO e
+    igual ao alvo, entao exato=False para os dois candidatos e peso() nao
+    pode salvar ninguem por desempate exato. So a fronteira de palavra
+    decide. E o candidato ERRADO recebe 500x mais texto, para que --
+    SE ele entrasse na lista de candidatos -- venceria por peso() (mais
+    completo). Verificado por execucao direta contra as duas versoes da
+    funcao (colado no relatorio da Task 2, secao rodada 2): o codigo antigo
+    (substring solta) escolhe o farmaco ERRADO nestes dois casos; o codigo
+    corrigido (\b) escolhe o certo."""
+
+    def test_epinephrine_sal_diferente_ainda_exclui_norepinephrine(self):
         with tempfile.TemporaryDirectory() as d:
             _escreve_dump_fake(d, [
-                _registro(["EPINEPHRINE"], "dose pequena de epinefrina isolada"),
+                _registro(["EPINEPHRINE HYDROCHLORIDE"],
+                          "dose pequena de epinefrina isolada, sal diferente do alvo"),
                 _registro(["NOREPINEPHRINE BITARTRATE"], "dose " * 500 + "gigante de noradrenalina"),
             ])
             melhores = casa_formulario_no_dump(d, [("adrenalina", "epinephrine")])
             rec = melhores.get("epinephrine")
             self.assertIsNotNone(rec, "epinephrine devia ter sido encontrada no dump fake")
             genes = [g.lower() for g in rec["openfda"]["generic_name"]]
-            self.assertEqual(genes, ["epinephrine"])
+            self.assertEqual(genes, ["epinephrine hydrochloride"])
             self.assertNotIn("norepinephrine bitartrate", genes)
 
-    def test_omeprazole_nao_traz_esomeprazole(self):
+    def test_omeprazole_sal_diferente_ainda_exclui_esomeprazole(self):
         with tempfile.TemporaryDirectory() as d:
             _escreve_dump_fake(d, [
-                _registro(["OMEPRAZOLE"], "dose pequena de omeprazol isolado"),
+                _registro(["OMEPRAZOLE MAGNESIUM"],
+                          "dose pequena de omeprazol isolado, sal diferente do alvo"),
                 _registro(["ESOMEPRAZOLE MAGNESIUM"], "dose " * 500 + "gigante de esomeprazol"),
             ])
             melhores = casa_formulario_no_dump(d, [("omeprazol", "omeprazole")])
             rec = melhores.get("omeprazole")
             self.assertIsNotNone(rec, "omeprazole devia ter sido encontrada no dump fake")
             genes = [g.lower() for g in rec["openfda"]["generic_name"]]
-            self.assertEqual(genes, ["omeprazole"])
+            self.assertEqual(genes, ["omeprazole magnesium"])
             self.assertNotIn("esomeprazole magnesium", genes)
 
     def test_metformina_ainda_casa_dentro_da_combinacao(self):
