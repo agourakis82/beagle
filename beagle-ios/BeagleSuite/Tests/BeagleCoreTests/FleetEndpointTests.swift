@@ -21,10 +21,20 @@ final class FleetEndpointTests: XCTestCase {
                        "lane do loomd não tem pty: não pode estar no roster de terminais")
 
         // O allowlist de AÇÃO é estritamente maior — e é essa folga que a lista única apagava.
-        XCTAssertEqual(FleetEndpoint.actionableLanes.count, 12)
-        XCTAssertTrue(FleetEndpoint.isKnownAgent("loom-1"),
-                      "sem allowlist a lane do loomd é descartada em silêncio nas ações")
-        XCTAssertFalse(FleetEndpoint.hasTerminal("loom-1"))
+        //
+        // A RELAÇÃO, não o número: `count == 12` quebrou ao adotar `codex-4` e me obrigaria a
+        // trocar um número mágico por outro a cada lane nova. A invariante que importa é que o
+        // allowlist contenha o roster e o exceda exatamente pelas lanes de protocolo.
+        XCTAssertEqual(FleetEndpoint.actionableLanes.count,
+                       FleetEndpoint.terminalAgents.count + FleetEndpoint.loomdLanes.count)
+        for t in FleetEndpoint.terminalAgents {
+            XCTAssertTrue(FleetEndpoint.isKnownAgent(t), "quem tem terminal também é acionável: \(t)")
+        }
+        for l in FleetEndpoint.loomdLanes {
+            XCTAssertTrue(FleetEndpoint.isKnownAgent(l),
+                          "sem allowlist a lane do loomd é descartada em silêncio nas ações: \(l)")
+            XCTAssertFalse(FleetEndpoint.hasTerminal(l), "lane de protocolo não tem pty: \(l)")
+        }
         XCTAssertTrue(FleetEndpoint.hasTerminal("claude-1"))
 
         // Um POST de tecla para a lane do loomd continua sendo MONTADO (o allowlist a conhece)…

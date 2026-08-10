@@ -24,12 +24,18 @@ public struct SessionView: View {
     @State private var guiando = false
     @FocusState private var escrevendo: Bool
 
-    public init(store: SessionStore) {
+    /// Trocar de lane recria o store — cursor, turnos e parcial são de UMA sessão, e reaproveitar
+    /// o objeto misturaria a conversa de duas. Quem navega é o dono da cena.
+    private let onTrocarLane: ((String) -> Void)?
+
+    public init(store: SessionStore, onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: store)
+        self.onTrocarLane = onTrocarLane
     }
 
-    public init(lane: String) {
+    public init(lane: String, onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: SessionStore(lane: lane))
+        self.onTrocarLane = onTrocarLane
     }
 
     public var body: some View {
@@ -53,9 +59,28 @@ public struct SessionView: View {
 
     private var cabecalho: some View {
         HStack(spacing: BeagleSpacing.sm) {
-            Text(store.lane)
-                .font(.system(.headline, weight: .semibold))
-                .foregroundStyle(BeagleTheme.textPrimary)
+            // Com mais de uma lane de protocolo o nome fixo deixa de ser cabeçalho e passa a ser
+            // uma mentira sobre onde você está. Com uma só, o seletor não aparece — um menu de um
+            // item é ruído que ainda pede um clique para não fazer nada.
+            if FleetEndpoint.loomdLanes.count > 1 {
+                Menu {
+                    ForEach(FleetEndpoint.loomdLanes, id: \.self) { l in
+                        Button(l) { onTrocarLane?(l) }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(store.lane).font(.system(.headline, weight: .semibold))
+                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            } else {
+                Text(store.lane)
+                    .font(.system(.headline, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.textPrimary)
+            }
             Text("sessão de protocolo")
                 .font(.caption2)
                 .foregroundStyle(BeagleTheme.textTertiary)
@@ -146,8 +171,14 @@ public struct SessionView: View {
     var conteudo: some View {
         LazyVStack(alignment: .leading, spacing: BeagleSpacing.md) {
             if store.steps.isEmpty && store.streaming == nil { vazio }
-            ForEach(store.steps) { passo in
-                PassoView(passo: passo,
+            // 🚨 A numeração conta PEDIDOS, não blocos. Com `i + 1`, uma sessão retomada fazia o
+            // primeiro turno com pedido sair como "turno 2" — o bloco "antes", que não tem pedido,
+            // consumia o número 1. Apareceu no retrato, e é o tipo de erro que faz alguém procurar
+            // um turno 1 que nunca existiu.
+            ForEach(Array(store.turnos.enumerated()), id: \.element.id) { i, turno in
+                TurnoView(turno: turno,
+                          numero: store.turnos.prefix(i + 1).filter { $0.pedido != nil }.count,
+                          emCurso: i == store.turnos.count - 1 && store.turnoEmCurso,
                           enviando: store.sending,
                           onAprovar: { allow in Task { await store.approve(allow) } })
             }
@@ -253,6 +284,90 @@ public struct SessionView: View {
     }
 }
 
+// MARK: - Um turno
+
+/// O turno como UNIDADE. Um cabeçalho fino marca a fronteira e conta o que aconteteu dentro —
+/// quantas ferramentas, se houve diff, quanto durou.
+///
+/// Não é um cartão: cartão dentro de cartão empilha borda sobre borda e a tela vira grade. É uma
+/// régua horizontal com um número, que é o mínimo para o olho achar onde um pedido começa.
+private struct TurnoView: View {
+    let turno: Turno
+    let numero: Int
+    let emCurso: Bool
+    let enviando: Bool
+    let onAprovar: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            cabecalho
+            ForEach(turno.passos) { passo in
+                PassoView(passo: passo, enviando: enviando, onAprovar: onAprovar)
+            }
+        }
+    }
+
+    private var cabecalho: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            Text(turno.pedido == nil ? "antes" : "turno \(numero)")
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.8)
+                .foregroundStyle(BeagleTheme.textTertiary)
+            // Um turno sem pedido é sessão RETOMADA: o pedido está fora da janela do diário.
+            // Fingir que aquele trabalho pertence ao próximo pedido seria atribuí-lo ao pedido
+            // errado — e é o tipo de erro que faz alguém aprovar a coisa errada.
+            if turno.pedido == nil {
+                Text("sessão retomada — o pedido está fora do diário")
+                    .font(.system(size: 9))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            resumo
+            Rectangle().fill(BeagleTheme.hairline).frame(height: 1)
+            if emCurso {
+                Text("em curso")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(BeagleTheme.accent)
+            } else if let d = turno.duracao(concluido: true), d >= 1 {
+                Text(Self.dur(d))
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+        }
+        .padding(.top, BeagleSpacing.xs)
+    }
+
+    /// O que aconteceu dentro, em uma linha. Serve para decidir se vale abrir o turno com o olho.
+    @ViewBuilder
+    private var resumo: some View {
+        let ferramentas = turno.passos.filter { if case .tool = $0 { return true }; return false }.count
+        HStack(spacing: 5) {
+            if ferramentas > 0 {
+                Label("\(ferramentas)", systemImage: "gearshape")
+                    .labelStyle(.titleAndIcon)
+                    .font(.system(size: 9))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+            }
+            if turno.temDiff {
+                Image(systemName: "plus.forwardslash.minus")
+                    .font(.system(size: 9))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+            }
+            if turno.pedePermissao {
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(BeagleTheme.accent)
+            }
+        }
+    }
+
+    private static func dur(_ s: TimeInterval) -> String {
+        let t = Int(s.rounded())
+        if t < 60 { return "\(t)s" }
+        if t < 3600 { return "\(t / 60)m \(t % 60)s" }
+        return "\(t / 3600)h \((t % 3600) / 60)m"
+    }
+}
+
 // MARK: - Um passo na trilha
 
 private struct PassoView: View {
@@ -339,6 +454,15 @@ private struct Trilho<Conteudo: View>: View {
 /// linhas que se entende inteiro vale mais que uma dependência para isto.
 private struct DiffView: View {
     let patch: String
+    /// Acima disto o diff nasce fechado.
+    ///
+    /// 🚨 O motivo é de leitura, não de performance: um diff de 200 linhas empurra o pedido de
+    /// aprovação para fora da vista, e é justamente o pedido que exige decisão. Fechado, ele
+    /// mostra o cabeçalho (arquivo, +N −M) — que é o que decide se vale abrir.
+    private static let tetoAberto = 24
+    @State private var aberto: Bool?
+
+    private var mostrando: Bool { aberto ?? (corpo.count <= Self.tetoAberto) }
 
     private var arquivos: [String] {
         patch.split(separator: "\n")
@@ -367,6 +491,14 @@ private struct DiffView: View {
                 Text("−\(menos)")
                     .font(.system(size: 10, weight: .semibold).monospacedDigit())
                     .foregroundStyle(Self.vermelho)
+                if corpo.count > Self.tetoAberto {
+                    Button { aberto = !mostrando } label: {
+                        Text(mostrando ? "esconder" : "ver \(corpo.count) linhas")
+                            .font(.system(size: 9, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(BeagleTheme.accent)
+                }
             }
 
             // 🚨 Sem `ScrollView` horizontal aqui, e a razão foi medida no primeiro retrato:
@@ -376,6 +508,7 @@ private struct DiffView: View {
             //
             // Linha longa QUEBRA em vez de rolar. Cortar dado é pior que rolar, mas quebrar não
             // esconde nada — e é o que GitHub e o próprio Xcode fazem em soft wrap.
+            if mostrando {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(corpo.enumerated()), id: \.offset) { _, l in
                     Text(l.isEmpty ? " " : l)
@@ -390,6 +523,7 @@ private struct DiffView: View {
             }
             .padding(.vertical, 4)
             .background(RoundedRectangle(cornerRadius: BeagleRadius.sm).fill(BeagleTheme.surface2))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

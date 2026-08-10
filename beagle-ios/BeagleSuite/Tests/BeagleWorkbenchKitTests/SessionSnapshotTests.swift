@@ -168,5 +168,34 @@ final class SessionSnapshotTests: XCTestCase {
             .background(Color(white: 0.62)),
             width: 460, name: "icone-contato")
     }
+
+    @MainActor
+    func testRetratoComDoisTurnos() throws {
+        // O caso que motivou agrupar: sem fronteira, dois pedidos e suas respostas viram uma sopa
+        // em que não se vê onde um acaba. Uma sessão de trabalho de verdade tem dez.
+        let s = SessionStore.fixture(lane: "codex-4", steps: [
+            .prompt(id: 1, text: "Onde você está e qual o branch?", at: agora(400)),
+            .tool(id: 2, name: "Bash", detail: "pwd && git rev-parse --abbrev-ref HEAD", at: agora(396)),
+            .message(id: 3, text: "Estou em `/workspace/.wt/codex-4`, no branch `lane/codex-4/20260810`.", at: agora(392)),
+            .prompt(id: 4, text: "Agora arruma o E175 da stdlib.", at: agora(200)),
+            .tool(id: 5, name: "Read", detail: "stdlib/epistemic/knowledge.sio", at: agora(196)),
+            .tool(id: 6, name: "Grep", detail: "\"zero_divisor\" — 14 achados", at: agora(194)),
+            .diff(id: 7, patch: Self.diffLongo, at: agora(180)),
+            .approval(id: 8, kind: .patch, detail: "stdlib/epistemic/knowledge.sio", at: agora(178)),
+        ])
+        try render(retrato(s), width: 900, name: "16-sessao-dois-turnos")
+    }
+
+    @MainActor
+    func testRetratoDeSessaoRetomada() throws {
+        // Turno sem pedido: o prompt está fora da janela do diário. A tela DIZ isso em vez de
+        // pendurar o trabalho no pedido seguinte — que seria atribuí-lo ao pedido errado.
+        let s = SessionStore.fixture(lane: "loom-1", steps: [
+            .message(id: 90, text: "Terminei a varredura; 3 arquivos precisam de atenção.", at: agora(300)),
+            .prompt(id: 91, text: "quais?", at: agora(120)),
+            .message(id: 92, text: "knowledge.sio, algebra.sio e o gate de visibilidade.", at: agora(112)),
+        ])
+        try render(retrato(s), width: 900, name: "17-sessao-retomada")
+    }
 }
 #endif

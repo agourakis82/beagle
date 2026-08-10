@@ -22,6 +22,8 @@ import Observation
 public enum SessionStep: Sendable, Equatable, Identifiable {
     /// O que o operador pediu.
     case prompt(id: Int, text: String, at: Date)
+    // `turno` é lido de fora por `Turno.agrupar`: sem ele a trilha é uma sopa em que não se vê
+    // onde um pedido acaba e o próximo começa.
     /// O que o agente respondeu, inteiro.
     case message(id: Int, text: String, at: Date)
     /// Ferramenta executada — nome e alvo, uma linha. Não é texto para ler, é rastro para varrer.
@@ -68,6 +70,53 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
     public var isOperator: Bool { if case .prompt = self { return true }; return false }
 }
 
+/// Um TURNO: o pedido, e tudo que o agente fez por causa dele.
+///
+/// 🚨 Por que agrupar. No primeiro retrato a trilha corria reta — prompt, mensagem, ferramenta,
+/// diff, prompt, mensagem — e não havia como ver onde um pedido acabava e o próximo começava. Uma
+/// sessão de trabalho de verdade tem dez turnos, e sem fronteira a tela deixa de ser legível
+/// exatamente quando fica útil.
+public struct Turno: Identifiable, Sendable {
+    /// O `seq` do primeiro passo — estável e monotônico, então a lista não se reordena sozinha.
+    public let id: Int
+    public let passos: [SessionStep]
+
+    public var pedido: String? {
+        for p in passos { if case .prompt(_, let t, _) = p { return t } }
+        return nil
+    }
+    public var comecouEm: Date { passos.first?.at ?? Date() }
+    public var terminouEm: Date { passos.last?.at ?? Date() }
+    /// Quanto durou. `nil` enquanto é o último turno e pode ainda estar correndo — afirmar duração
+    /// de algo em curso seria dizer que acabou.
+    public func duracao(concluido: Bool) -> TimeInterval? {
+        concluido ? terminouEm.timeIntervalSince(comecouEm) : nil
+    }
+    public var temDiff: Bool { passos.contains { if case .diff = $0 { return true }; return false } }
+    public var pedePermissao: Bool {
+        passos.contains { if case .approval = $0 { return true }; return false }
+    }
+
+    /// Quebra a trilha em turnos. Um turno começa em cada `prompt` do operador.
+    ///
+    /// O que vem ANTES do primeiro prompt (uma sessão retomada, cujo pedido está fora da janela do
+    /// diário) forma um turno sem pedido — e a tela diz isso, em vez de fingir que aquilo pertence
+    /// ao próximo pedido, que seria atribuir trabalho ao pedido errado.
+    public static func agrupar(_ passos: [SessionStep]) -> [Turno] {
+        var fora: [Turno] = []
+        var atual: [SessionStep] = []
+        for p in passos {
+            if p.isOperator, !atual.isEmpty {
+                fora.append(Turno(id: atual[0].id, passos: atual))
+                atual = []
+            }
+            atual.append(p)
+        }
+        if !atual.isEmpty { fora.append(Turno(id: atual[0].id, passos: atual)) }
+        return fora
+    }
+}
+
 /// Um evento cru da trama, como o cockpit o devolve em `/turns`.
 public struct TramaEvent: Decodable, Sendable {
     public let seq: Int
@@ -96,6 +145,9 @@ public final class SessionStore {
 
     public private(set) var lane: String
     public private(set) var steps: [SessionStep] = []
+    /// A trilha agrupada. Derivada, nunca guardada em paralelo — dois lugares com a mesma verdade
+    /// divergem, e a lição já foi paga no `detail`/`text`.
+    public var turnos: [Turno] { Turno.agrupar(steps) }
     /// A mensagem SENDO ESCRITA agora — os deltas coalescidos do outro lado. Não é um passo:
     /// vira um quando fecha, e mostrá-la como passo faria a lista piscar a cada volta do poll.
     public private(set) var streaming: String?

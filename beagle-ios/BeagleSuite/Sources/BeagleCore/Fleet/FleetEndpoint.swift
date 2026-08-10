@@ -32,7 +32,16 @@ public struct FleetEndpoint: Sendable {
     /// `FleetTerminalStore.agents` publica na aba Terminais — o app oferecia um terminal
     /// impossível. Duas perguntas diferentes ("posso AGIR nesta lane?" e "posso ABRIR esta
     /// lane?") não podem compartilhar uma lista só.
-    public static let loomdLanes: [String] = ["loom-1"]
+    /// 🚨 O roster do loomd é CONFIGURADO no pod (`SOUNIO_LOOMD_LANES` no launcher), então esta
+    /// lista é um espelho — e espelho envelhece. Ao adotar `codex-4` em 10-ago-2026 a lane subiu,
+    /// respondeu, apareceu no `/v2/state`, e o app **não a listava**: `actionableLanes` é o
+    /// allowlist consultado antes de montar qualquer POST, e sem estar aqui a lane chega no frame
+    /// e é descartada em silêncio, sem erro e sem log.
+    ///
+    /// Enquanto o servidor não publicar o roster de protocolo num frame, isto tem que ser
+    /// atualizado junto com o launcher. É dívida DECLARADA, não descuido: as duas listas precisam
+    /// virar uma, vinda do servidor.
+    public static let loomdLanes: [String] = ["loom-1", "codex-4"]
 
     /// Tudo em que o board pode agir: terminais + lanes do loomd. É o allowlist consultado
     /// antes de montar um POST de tecla/isolamento — sem estar aqui, a lane chega no frame e é
