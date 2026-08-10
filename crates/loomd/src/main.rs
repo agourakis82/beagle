@@ -29,10 +29,56 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use trama::Trama;
 
+/// Qual semântica o `/steer` aplicou. O operador precisa saber: redirecionar o turno em curso e
+/// enfileirar para depois são coisas diferentes, e só o codex faz a primeira.
+pub fn rotulo_de_steer(redireciona: bool) -> &'static str {
+    if redireciona {
+        "redirecionado"
+    } else {
+        "enfileirado"
+    }
+}
+
+/// As duas classes de lane supervisionada. Enum e não trait: são exatamente duas, os métodos
+/// são quatro, e um trait com `async fn` aqui só acrescentaria `Box<dyn>` e ruído.
+#[derive(Clone)]
+enum LaneHandle {
+    Codex(Arc<codex::CodexLane>),
+    Acp(Arc<acp::AcpLane>),
+}
+
+impl LaneHandle {
+    async fn prompt(&self, t: &str) -> Result<(), String> {
+        match self {
+            LaneHandle::Codex(l) => l.prompt(t).await,
+            LaneHandle::Acp(l) => l.prompt(t).await,
+        }
+    }
+    async fn interrupt(&self) -> Result<(), String> {
+        match self {
+            LaneHandle::Codex(l) => l.interrupt().await,
+            LaneHandle::Acp(l) => l.interrupt().await,
+        }
+    }
+    /// Devolve `true` quando REDIRECIONOU o turno; `false` quando só enfileirou.
+    async fn steer(&self, t: &str) -> Result<bool, String> {
+        match self {
+            LaneHandle::Codex(l) => l.steer(t).await.map(|_| true),
+            LaneHandle::Acp(l) => l.enfileirar(t).await.map(|_| false),
+        }
+    }
+    async fn answer(&self, id: &str, allow: bool) -> Result<(), String> {
+        match self {
+            LaneHandle::Codex(l) => l.answer(id, allow).await,
+            LaneHandle::Acp(l) => l.answer(id, allow).await,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct App {
     trama: Arc<Trama>,
-    codex: Arc<HashMap<String, Arc<codex::CodexLane>>>,
+    lanes: Arc<HashMap<String, LaneHandle>>,
 }
 
 #[tokio::main]
@@ -71,12 +117,40 @@ async fn main() {
         trama.declarar(l);
         map.insert(
             l.clone(),
-            codex::CodexLane::spawn(l, &bin, c, cargs.clone(), trama.clone()),
+            LaneHandle::Codex(codex::CodexLane::spawn(
+                l,
+                &bin,
+                c,
+                cargs.clone(),
+                trama.clone(),
+            )),
         );
     }
+
+    // Lanes ACP: mesma forma `lane[:cwd]` do codex, variável própria.
+    //   LOOMD_ACP_LANES="claude-4:/workspace/.wt/claude-4"
+    let acp_bin = std::env::var("LOOMD_ACP_BIN").unwrap_or_else(|_| "claude-agent-acp".into());
+    // O modo vem da Task 1 do plano — MEDIDO, não escolhido pela descrição.
+    let acp_modo = std::env::var("LOOMD_ACP_MODO").unwrap_or_else(|_| "default".into());
+    let acp_lanes = parse_lanes(&std::env::var("LOOMD_ACP_LANES").unwrap_or_default(), &cwd);
+    for (l, c) in &acp_lanes {
+        eprintln!("[loomd] lane ACP {l} em {c} (modo {acp_modo})");
+        trama.declarar(l);
+        map.insert(
+            l.clone(),
+            LaneHandle::Acp(acp::AcpLane::spawn(
+                l,
+                &acp_bin,
+                c,
+                &acp_modo,
+                trama.clone(),
+            )),
+        );
+    }
+
     let app_state = App {
         trama: trama.clone(),
-        codex: Arc::new(map),
+        lanes: Arc::new(map),
     };
 
     let app = Router::new()
@@ -145,7 +219,7 @@ async fn approve(
     Path(lane): Path<String>,
     Json(b): Json<ApproveBody>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
-    let Some(l) = a.codex.get(&lane) else {
+    let Some(l) = a.lanes.get(&lane) else {
         return err(
             axum::http::StatusCode::NOT_FOUND,
             format!("lane {lane} não é supervisionada pelo loomd"),
@@ -207,7 +281,7 @@ async fn interrupt(
     State(a): State<App>,
     Path(lane): Path<String>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
-    let Some(l) = a.codex.get(&lane) else {
+    let Some(l) = a.lanes.get(&lane) else {
         return err(
             axum::http::StatusCode::NOT_FOUND,
             format!("lane {lane} não é supervisionada pelo loomd"),
@@ -229,7 +303,7 @@ async fn steer(
     Path(lane): Path<String>,
     Json(b): Json<PromptBody>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
-    let Some(l) = a.codex.get(&lane) else {
+    let Some(l) = a.lanes.get(&lane) else {
         return err(
             axum::http::StatusCode::NOT_FOUND,
             format!("lane {lane} não é supervisionada pelo loomd"),
@@ -242,9 +316,11 @@ async fn steer(
         );
     }
     match l.steer(&b.text).await {
-        Ok(()) => (
+        Ok(redirecionou) => (
             axum::http::StatusCode::ACCEPTED,
-            Json(serde_json::json!({"ok":true,"lane":lane})),
+            Json(serde_json::json!({
+                "ok": true, "lane": lane, "efeito": rotulo_de_steer(redirecionou)
+            })),
         ),
         Err(e) => err(axum::http::StatusCode::CONFLICT, e),
     }
@@ -255,7 +331,7 @@ async fn prompt(
     Path(lane): Path<String>,
     Json(b): Json<PromptBody>,
 ) -> (axum::http::StatusCode, Json<serde_json::Value>) {
-    let Some(l) = a.codex.get(&lane) else {
+    let Some(l) = a.lanes.get(&lane) else {
         return err(
             axum::http::StatusCode::NOT_FOUND,
             format!("lane {lane} não é supervisionada pelo loomd"),
@@ -282,6 +358,42 @@ fn err(
 #[cfg(test)]
 mod tests {
     use super::parse_lanes;
+    use crate::trama::Trama;
+    use std::sync::Arc;
+
+    /// 🚨 `/steer` NÃO tem a mesma semântica nas duas classes de lane. No codex,
+    /// `turn/steer` REDIRECIONA o turno em curso. O ACP não tem isso: ele anuncia
+    /// `promptQueueing: true`, ou seja, outro prompt ENFILEIRA para depois.
+    ///
+    /// Semântica diferente sob o mesmo nome é armadilha. A resposta da rota tem de dizer qual
+    /// das duas aconteceu, senão a tela mente para o operador.
+    #[test]
+    fn steer_declara_qual_semantica_aplicou() {
+        assert_eq!(super::rotulo_de_steer(true), "redirecionado");
+        assert_eq!(super::rotulo_de_steer(false), "enfileirado");
+    }
+
+    #[tokio::test]
+    async fn steer_na_lane_acp_reporta_enfileirado() {
+        let dir = std::env::temp_dir().join(format!("loomd-steer-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        // COM sessão: `enfileirar` chega a `Ok(())`, então o despacho tem de devolver
+        // `Ok(false)` — asserção EXATA. A versão frouxa deste teste (`Err(_) | Ok(false)`)
+        // passava com qualquer coisa menos `Ok(true)`, o que é quase não assertar nada.
+        let h = super::LaneHandle::Acp(crate::acp::AcpLane::nua_para_teste(
+            "claude-4",
+            t,
+            "default",
+            Some("sess-1"),
+        ));
+        assert_eq!(
+            h.steer("oi").await,
+            Ok(false),
+            "lane ACP ENFILEIRA, nunca redireciona"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn uma_lane_sem_cwd_continua_usando_o_padrao() {

@@ -354,6 +354,53 @@ impl AcpLane {
         }
     }
 
+    async fn novo_id(&self) -> u64 {
+        let mut g = self.proximo_id.lock().await;
+        *g += 1;
+        *g
+    }
+
+    pub async fn prompt(&self, text: &str) -> Result<(), String> {
+        let sid = self
+            .sessao
+            .lock()
+            .await
+            .clone()
+            .ok_or("sessao ACP ainda nao aberta")?;
+        let id = self.novo_id().await;
+        self.enviar(serde_json::json!({
+            "jsonrpc":"2.0","id":id,"method":"session/prompt",
+            "params":{"sessionId": sid, "prompt":[{"type":"text","text": text}]}
+        }))
+        .await;
+        let mut e =
+            AgentEvent::new(&self.lane, Kind::UserPrompt, Confidence::Exact).with_text(text);
+        e.session = Some(sid);
+        self.trama.append(e);
+        Ok(())
+    }
+
+    pub async fn interrupt(&self) -> Result<(), String> {
+        let sid = self
+            .sessao
+            .lock()
+            .await
+            .clone()
+            .ok_or("sessao ACP ainda nao aberta")?;
+        self.enviar(serde_json::json!({
+            "jsonrpc":"2.0","method":"session/cancel","params":{"sessionId": sid}
+        }))
+        .await;
+        Ok(())
+    }
+
+    /// O que o ACP tem no lugar do `turn/steer` do codex: `promptQueueing: true`. O prompt vai
+    /// para a FILA, não redireciona o turno em curso. Mesmo canal do `prompt` de propósito —
+    /// dois caminhos para a mesma ação divergem.
+    pub async fn enfileirar(&self, text: &str) -> Result<(), String> {
+        self.prompt(text).await
+    }
+
     pub async fn answer(&self, approval_id: &str, allow: bool) -> Result<(), String> {
         let tx = self
             .pending
