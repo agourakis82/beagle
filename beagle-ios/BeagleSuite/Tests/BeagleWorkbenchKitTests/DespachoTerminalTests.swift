@@ -2,6 +2,7 @@
 import XCTest
 import AppKit
 import SwiftTerm
+@testable import BeagleCore
 @testable import BeagleWorkbenchKit
 
 /// O despacho dos comandos de terminal.
@@ -146,6 +147,30 @@ final class DespachoTerminalTests: XCTestCase {
         NSPasteboard.general.setData(d, forType: .rtf)
         XCTAssertEqual(textoDaAreaDeTransferencia(), "codigo-do-navegador",
                        "só RTF no pasteboard ainda é texto colável")
+    }
+
+    @MainActor
+    func testSOMENTEOTerminalATIVOSeRegistra() {
+        // 🚨 A causa de "testei, não colou" com várias lanes abertas — e de ter funcionado no meu
+        // teste, que tinha UMA. A pilha mantém toda lane aberta viva com `opacity 0`, e
+        // `updateNSView` roda para TODAS: a última a atualizar ganhava o registro. O ⌘V ia para um
+        // terminal INVISÍVEL e o texto sumia num lugar que ele não estava olhando — sem erro.
+        let visivel = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
+        let escondida = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
+
+        // A ordem imita a pilha: a invisível atualiza DEPOIS da visível.
+        PTYTerminalView(client: PTYClient(agent: "claude-1"), ativo: true)
+            .registrarSeAtivo(visivel)
+        PTYTerminalView(client: PTYClient(agent: "claude-2"), ativo: false)
+            .registrarSeAtivo(escondida)
+
+        XCTAssertTrue(TerminalAtivo.view === visivel,
+                      "quem está na tela manda — a última a atualizar não pode roubar o destino")
+
+        // E a troca de lane move o destino junto.
+        PTYTerminalView(client: PTYClient(agent: "claude-2"), ativo: true)
+            .registrarSeAtivo(escondida)
+        XCTAssertTrue(TerminalAtivo.view === escondida, "trocar de lane troca o destino do ⌘V")
     }
 
     @MainActor

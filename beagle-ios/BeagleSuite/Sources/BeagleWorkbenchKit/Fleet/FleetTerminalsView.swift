@@ -46,7 +46,8 @@ public struct FleetTerminalsView: View {
     private var terminals: some View {
         ZStack {
             ForEach(store.opened, id: \.self) { agent in
-                PTYTerminalView(client: store.client(for: agent))
+                PTYTerminalView(client: store.client(for: agent),
+                                ativo: agent == store.activeAgent)
                     .opacity(agent == store.activeAgent ? 1 : 0)
                     .allowsHitTesting(agent == store.activeAgent)
             }
@@ -56,18 +57,7 @@ public struct FleetTerminalsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Self.canvas)
-        .contentShape(Rectangle())
-        // Decisive horizontal swipe switches agents; simultaneous so SwiftTerm still scrolls.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { v in
-                    let dx = v.translation.width, dy = v.translation.height
-                    if abs(dx) > 80, abs(dx) > abs(dy) * 1.5 {
-                        store.cycle(dx < 0 ? 1 : -1)
-                        haptic()
-                    }
-                }
-        )
+        .modifier(TrocaPorSwipe(store: store))
     }
 
     private var agentBar: some View {
@@ -283,5 +273,39 @@ private struct PulsoDoSino: ViewModifier {
                     grande = true
                 }
             }
+    }
+}
+
+/// Trocar de lane por swipe — SÓ no iOS.
+///
+/// 🚨 No Mac isto custava o mouse inteiro. Medido pelo sintoma que ele relatou: o clique DIREITO
+/// não abria menu nenhum no terminal. `contentShape(Rectangle())` faz o ZStack virar alvo e o
+/// gesto no pai fica na frente do `NSView` — os eventos param antes do SwiftTerm, que é quem tem
+/// o menu de contexto, a seleção por arrasto e o clique que dá foco.
+///
+/// No iPad o swipe é o jeito natural de navegar e vale o preço. No Mac não paga nada: já existem
+/// os chips, o seletor e os atalhos.
+///
+/// Vive num `ViewModifier` e não num `#if` no meio da cadeia porque ali o type-checker do Swift
+/// estourou — "unable to type-check this expression in reasonable time".
+private struct TrocaPorSwipe: ViewModifier {
+    let store: FleetTerminalStore
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 30)
+                    .onEnded { v in
+                        let dx = v.translation.width, dy = v.translation.height
+                        if abs(dx) > 80, abs(dx) > abs(dy) * 1.5 {
+                            store.cycle(dx < 0 ? 1 : -1)
+                        }
+                    }
+            )
+        #else
+        content
+        #endif
     }
 }

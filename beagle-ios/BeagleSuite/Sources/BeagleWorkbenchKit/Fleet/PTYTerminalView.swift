@@ -14,9 +14,21 @@ public typealias _PlatformViewRepresentable = NSViewRepresentable
 
 /// Bridges a SwiftTerm `TerminalView` to a `PTYClient` (Loom `/ws/loom`).
 public struct PTYTerminalView: _PlatformViewRepresentable {
+    /// Esta é a lane que ele está VENDO?
+    ///
+    /// 🚨 MEDIDO: `updateNSView` roda para TODOS os terminais montados — a pilha mantém as lanes
+    /// abertas vivas com `opacity 0`, e a última a atualizar ganhava o registro. Com uma lane só
+    /// (meu teste) funcionava; com várias, o ⌘V ia para uma lane INVISÍVEL e o texto sumia num
+    /// terminal que ele não estava olhando. Registrar só o ativo é o que torna "o terminal ativo"
+    /// verdade em vez de aproximação.
+    public var ativo: Bool = true
+
     private let client: PTYClient
 
-    public init(client: PTYClient) { self.client = client }
+    public init(client: PTYClient, ativo: Bool = true) {
+        self.client = client
+        self.ativo = ativo
+    }
 
     public func makeCoordinator() -> Coordinator { Coordinator(client: client) }
 
@@ -24,9 +36,17 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
     public func makeUIView(context: Context) -> TerminalView { context.coordinator.makeTerminal() }
     public func updateUIView(_ uiView: TerminalView, context: Context) {}
     #else
+    /// A decisão "esta view reivindica o destino dos comandos?", separada do ciclo de vida do
+    /// SwiftUI. Sem esta costura, ela só existiria dentro de `makeNSView`/`updateNSView` — e
+    /// decisão que só se alcança montando uma hierarquia não é decisão testável. Foi exatamente
+    /// esta regra que quebrou em produção enquanto os testes passavam.
+    public func registrarSeAtivo(_ v: TerminalView) {
+        if ativo { TerminalAtivo.registrar(v) }
+    }
+
     public func makeNSView(context: Context) -> TerminalView {
         let v = context.coordinator.makeTerminal()
-        TerminalAtivo.registrar(v)
+        registrarSeAtivo(v)
         return v
     }
 
@@ -48,9 +68,10 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
         guard let janela = nsView.window, janela.firstResponder !== nsView else { return }
         // Assíncrono: durante o `update` a hierarquia ainda está sendo montada, e um
         // `makeFirstResponder` aqui pode ser desfeito pelo próprio ciclo de layout.
-        // O registro é o que faz os comandos de menu chegarem: `sendAction` depende do foco, e o
-        // foco fica na sidebar até alguém clicar no terminal.
-        TerminalAtivo.registrar(nsView)
+        // Só a lane VISÍVEL reivindica: registrar uma invisível mandaria o ⌘V para um terminal
+        // que ele não está olhando — e o texto sumiria sem erro nenhum.
+        guard ativo else { return }
+        registrarSeAtivo(nsView)
         DispatchQueue.main.async { [weak nsView] in
             guard let v = nsView, let w = v.window, w.firstResponder !== v else { return }
             w.makeFirstResponder(v)
