@@ -147,7 +147,11 @@ impl AgentEvent {
 /// branco quando a resposta começava com linha vazia. O card cita a primeira coisa que o agente
 /// disse, que é o que o operador reconhece.
 pub fn resumir(t: &str) -> String {
-    let linha = t.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    let linha = t
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("");
     if linha.chars().count() <= 240 {
         return linha.to_string();
     }
@@ -182,8 +186,16 @@ fn s(v: &serde_json::Value, k: &str) -> Option<String> {
 pub fn thread_id(v: &serde_json::Value) -> Option<String> {
     v.get("threadId")
         .and_then(|x| x.as_str())
-        .or_else(|| v.get("thread").and_then(|t| t.get("id")).and_then(|x| x.as_str()))
-        .or_else(|| v.get("thread").and_then(|t| t.get("sessionId")).and_then(|x| x.as_str()))
+        .or_else(|| {
+            v.get("thread")
+                .and_then(|t| t.get("id"))
+                .and_then(|x| x.as_str())
+        })
+        .or_else(|| {
+            v.get("thread")
+                .and_then(|t| t.get("sessionId"))
+                .and_then(|x| x.as_str())
+        })
         .map(str::to_string)
 }
 
@@ -199,7 +211,11 @@ pub fn thread_id(v: &serde_json::Value) -> Option<String> {
 pub fn turn_id(v: &serde_json::Value) -> Option<String> {
     v.get("turnId")
         .and_then(|x| x.as_str())
-        .or_else(|| v.get("turn").and_then(|t| t.get("id")).and_then(|x| x.as_str()))
+        .or_else(|| {
+            v.get("turn")
+                .and_then(|t| t.get("id"))
+                .and_then(|x| x.as_str())
+        })
         .map(str::to_string)
 }
 
@@ -241,7 +257,11 @@ pub fn from_claude_hook(lane: &str, body: &serde_json::Value) -> AgentEvent {
 // ─── Codex: app-server (JSON-RPC) ───────────────────────────────────────────────────────────
 // Aqui somos donos do processo, e em troca ganhamos o estado como ENUM.
 
-pub fn from_codex_notification(lane: &str, method: &str, p: &serde_json::Value) -> Option<AgentEvent> {
+pub fn from_codex_notification(
+    lane: &str,
+    method: &str,
+    p: &serde_json::Value,
+) -> Option<AgentEvent> {
     let kind = match method {
         "thread/started" => Kind::SessionStarted,
         "turn/started" => Kind::TurnStarted,
@@ -391,8 +411,14 @@ mod tests {
             codex_approval_reply("item/commandExecution/requestApproval", true)["decision"],
             "accept"
         );
-        assert_eq!(codex_approval_reply("execCommandApproval", true)["decision"], "approved");
-        assert_eq!(codex_approval_reply("applyPatchApproval", true)["decision"], "approved");
+        assert_eq!(
+            codex_approval_reply("execCommandApproval", true)["decision"],
+            "approved"
+        );
+        assert_eq!(
+            codex_approval_reply("applyPatchApproval", true)["decision"],
+            "approved"
+        );
         assert_eq!(
             codex_approval_reply("item/fileChange/requestApproval", false)["decision"],
             "decline"
@@ -419,20 +445,34 @@ mod tests {
 
     #[test]
     fn evento_desconhecido_nunca_derruba_nada() {
-        let e = from_claude_hook("claude-1", &serde_json::json!({"hook_event_name":"AlgoNovoEm2027"}));
+        let e = from_claude_hook(
+            "claude-1",
+            &serde_json::json!({"hook_event_name":"AlgoNovoEm2027"}),
+        );
         assert_eq!(e.kind, Kind::Unknown);
         assert!(e.detail.as_deref().unwrap().contains("AlgoNovoEm2027"));
         // E uma notificação do codex sem valor operacional é descartada, não vira ruído.
-        assert!(from_codex_notification("codex-1", "account/updated", &serde_json::json!({})).is_none());
+        assert!(
+            from_codex_notification("codex-1", "account/updated", &serde_json::json!({})).is_none()
+        );
     }
 
     #[test]
     fn o_id_da_thread_e_lido_nas_duas_formas() {
         // O mesmo protocolo usa `threadId` num método e `thread.id` noutro. Ler só um fazia o
         // supervisor nunca aprender o id — e o turno morria em silêncio.
-        assert_eq!(thread_id(&serde_json::json!({"threadId":"a"})).as_deref(), Some("a"));
-        assert_eq!(thread_id(&serde_json::json!({"thread":{"id":"b"}})).as_deref(), Some("b"));
-        assert_eq!(thread_id(&serde_json::json!({"thread":{"sessionId":"c"}})).as_deref(), Some("c"));
+        assert_eq!(
+            thread_id(&serde_json::json!({"threadId":"a"})).as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            thread_id(&serde_json::json!({"thread":{"id":"b"}})).as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            thread_id(&serde_json::json!({"thread":{"sessionId":"c"}})).as_deref(),
+            Some("c")
+        );
         assert_eq!(thread_id(&serde_json::json!({"nada":1})), None);
     }
 
@@ -462,7 +502,11 @@ mod tests {
         let e = from_codex_notification("codex-1", "item/agentMessage/delta", &p).unwrap();
         assert_eq!(e.kind, Kind::Delta);
         assert_eq!(e.text.as_deref(), Some("Vou"));
-        assert_eq!(e.tool.as_deref(), Some("msg_0fee"), "o itemId agrupa os pedaços de UMA mensagem");
+        assert_eq!(
+            e.tool.as_deref(),
+            Some("msg_0fee"),
+            "o itemId agrupa os pedaços de UMA mensagem"
+        );
     }
 
     #[test]
@@ -477,8 +521,14 @@ mod tests {
             from_codex_notification("codex-1", metodo, &p).map(|e| e.kind)
         };
         assert_eq!(faz("item/completed", "userMessage"), Some(Kind::UserPrompt));
-        assert_eq!(faz("item/completed", "agentMessage"), Some(Kind::AgentMessage));
-        assert_eq!(faz("item/started", "commandExecution"), Some(Kind::ToolCall));
+        assert_eq!(
+            faz("item/completed", "agentMessage"),
+            Some(Kind::AgentMessage)
+        );
+        assert_eq!(
+            faz("item/started", "commandExecution"),
+            Some(Kind::ToolCall)
+        );
     }
 
     #[test]
@@ -489,28 +539,55 @@ mod tests {
         // existe. Numa tela de conversa isso é a pergunta aparecendo duas vezes.
         let item = |tipo: &str, texto: Option<&str>| {
             let mut i = serde_json::json!({ "type": tipo });
-            if let Some(t) = texto { i["text"] = serde_json::json!(t); }
+            if let Some(t) = texto {
+                i["text"] = serde_json::json!(t);
+            }
             serde_json::json!({ "threadId": "th-1", "item": i })
         };
 
         // Fala: só quando termina.
-        assert!(from_codex_notification("c", "item/started", &item("agentMessage", None)).is_none(),
-            "no started a fala ainda não existe — registrá-la cria uma linha vazia");
-        assert!(from_codex_notification("c", "item/started", &item("userMessage", Some("oi"))).is_none());
+        assert!(
+            from_codex_notification("c", "item/started", &item("agentMessage", None)).is_none(),
+            "no started a fala ainda não existe — registrá-la cria uma linha vazia"
+        );
+        assert!(
+            from_codex_notification("c", "item/started", &item("userMessage", Some("oi")))
+                .is_none()
+        );
         assert_eq!(
-            from_codex_notification("c", "item/completed", &item("agentMessage", Some("resposta"))).unwrap().text.as_deref(),
-            Some("resposta"));
+            from_codex_notification(
+                "c",
+                "item/completed",
+                &item("agentMessage", Some("resposta"))
+            )
+            .unwrap()
+            .text
+            .as_deref(),
+            Some("resposta")
+        );
 
         // Ferramenta: o contrário. Aparece ao COMEÇAR, senão um comando de 40s fica sem sinal.
         assert_eq!(
-            from_codex_notification("c", "item/started", &item("commandExecution", None)).unwrap().kind,
-            Kind::ToolCall);
+            from_codex_notification("c", "item/started", &item("commandExecution", None))
+                .unwrap()
+                .kind,
+            Kind::ToolCall
+        );
         // E não se repete ao terminar, a menos que o fim traga conteúdo (a saída).
-        assert!(from_codex_notification("c", "item/completed", &item("reasoning", None)).is_none(),
-            "fim sem conteúdo é a mesma linha de novo");
+        assert!(
+            from_codex_notification("c", "item/completed", &item("reasoning", None)).is_none(),
+            "fim sem conteúdo é a mesma linha de novo"
+        );
         assert_eq!(
-            from_codex_notification("c", "item/completed", &item("commandExecution", Some("exit 0"))).unwrap().kind,
-            Kind::ToolResult);
+            from_codex_notification(
+                "c",
+                "item/completed",
+                &item("commandExecution", Some("exit 0"))
+            )
+            .unwrap()
+            .kind,
+            Kind::ToolResult
+        );
     }
 
     #[test]
@@ -522,8 +599,16 @@ mod tests {
             "threadId": "th-1", "item": { "type": "agentMessage", "text": longo }
         });
         let e = from_codex_notification("codex-1", "item/completed", &p).unwrap();
-        assert_eq!(e.text.as_deref().map(str::len), Some(longo.len()), "o texto NÃO é truncado");
-        assert_eq!(e.detail.as_deref(), Some("primeira linha"), "o card cita a primeira linha");
+        assert_eq!(
+            e.text.as_deref().map(str::len),
+            Some(longo.len()),
+            "o texto NÃO é truncado"
+        );
+        assert_eq!(
+            e.detail.as_deref(),
+            Some("primeira linha"),
+            "o card cita a primeira linha"
+        );
     }
 
     #[test]
@@ -540,27 +625,46 @@ mod tests {
 
     #[test]
     fn o_resumo_nao_devolve_linha_vazia_nem_parte_palavra() {
-        assert_eq!(resumir("\n\n  de verdade  \nresto"), "de verdade",
-            "resposta que começa com linha vazia daria card em branco");
+        assert_eq!(
+            resumir("\n\n  de verdade  \nresto"),
+            "de verdade",
+            "resposta que começa com linha vazia daria card em branco"
+        );
         let r = resumir(&format!("{} fim", "palavra ".repeat(40)));
-        assert!(r.ends_with('…') && !r.ends_with("pa…"), "não parte palavra ao meio: {r}");
+        assert!(
+            r.ends_with('…') && !r.ends_with("pa…"),
+            "não parte palavra ao meio: {r}"
+        );
     }
 
     #[test]
     fn comando_e_patch_sao_riscos_diferentes() {
         // Aplicar patch se desfaz por git; rodar comando, não. O rótulo do botão sai daqui.
-        assert_eq!(ApprovalKind::of("item/fileChange/requestApproval"), ApprovalKind::Patch);
+        assert_eq!(
+            ApprovalKind::of("item/fileChange/requestApproval"),
+            ApprovalKind::Patch
+        );
         assert_eq!(ApprovalKind::of("applyPatchApproval"), ApprovalKind::Patch);
-        assert_eq!(ApprovalKind::of("item/commandExecution/requestApproval"), ApprovalKind::Command);
-        assert_eq!(ApprovalKind::of("execCommandApproval"), ApprovalKind::Command);
-        assert_eq!(ApprovalKind::of("item/permissions/requestApproval"), ApprovalKind::Other);
+        assert_eq!(
+            ApprovalKind::of("item/commandExecution/requestApproval"),
+            ApprovalKind::Command
+        );
+        assert_eq!(
+            ApprovalKind::of("execCommandApproval"),
+            ApprovalKind::Command
+        );
+        assert_eq!(
+            ApprovalKind::of("item/permissions/requestApproval"),
+            ApprovalKind::Other
+        );
     }
 
     #[test]
     fn o_id_do_turno_e_lido_nas_duas_formas() {
         // A mesma armadilha do threadId, paga de novo — e descoberta só ao tentar interromper um
         // turno vivo e ouvir "nenhum turno em curso".
-        let aninhado = serde_json::json!({"threadId":"th","turn":{"id":"tu-7","status":"inProgress"}});
+        let aninhado =
+            serde_json::json!({"threadId":"th","turn":{"id":"tu-7","status":"inProgress"}});
         assert_eq!(turn_id(&aninhado).as_deref(), Some("tu-7"));
         let plano = serde_json::json!({"threadId":"th","turnId":"tu-9"});
         assert_eq!(turn_id(&plano).as_deref(), Some("tu-9"));
@@ -568,7 +672,10 @@ mod tests {
         // E pelo caminho que importa: `turn/started` é o único evento que ABRE o turno.
         let e = from_codex_notification("c", "turn/started", &aninhado).unwrap();
         assert_eq!(e.kind, Kind::TurnStarted);
-        assert_eq!(e.turn.as_deref(), Some("tu-7"),
-            "sem isto o turno nasce sem alvo e não dá para interromper nem guiar");
+        assert_eq!(
+            e.turn.as_deref(),
+            Some("tu-7"),
+            "sem isto o turno nasce sem alvo e não dá para interromper nem guiar"
+        );
     }
 }

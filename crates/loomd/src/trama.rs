@@ -98,8 +98,20 @@ impl Trama {
             lanes.len(),
             seq
         );
-        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path).ok();
-        Self { inner: Mutex::new(Inner { seq, events, lanes, file }), path }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok();
+        Self {
+            inner: Mutex::new(Inner {
+                seq,
+                events,
+                lanes,
+                file,
+            }),
+            path,
+        }
     }
 
     pub fn path(&self) -> &std::path::Path {
@@ -135,22 +147,27 @@ impl Trama {
     pub fn acumular_delta(&self, lane: &str, pedaco: &str) {
         let mut g = self.inner.lock().unwrap();
         let agora = crate::event::now_ms();
-        let st = g.lanes.entry(lane.to_string()).or_insert_with(|| LaneState {
-            lane: lane.to_string(),
-            kind: Kind::Unknown,
-            confidence: Confidence::Exact,
-            observed_at_ms: agora,
-            detail: None,
-            session: None,
-            pending_approval: None,
-            pending_kind: None,
-            current_turn: None,
-            last_diff: None,
-            streaming_text: None,
-            turns: 0,
-        });
+        let st = g
+            .lanes
+            .entry(lane.to_string())
+            .or_insert_with(|| LaneState {
+                lane: lane.to_string(),
+                kind: Kind::Unknown,
+                confidence: Confidence::Exact,
+                observed_at_ms: agora,
+                detail: None,
+                session: None,
+                pending_approval: None,
+                pending_kind: None,
+                current_turn: None,
+                last_diff: None,
+                streaming_text: None,
+                turns: 0,
+            });
         st.observed_at_ms = agora;
-        st.streaming_text.get_or_insert_with(String::new).push_str(pedaco);
+        st.streaming_text
+            .get_or_insert_with(String::new)
+            .push_str(pedaco);
     }
 
     /// O parcial cumpriu seu papel: a mensagem completa chegou à trama.
@@ -175,26 +192,32 @@ impl Trama {
     pub fn declarar(&self, lane: &str) {
         let mut g = self.inner.lock().unwrap();
         let agora = crate::event::now_ms();
-        g.lanes.entry(lane.to_string()).or_insert_with(|| LaneState {
-            lane: lane.to_string(),
-            kind: Kind::Unknown,
-            confidence: Confidence::Exact,
-            observed_at_ms: agora,
-            detail: Some("supervisionada; nenhum turno ainda".into()),
-            session: None,
-            pending_approval: None,
-            pending_kind: None,
-            current_turn: None,
-            last_diff: None,
-            streaming_text: None,
-            turns: 0,
-        });
+        g.lanes
+            .entry(lane.to_string())
+            .or_insert_with(|| LaneState {
+                lane: lane.to_string(),
+                kind: Kind::Unknown,
+                confidence: Confidence::Exact,
+                observed_at_ms: agora,
+                detail: Some("supervisionada; nenhum turno ainda".into()),
+                session: None,
+                pending_approval: None,
+                pending_kind: None,
+                current_turn: None,
+                last_diff: None,
+                streaming_text: None,
+                turns: 0,
+            });
     }
 
     pub fn state(&self) -> Vec<LaneState> {
         let g = self.inner.lock().unwrap();
         let mut v: Vec<_> = g.lanes.values().cloned().collect();
-        v.sort_by(|a, b| urgency(a.kind).cmp(&urgency(b.kind)).then(a.lane.cmp(&b.lane)));
+        v.sort_by(|a, b| {
+            urgency(a.kind)
+                .cmp(&urgency(b.kind))
+                .then(a.lane.cmp(&b.lane))
+        });
         v
     }
 
@@ -470,7 +493,11 @@ mod tests {
             assert_eq!(t.seq(), 3);
         }
         let t2 = Trama::open(&p);
-        assert_eq!(t2.seq(), 3, "o seq tem que ser RETOMADO do disco, não zerado");
+        assert_eq!(
+            t2.seq(),
+            3,
+            "o seq tem que ser RETOMADO do disco, não zerado"
+        );
         assert_eq!(t2.append(ev("codex-1", Kind::TurnStarted)), 4);
 
         // E o diário no disco não pode ter chave repetida.
@@ -572,7 +599,11 @@ mod tests {
             write!(f, "{{\"seq\":9,\"ts_ms\":1,\"lane\":\"a\",\"ki").unwrap();
         }
         let t2 = Trama::open(&p);
-        assert_eq!(t2.seq(), 2, "a linha pela metade não pode virar high-water mark");
+        assert_eq!(
+            t2.seq(),
+            2,
+            "a linha pela metade não pode virar high-water mark"
+        );
         assert_eq!(t2.append(ev("a", Kind::Idle)), 3);
         assert_eq!(t2.since(0, None).len(), 3);
     }
@@ -598,7 +629,10 @@ mod tests {
         let t = Trama::open(&p);
         assert_eq!(t.seq(), n, "o seq exato tem que sobreviver à janela");
         let carregados = t.since(0, None).len();
-        assert!(carregados <= TETO_RELEITURA, "carregou {carregados} eventos na RAM");
+        assert!(
+            carregados <= TETO_RELEITURA,
+            "carregou {carregados} eventos na RAM"
+        );
         assert!(carregados > 0, "a janela não pode voltar vazia");
         // A janela é o FIM do arquivo: o evento mais antigo ficou no disco, o último está na RAM.
         assert_eq!(t.since(n - 1, None).len(), 1);
@@ -616,11 +650,18 @@ mod tests {
         for pedaco in ["Vou", " ler", " os", " módulos"] {
             t.acumular_delta("codex-1", pedaco);
         }
-        assert_eq!(t.seq(), antes, "delta NÃO consome seq — não é evento de diário");
+        assert_eq!(
+            t.seq(),
+            antes,
+            "delta NÃO consome seq — não é evento de diário"
+        );
         let st = t.state().into_iter().find(|l| l.lane == "codex-1").unwrap();
         assert_eq!(st.streaming_text.as_deref(), Some("Vou ler os módulos"));
         assert_eq!(
-            std::fs::read_to_string(t.path()).unwrap_or_default().lines().count(),
+            std::fs::read_to_string(t.path())
+                .unwrap_or_default()
+                .lines()
+                .count(),
             0,
             "e nada foi escrito no jsonl"
         );
@@ -637,7 +678,10 @@ mod tests {
         e.text = Some("resposta inteira".into());
         t.append(e);
         let st = t.state().into_iter().find(|l| l.lane == "codex-1").unwrap();
-        assert!(st.streaming_text.is_none(), "o parcial some quando a mensagem chega");
+        assert!(
+            st.streaming_text.is_none(),
+            "o parcial some quando a mensagem chega"
+        );
         assert_eq!(st.kind, Kind::AgentMessage);
     }
 
@@ -653,7 +697,11 @@ mod tests {
         assert_eq!(st.pending_kind, Some(crate::event::ApprovalKind::Patch));
 
         // E some junto com a pendência quando o turno anda.
-        t.append(AgentEvent::new("codex-1", Kind::TurnEnded, Confidence::Exact));
+        t.append(AgentEvent::new(
+            "codex-1",
+            Kind::TurnEnded,
+            Confidence::Exact,
+        ));
         let st = t.state().into_iter().find(|l| l.lane == "codex-1").unwrap();
         assert!(st.pending_kind.is_none() && st.pending_approval.is_none());
     }
@@ -674,11 +722,23 @@ mod tests {
         assert_eq!(t.current_turn("codex-1").as_deref(), Some("tu-7"));
 
         // Um evento no MEIO do turno não pode apagar o alvo.
-        t.append(AgentEvent::new("codex-1", Kind::ToolCall, Confidence::Exact));
+        t.append(AgentEvent::new(
+            "codex-1",
+            Kind::ToolCall,
+            Confidence::Exact,
+        ));
         assert_eq!(t.current_turn("codex-1").as_deref(), Some("tu-7"));
 
-        t.append(AgentEvent::new("codex-1", Kind::TurnEnded, Confidence::Exact));
-        assert_eq!(t.current_turn("codex-1"), None, "turno encerrado não é alvo");
+        t.append(AgentEvent::new(
+            "codex-1",
+            Kind::TurnEnded,
+            Confidence::Exact,
+        ));
+        assert_eq!(
+            t.current_turn("codex-1"),
+            None,
+            "turno encerrado não é alvo"
+        );
     }
 
     #[test]
@@ -705,7 +765,11 @@ mod tests {
         t.declarar("codex-4");
         let st = t.state();
         assert_eq!(st.len(), 1);
-        assert_eq!(st[0].kind, Kind::Unknown, "supervisionada e não observada — não um chute");
+        assert_eq!(
+            st[0].kind,
+            Kind::Unknown,
+            "supervisionada e não observada — não um chute"
+        );
         assert!(st[0].detail.as_deref().unwrap().contains("nenhum turno"));
     }
 
@@ -720,7 +784,11 @@ mod tests {
         t.append(e);
         t.declarar("codex-4");
         let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
-        assert_eq!(st.kind, Kind::AwaitingApproval, "declarar não pode apagar uma pendência");
+        assert_eq!(
+            st.kind,
+            Kind::AwaitingApproval,
+            "declarar não pode apagar uma pendência"
+        );
         assert!(st.pending_approval.is_some());
     }
 }
