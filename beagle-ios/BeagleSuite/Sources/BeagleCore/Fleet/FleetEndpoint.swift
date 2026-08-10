@@ -171,6 +171,22 @@ public struct FleetEndpoint: Sendable {
         return req
     }
 
+    /// Parar o turno em curso, ou GUIÁ-LO sem matar.
+    ///
+    /// Guiar acrescenta instrução ao turno que já corre; interromper joga fora o que ele fez.
+    /// São ações diferentes para a mesma percepção — "está indo para o lugar errado" — e a tela
+    /// oferece a barata primeiro.
+    public func laneTurnRequest(sid: String, interromper: Bool, text: String = "") -> URLRequest? {
+        guard Self.isLaneName(sid) else { return nil }
+        guard interromper || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        let acao = interromper ? "interrupt" : "steer"
+        guard var req = jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/\(acao)") else { return nil }
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = interromper ? Data("{}".utf8) : (try? JSONSerialization.data(withJSONObject: ["text": text]))
+        return req
+    }
+
     /// A conversa a partir de um cursor. `since` é o maior `seq` já visto — o servidor devolve o
     /// próximo cursor pronto, então o cliente nunca o deriva do último elemento (que é `nil`
     /// quando o poll não trouxe novidade, o caso comum).

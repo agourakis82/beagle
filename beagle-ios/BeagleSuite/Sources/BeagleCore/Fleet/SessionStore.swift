@@ -177,6 +177,7 @@ public final class SessionStore {
         // novidade — e o cliente voltaria ao começo do diário a cada volta silenciosa.
         cursor = max(cursor, page.cursor)
         streaming = page.streaming
+        turnoEmCurso = page.turnoEmCurso ?? (page.streaming != nil)
         for e in page.events {
             guard let passo = Self.passo(de: e) else { continue }
             // A trama é append-only e o cursor é monotônico, então repetição só acontece se um
@@ -242,6 +243,33 @@ public final class SessionStore {
         }
     }
 
+    /// Há um turno correndo? É o que decide se a tela oferece parar/guiar — e a resposta vem do
+    /// servidor (a trama), nunca de um palpite do cliente sobre o último passo visto.
+    public private(set) var turnoEmCurso = false
+
+    /// Parar o turno, ou guiá-lo. `texto` vazio = interromper.
+    @discardableResult
+    public func turno(interromper: Bool, texto: String = "") async -> Bool {
+        guard let req = endpoint.laneTurnRequest(sid: lane, interromper: interromper, text: texto) else { return false }
+        sending = true
+        note = nil
+        defer { sending = false }
+        do {
+            let (data, resp) = try await session.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(code) else {
+                // 409 aqui costuma ser "nenhum turno em curso" — recusa do chamador, com motivo.
+                note = Self.motivo(data) ?? "o cockpit recusou (HTTP \(code))"
+                return false
+            }
+            await poll()
+            return true
+        } catch {
+            note = error.localizedDescription
+            return false
+        }
+    }
+
     /// Responde ao pedido de aprovação pendente.
     @discardableResult
     public func approve(_ allow: Bool) async -> Bool {
@@ -279,6 +307,14 @@ public final class SessionStore {
         public let cursor: Int
         public let events: [TramaEvent]
         public let streaming: String?
+        /// O servidor diz se há turno. Enquanto não disser, um parcial em voo é a melhor pista —
+        /// mas ela é PISTA, e o campo explícito manda quando existe.
+        public let turnoEmCurso: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case lane, since, cursor, events, streaming
+            case turnoEmCurso = "turnRunning"
+        }
     }
     struct Envelope: Decodable { let ok: Bool; let data: Page }
 }

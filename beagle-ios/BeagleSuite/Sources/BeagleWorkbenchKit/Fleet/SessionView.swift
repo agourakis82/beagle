@@ -20,6 +20,8 @@ import BeagleCore
 public struct SessionView: View {
     @State private var store: SessionStore
     @State private var rascunho: String = ""
+    /// O próximo envio GUIA o turno em vez de abrir um novo pedido.
+    @State private var guiando = false
     @FocusState private var escrevendo: Bool
 
     public init(store: SessionStore) {
@@ -66,6 +68,7 @@ public struct SessionView: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(BeagleTheme.truthObserved)
                 .imageScale(.small)
+            if store.turnoEmCurso { controlesDoTurno }
             estadoDoFio
         }
         .padding(.horizontal, BeagleSpacing.md)
@@ -90,6 +93,37 @@ public struct SessionView: View {
                 .foregroundStyle(BeagleTheme.stateError)
                 .lineLimit(1)
         }
+    }
+
+    /// Só aparecem com turno correndo — um botão de parar numa lane parada é um botão que
+    /// falha, e o servidor recusaria com 409.
+    ///
+    /// GUIAR vem primeiro, e não por ordem de leitura: interromper joga fora o que o agente já
+    /// fez, guiar aproveita. Quando as duas servem, a barata tem que ser a mais fácil de achar.
+    private var controlesDoTurno: some View {
+        HStack(spacing: 6) {
+            Button {
+                guiando = true
+                escrevendo = true
+            } label: {
+                Label("Guiar", systemImage: "arrow.triangle.branch")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(BeagleTheme.accent)
+            .help("Acrescenta instrução ao turno em curso, sem descartar o que ele já fez")
+
+            Button {
+                Task { await store.turno(interromper: true) }
+            } label: {
+                Label("Parar", systemImage: "stop.circle")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(BeagleTheme.stateError)
+            .help("Encerra o turno. O trabalho já feito é descartado.")
+        }
+        .disabled(store.sending)
     }
 
     // MARK: - A trilha
@@ -167,7 +201,7 @@ public struct SessionView: View {
 
     private var compositor: some View {
         HStack(alignment: .bottom, spacing: BeagleSpacing.sm) {
-            TextField("pedir a \(store.lane)…", text: $rascunho, axis: .vertical)
+            TextField(guiando ? "guiar o turno em curso…" : "pedir a \(store.lane)…", text: $rascunho, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...6)
                 .font(.system(.body))
@@ -206,10 +240,15 @@ public struct SessionView: View {
         guard podeEnviar else { return }
         let t = rascunho
         rascunho = ""
+        let guiar = guiando
+        guiando = false
         Task {
             // Se o servidor recusar, `note` acende e o texto volta para o campo: um pedido que
             // não chegou não pode sumir da tela junto com o que ele dizia.
-            if await store.send(t) == false { rascunho = t }
+            let ok = guiar
+                ? await store.turno(interromper: false, texto: t)
+                : await store.send(t)
+            if !ok { rascunho = t; guiando = guiar }
         }
     }
 }
