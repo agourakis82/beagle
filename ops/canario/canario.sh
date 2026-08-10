@@ -18,15 +18,62 @@
 set -uo pipefail
 
 URL="https://beagle.chiuratto.ai/api/mobile/v1/chat"
+# O TOKEN VEM DA FONTE, não de uma cópia no disco.
+#
+# A primeira versão lia /home/devsounio/.beagle/cockpit-mobile-token.novo. Em
+# 09-ago outra sessão rotacionou o token e o arquivo sumiu — o canário passou a
+# sair com SUCESSO sem sondar nada. Um alarme que se cala sozinho é pior que
+# alarme nenhum, porque o silêncio dele parece "está tudo bem".
+#
+# Agora lê do Secret do cluster, que é a verdade, com um arquivo como último
+# recurso. E se não achar token, GRITA em vez de sair quieto.
 TOKEN_FILE="/home/devsounio/.beagle/cockpit-mobile-token.novo"
 TOPICO_FILE="/home/devsounio/.beagle/ntfy-topico-externo.txt"
 ESTADO="/home/devsounio/.beagle/canario/estado"
 
-[ -r "$TOKEN_FILE" ] || exit 0
-TOKEN=$(cat "$TOKEN_FILE")
+TOKEN=$(KUBECONFIG=/home/devsounio/.kube/config timeout 30 kubectl -n beagle get secret cockpit-mobile-auth \
+  -o jsonpath='{.data.PROJECT_COCKPIT_AUTH_TOKEN}' 2>/dev/null | base64 -d 2>/dev/null)
+[ -z "$TOKEN" ] && [ -r "$TOKEN_FILE" ] && TOKEN=$(cat "$TOKEN_FILE")
 TOPICO=$(cat "$TOPICO_FILE" 2>/dev/null)
+if [ -z "$TOKEN" ]; then
+  logger -t beagle-canario "SEM TOKEN: nao consigo sondar — o canario esta cego"
+  [ -n "$TOPICO" ] && curl -s -m 20 -o /dev/null "https://ntfy.sh/$TOPICO" \
+    -H "Title: Canario cego" -H "Priority: urgent" -H "Tags: warning" \
+    -d "Nao achei o token do cockpit. O canario NAO esta sondando o companion." 2>/dev/null
+  exit 1
+fi
 
 falhas=()
+
+# MATRIZ DE CAMADAS — dizer ONDE quebrou, não só QUE quebrou.
+#
+# Em 07-ago o companion ficou horas inacessível e a mensagem útil só apareceu
+# depois de eu isolar na mão: túnel morto por nó com DNS quebrado, e o cérebro
+# autenticando com um placeholder. Duas camadas diferentes, sintoma idêntico
+# ("não responde"). Um alarme que só diz "quebrou" faz ele acordar sem saber por
+# onde começar — e às 3h da manhã isso é quase tão ruim quanto não avisar.
+#
+# Sondadas de fora para dentro. A primeira que falhar nomeia a camada.
+camada_quebrada=""
+diagnosticar() {
+  # 1) TÚNEL: a porta de entrada pública responde?
+  local t=$(curl -s -o /dev/null -m 20 -w "%{http_code}" https://beagle.chiuratto.ai/healthz 2>/dev/null)
+  if [ "$t" != "200" ]; then camada_quebrada="TÚNEL (Cloudflare -> cockpit): healthz=$t"; return; fi
+
+  # 2) BACKEND: o cockpit responde por dentro, sem passar pelo túnel?
+  local b=$(curl -s -o /dev/null -m 20 -w "%{http_code}" http://127.0.0.1:30437/healthz 2>/dev/null)
+  [ "$b" = "000" ] && b=$(KUBECONFIG=/home/devsounio/.kube/config timeout 25 kubectl -n beagle get pods \
+      --no-headers 2>/dev/null | grep -c "project-cockpit.*1/1.*Running")
+
+  # 3) CÉREBRO: o proxy OAuth autentica?
+  local c=$(curl -s -o /dev/null -m 25 -w "%{http_code}" http://10.100.100.2:9500/v1/models 2>/dev/null)
+  if [ "$c" = "000" ]; then camada_quebrada="CÉREBRO (proxy OAuth :9500) não responde"; return; fi
+
+  # 4) CONTROL PLANE: não derruba o companion na hora, mas nada se recupera sem ele.
+  local k=$(curl -sk -o /dev/null -m 15 -w "%{http_code}" https://10.100.100.2:6443/livez 2>/dev/null)
+  [ "$k" != "200" ] && camada_quebrada="CONTROL PLANE do k8s fora (livez=$k) — pods vivos, mas nada se recupera"
+}
+
 corpo=$(curl -s -m 180 -X POST "$URL" \
   -H "content-type: application/json" -H "x-cockpit-token: $TOKEN" \
   --data '{"space":"personal","prompt":"Responda em uma frase: quem sou eu para você?"}' 2>/dev/null)
@@ -64,6 +111,8 @@ avisar() {  # titulo, corpo, prioridade, tag
 }
 
 if [ ${#falhas[@]} -gt 0 ]; then
+  diagnosticar
+  [ -n "$camada_quebrada" ] && falhas+=("ONDE: $camada_quebrada")
   msg=$(printf '%s · ' "${falhas[@]}"); msg=${msg% · }
   logger -t beagle-canario "DEGRADADO: $msg"
   [ "$antes" = "ok" ] && avisar "Companion degradado" "$msg" "urgent" "rotating_light"
