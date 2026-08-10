@@ -1,0 +1,434 @@
+[
+  {
+    "method": "configWarning",
+    "tipo": "notification",
+    "n": 1,
+    "exemplo": {
+      "summary": "Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. Codex will use the bundled bubblewrap in the meantime.",
+      "details": null
+    },
+    "campos": [
+      "summary",
+      "details"
+    ]
+  },
+  {
+    "method": "remoteControl/status/changed",
+    "tipo": "notification",
+    "n": 1,
+    "exemplo": {
+      "status": "disabled",
+      "serverName": "sounio-workspace-control-0",
+      "installationId": "23e2992f-9e27-4ae4-b9e3-f4c01f293080",
+      "environmentId": null
+    },
+    "campos": [
+      "status",
+      "serverName",
+      "installationId",
+      "environmentId"
+    ]
+  },
+  {
+    "method": "thread/started",
+    "tipo": "notification",
+    "n": 1,
+    "exemplo": {
+      "thread": {
+        "id": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+        "extra": null,
+        "sessionId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "historyMode": "legacy",
+        "modelProvider": "openai",
+        "createdAt": 1786324584,
+        "updatedAt": 1786324584,
+        "recencyAt": 1786324584,
+        "status": {
+          "type": "idle"
+        },
+        "path": "/workspace/.probe/codex-home/sessions/2026/08/10/rollout-2026-08-10T01-16-24-019fe93e-08a2-7163-b9eb-f309a22b0d9c.jsonl",
+        "cwd": "/workspace/.probe/ws",
+        "cliVersion": "0.144.6",
+        "source": "vscode",
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "turns": []
+      }
+    },
+    "campos": [
+      "thread",
+      "thread.id",
+      "thread.extra",
+      "thread.sessionId",
+      "thread.forkedFromId",
+      "thread.parentThreadId",
+      "thread.preview",
+      "thread.ephemeral",
+      "thread.historyMode",
+      "thread.modelProvider",
+      "thread.createdAt",
+      "thread.updatedAt",
+      "thread.recencyAt",
+      "thread.status",
+      "thread.status.type",
+      "thread.path",
+      "thread.cwd",
+      "thread.cliVersion",
+      "thread.source",
+      "thread.threadSource",
+      "thread.agentNickname",
+      "thread.agentRole",
+      "thread.gitInfo",
+      "thread.name",
+      "thread.turns"
+    ]
+  },
+  {
+    "method": "mcpServer/startupStatus/updated",
+    "tipo": "notification",
+    "n": 2,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "name": "codex_apps",
+      "status": "starting",
+      "error": null,
+      "failureReason": null
+    },
+    "campos": [
+      "threadId",
+      "name",
+      "status",
+      "error",
+      "failureReason"
+    ]
+  },
+  {
+    "method": "thread/status/changed",
+    "tipo": "notification",
+    "n": 4,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "status": {
+        "type": "active",
+        "activeFlags": []
+      }
+    },
+    "campos": [
+      "threadId",
+      "status",
+      "status.type",
+      "status.activeFlags"
+    ]
+  },
+  {
+    "method": "turn/started",
+    "tipo": "notification",
+    "n": 1,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "turn": {
+        "id": "019fe93e-0907-7d33-a458-59b50fc590e6",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": 1786324584,
+        "completedAt": null,
+        "durationMs": null
+      }
+    },
+    "campos": [
+      "threadId",
+      "turn",
+      "turn.id",
+      "turn.items",
+      "turn.itemsView",
+      "turn.status",
+      "turn.error",
+      "turn.startedAt",
+      "turn.completedAt",
+      "turn.durationMs"
+    ]
+  },
+  {
+    "method": "item/started",
+    "tipo": "notification",
+    "n": 7,
+    "exemplo": {
+      "item": {
+        "type": "userMessage",
+        "id": "019fe93e-0ef8-7220-8f94-fdfcb926305c",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "Escreva um arquivo alvo.txt com exatamente a linha `oi` e depois me explique em duas frases o que você fez.",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "turnId": "019fe93e-0907-7d33-a458-59b50fc590e6",
+      "startedAtMs": 1786324586232
+    },
+    "campos": [
+      "item",
+      "item.type",
+      "item.id",
+      "item.clientId",
+      "item.content",
+      "threadId",
+      "turnId",
+      "startedAtMs",
+      "item.text",
+      "item.phase",
+      "item.memoryCitation",
+      "item.changes",
+      "item.status",
+      "item.summary",
+      "item.command",
+      "item.cwd",
+      "item.processId",
+      "item.source",
+      "item.commandActions",
+      "item.aggregatedOutput",
+      "item.exitCode",
+      "item.durationMs"
+    ]
+  },
+  {
+    "method": "item/completed",
+    "tipo": "notification",
+    "n": 7,
+    "exemplo": {
+      "item": {
+        "type": "userMessage",
+        "id": "019fe93e-0ef8-7220-8f94-fdfcb926305c",
+        "clientId": null,
+        "content": [
+          {
+            "type": "text",
+            "text": "Escreva um arquivo alvo.txt com exatamente a linha `oi` e depois me explique em duas frases o que você fez.",
+            "text_elements": []
+          }
+        ]
+      },
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "turnId": "019fe93e-0907-7d33-a458-59b50fc590e6",
+      "completedAtMs": 1786324586232
+    },
+    "campos": [
+      "item",
+      "item.type",
+      "item.id",
+      "item.clientId",
+      "item.content",
+      "threadId",
+      "turnId",
+      "completedAtMs",
+      "item.text",
+      "item.phase",
+      "item.memoryCitation",
+      "item.changes",
+      "item.status",
+      "item.summary",
+      "item.command",
+      "item.cwd",
+      "item.processId",
+      "item.source",
+      "item.commandActions",
+      "item.aggregatedOutput",
+      "item.exitCode",
+      "item.durationMs"
+    ]
+  },
+  {
+    "method": "item/agentMessage/delta",
+    "tipo": "notification",
+    "n": 70,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "turnId": "019fe93e-0907-7d33-a458-59b50fc590e6",
+      "itemId": "msg_0feeefa5873661ad016a79266e753c819186eba34780b4adf4",
+      "delta": "Vou"
+    },
+    "campos": [
+      "threadId",
+      "turnId",
+      "itemId",
+      "delta"
+    ]
+  },
+  {
+    "method": "item/fileChange/requestApproval",
+    "tipo": "request",
+    "n": 1,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "turnId": "019fe93e-0907-7d33-a458-59b50fc590e6",
+      "itemId": "exec-1b554667-9399-4ffb-8ded-7a03b024db40",
+      "startedAtMs": 1786324591838,
+      "reason": null,
+      "grantRoot": null
+    },
+    "campos": [
+      "threadId",
+      "turnId",
+      "itemId",
+      "startedAtMs",
+      "reason",
+      "grantRoot"
+    ]
+  },
+  {
+    "method": "serverRequest/resolved",
+    "tipo": "notification",
+    "n": 1,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "requestId": 0
+    },
+    "campos": [
+      "threadId",
+      "requestId"
+    ]
+  },
+  {
+    "method": "turn/diff/updated",
+    "tipo": "notification",
+    "n": 4,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "turnId": "019fe93e-0907-7d33-a458-59b50fc590e6",
+      "diff": "diff --git a/alvo.txt b/alvo.txt\nnew file mode 100644\nindex 0000000000000000000000000000000000000000..c09fc3cf1b3b73ae5210ed9a224034a409287dd4\n--- /dev/null\n+++ b/alvo.txt\n@@ -0,0 +1 @@\n+oi\n"
+    },
+    "campos": [
+      "threadId",
+      "turnId",
+      "diff"
+    ]
+  },
+  {
+    "method": "thread/tokenUsage/updated",
+    "tipo": "notification",
+    "n": 3,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "turnId": "019fe93e-0907-7d33-a458-59b50fc590e6",
+      "tokenUsage": {
+        "total": {
+          "totalTokens": 13545,
+          "inputTokens": 13471,
+          "cachedInputTokens": 9984,
+          "outputTokens": 74,
+          "reasoningOutputTokens": 0
+        },
+        "last": {
+          "totalTokens": 13545,
+          "inputTokens": 13471,
+          "cachedInputTokens": 9984,
+          "outputTokens": 74,
+          "reasoningOutputTokens": 0
+        },
+        "modelContextWindow": 258400
+      }
+    },
+    "campos": [
+      "threadId",
+      "turnId",
+      "tokenUsage",
+      "tokenUsage.total",
+      "tokenUsage.total.totalTokens",
+      "tokenUsage.total.inputTokens",
+      "tokenUsage.total.cachedInputTokens",
+      "tokenUsage.total.outputTokens",
+      "tokenUsage.total.reasoningOutputTokens",
+      "tokenUsage.last",
+      "tokenUsage.last.totalTokens",
+      "tokenUsage.last.inputTokens",
+      "tokenUsage.last.cachedInputTokens",
+      "tokenUsage.last.outputTokens",
+      "tokenUsage.last.reasoningOutputTokens",
+      "tokenUsage.modelContextWindow"
+    ]
+  },
+  {
+    "method": "account/rateLimits/updated",
+    "tipo": "notification",
+    "n": 3,
+    "exemplo": {
+      "rateLimits": {
+        "limitId": "codex",
+        "limitName": null,
+        "primary": {
+          "usedPercent": 22,
+          "windowDurationMins": 10080,
+          "resetsAt": 1786829877
+        },
+        "secondary": null,
+        "credits": {
+          "hasCredits": false,
+          "unlimited": false,
+          "balance": "0"
+        },
+        "individualLimit": null,
+        "planType": "pro",
+        "rateLimitReachedType": null
+      }
+    },
+    "campos": [
+      "rateLimits",
+      "rateLimits.limitId",
+      "rateLimits.limitName",
+      "rateLimits.primary",
+      "rateLimits.primary.usedPercent",
+      "rateLimits.primary.windowDurationMins",
+      "rateLimits.primary.resetsAt",
+      "rateLimits.secondary",
+      "rateLimits.credits",
+      "rateLimits.credits.hasCredits",
+      "rateLimits.credits.unlimited",
+      "rateLimits.credits.balance",
+      "rateLimits.individualLimit",
+      "rateLimits.planType",
+      "rateLimits.rateLimitReachedType"
+    ]
+  },
+  {
+    "method": "turn/completed",
+    "tipo": "notification",
+    "n": 1,
+    "exemplo": {
+      "threadId": "019fe93e-08a2-7163-b9eb-f309a22b0d9c",
+      "turn": {
+        "id": "019fe93e-0907-7d33-a458-59b50fc590e6",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1786324584,
+        "completedAt": 1786324599,
+        "durationMs": 14741
+      }
+    },
+    "campos": [
+      "threadId",
+      "turn",
+      "turn.id",
+      "turn.items",
+      "turn.itemsView",
+      "turn.status",
+      "turn.error",
+      "turn.startedAt",
+      "turn.completedAt",
+      "turn.durationMs"
+    ]
+  }
+]
