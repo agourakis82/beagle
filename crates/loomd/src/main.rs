@@ -44,19 +44,26 @@ async fn main() {
         .split_whitespace()
         .map(str::to_string)
         .collect();
-    // Vazio por padrão: o daemon não adota lane nenhuma sem alguém mandar. Fatia 1 é UMA lane.
-    let lanes: Vec<String> = std::env::var("LOOMD_CODEX_LANES")
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect();
+    // Vazio por padrão: o daemon não adota lane nenhuma sem alguém mandar.
+    //
+    // 🚨 CWD POR LANE, e o motivo é concreto: `LOOMD_CWD` era global, então duas lanes
+    // supervisionadas trabalhariam no MESMO diretório — exatamente o hazard "mesma árvore" que a
+    // Frota existe para avisar, e que aqui eu criaria de dentro. Uma edição de uma seria
+    // sobrescrita pela outra sem conflito de git para denunciar.
+    //
+    // Forma: `lane[:cwd]`, separado por vírgula. Sem `:`, cai no `LOOMD_CWD` — o que mantém a
+    // configuração de uma lane só exatamente como era.
+    //   LOOMD_CODEX_LANES="loom-1:/workspace/.wt/loom-1,codex-4:/workspace/.wt/codex-4"
+    let lanes = parse_lanes(&std::env::var("LOOMD_CODEX_LANES").unwrap_or_default(), &cwd);
 
     let trama = Arc::new(Trama::open(&jsonl));
     let mut map = HashMap::new();
-    for l in &lanes {
-        map.insert(l.clone(), codex::CodexLane::spawn(l, &bin, &cwd, cargs.clone(), trama.clone()));
+    for (l, c) in &lanes {
+        eprintln!("[loomd] lane {l} em {c}");
+        // Declara ANTES de subir: uma lane que o daemon supervisiona precisa existir no board
+        // mesmo antes do primeiro turno, senão a adoção parece ter falhado.
+        trama.declarar(l);
+        map.insert(l.clone(), codex::CodexLane::spawn(l, &bin, c, cargs.clone(), trama.clone()));
     }
     let app_state = App { trama: trama.clone(), codex: Arc::new(map) };
 
@@ -148,6 +155,31 @@ struct PromptBody {
 
 /// Dirigir a lane sem terminal: texto entra por HTTP, o turno acontece, e tudo que ele fizer
 /// volta pela trama como evento tipado.
+/// `LOOMD_CODEX_LANES` → pares (lane, cwd).
+///
+/// 🚨 CWD POR LANE, e o motivo é concreto: `LOOMD_CWD` era global, então duas lanes supervisionadas
+/// trabalhariam no MESMO diretório — exatamente o hazard "mesma árvore" que a Frota existe para
+/// avisar, e que aqui eu criaria de dentro. Uma edição de uma seria sobrescrita pela outra sem
+/// conflito de git para denunciar.
+///
+/// Forma: `lane[:cwd]`, separado por vírgula. Sem `:`, cai no padrão — o que mantém a configuração
+/// de uma lane só exatamente como era antes desta mudança.
+///   "loom-1:/workspace/.wt/loom-1,codex-4:/workspace/.wt/codex-4"
+pub fn parse_lanes(spec: &str, padrao: &str) -> Vec<(String, String)> {
+    spec.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| match s.split_once(':') {
+            Some((l, c)) if !c.trim().is_empty() => (l.trim().to_string(), c.trim().to_string()),
+            // `lane:` com cwd vazio é erro de digitação, não pedido de cwd vazio — cai no padrão,
+            // que é o comportamento seguro. Um cwd vazio faria o `current_dir` do processo
+            // depender de onde o daemon subiu.
+            _ => (s.trim_end_matches(':').trim().to_string(), padrao.to_string()),
+        })
+        .filter(|(l, _)| !l.is_empty())
+        .collect()
+}
+
 /// Parar o turno em curso. 409 quando não há turno — pedir para interromper uma lane parada é
 /// erro do chamador, e o motivo tem que dizer isso em vez de um 500 genérico.
 async fn interrupt(
@@ -200,4 +232,37 @@ async fn prompt(
 
 fn err(code: axum::http::StatusCode, msg: String) -> (axum::http::StatusCode, Json<serde_json::Value>) {
     (code, Json(serde_json::json!({"ok": false, "error": msg})))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_lanes;
+
+    #[test]
+    fn uma_lane_sem_cwd_continua_usando_o_padrao() {
+        // A configuração que já existia não pode mudar de sentido por causa desta feature.
+        assert_eq!(parse_lanes("loom-1", "/workspace/sounio"),
+                   vec![("loom-1".to_string(), "/workspace/sounio".to_string())]);
+    }
+
+    #[test]
+    fn cada_lane_ganha_o_seu_diretorio() {
+        // O ponto da mudança: duas lanes no mesmo cwd é o hazard "mesma árvore", criado de dentro.
+        assert_eq!(
+            parse_lanes("loom-1:/workspace/.wt/loom-1, codex-4:/workspace/.wt/codex-4", "/padrao"),
+            vec![
+                ("loom-1".to_string(), "/workspace/.wt/loom-1".to_string()),
+                ("codex-4".to_string(), "/workspace/.wt/codex-4".to_string()),
+            ]);
+    }
+
+    #[test]
+    fn entrada_torta_nao_produz_lane_torta() {
+        // Vazios, espaço sobrando e `lane:` sem caminho. `lane:` é erro de digitação, não pedido de
+        // cwd vazio: um cwd vazio faria o `current_dir` do processo depender de onde o daemon subiu.
+        assert_eq!(parse_lanes("", "/p"), vec![]);
+        assert_eq!(parse_lanes(" , ,, ", "/p"), vec![]);
+        assert_eq!(parse_lanes("a:,  b : /x  ,:", "/p"),
+                   vec![("a".to_string(), "/p".to_string()), ("b".to_string(), "/x".to_string())]);
+    }
 }

@@ -162,6 +162,35 @@ impl Trama {
         }
     }
 
+    /// DECLARA uma lane que o daemon supervisiona, mesmo antes do primeiro evento.
+    ///
+    /// 🚨 MEDIDO ao adotar a segunda lane (10-ago-2026): `codex-4` subiu, o processo estava vivo,
+    /// e ela **não aparecia no `/v2/state`** — porque o estado é derivado de eventos e ela ainda
+    /// não tinha falado. Uma lane que existe e é invisível é pior que uma lane ausente: o board
+    /// não oferece nada nela, e quem olha conclui que a adoção falhou.
+    ///
+    /// `Unknown` de propósito, e é o oposto de um chute otimista: significa "supervisionada, nada
+    /// observado ainda". O primeiro evento real substitui — `reduce` não deixa `Unknown` apagar
+    /// estado conhecido, e aqui o caminho é o inverso: só cria se não existe.
+    pub fn declarar(&self, lane: &str) {
+        let mut g = self.inner.lock().unwrap();
+        let agora = crate::event::now_ms();
+        g.lanes.entry(lane.to_string()).or_insert_with(|| LaneState {
+            lane: lane.to_string(),
+            kind: Kind::Unknown,
+            confidence: Confidence::Exact,
+            observed_at_ms: agora,
+            detail: Some("supervisionada; nenhum turno ainda".into()),
+            session: None,
+            pending_approval: None,
+            pending_kind: None,
+            current_turn: None,
+            last_diff: None,
+            streaming_text: None,
+            turns: 0,
+        });
+    }
+
     pub fn state(&self) -> Vec<LaneState> {
         let g = self.inner.lock().unwrap();
         let mut v: Vec<_> = g.lanes.values().cloned().collect();
@@ -664,5 +693,34 @@ mod tests {
             t.append(AgentEvent::new("c", fim, Confidence::Exact));
             assert_eq!(t.current_turn("c"), None, "{fim:?} deveria limpar o alvo");
         }
+    }
+
+    #[test]
+    fn lane_supervisionada_aparece_antes_do_primeiro_turno() {
+        // 🚨 MEDIDO ao adotar a segunda lane: `codex-4` subiu com o processo vivo e NÃO aparecia
+        // no /v2/state. Lane que existe e é invisível é pior que lane ausente — o board não
+        // oferece nada nela e quem olha conclui que a adoção falhou.
+        let t = Trama::open(arquivo_novo("declarar"));
+        assert!(t.state().is_empty());
+        t.declarar("codex-4");
+        let st = t.state();
+        assert_eq!(st.len(), 1);
+        assert_eq!(st[0].kind, Kind::Unknown, "supervisionada e não observada — não um chute");
+        assert!(st[0].detail.as_deref().unwrap().contains("nenhum turno"));
+    }
+
+    #[test]
+    fn declarar_nao_apaga_o_que_ja_se_sabe() {
+        // O launcher declara a cada subida. Se `declarar` sobrescrevesse, uma reinicialização do
+        // daemon zeraria o estado retomado do diário — e o `?since=` diria que nada aconteceu.
+        let t = Trama::open(arquivo_novo("declarar-idempotente"));
+        let mut e = AgentEvent::new("codex-4", Kind::AwaitingApproval, Confidence::Exact);
+        e.approval_id = Some("7".into());
+        e.approval_method = Some("item/fileChange/requestApproval".into());
+        t.append(e);
+        t.declarar("codex-4");
+        let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
+        assert_eq!(st.kind, Kind::AwaitingApproval, "declarar não pode apagar uma pendência");
+        assert!(st.pending_approval.is_some());
     }
 }

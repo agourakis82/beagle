@@ -28,7 +28,20 @@ BASE_HOME=/workspace/.home/openvscode-server
 LOOMD_DIR=/workspace/.loomd
 BIN="$LOOMD_DIR/target/release/loomd"
 SES=loomd
-LANE=loom-1
+# As lanes SUPERVISIONADAS, na forma `lane:cwd` — cada uma na sua worktree.
+#
+# 🚨 CADA LANE NA SUA ÁRVORE, e o motivo é o que a Frota avisa: duas lanes no mesmo diretório é
+# hazard de árvore compartilhada, e uma edição de uma é sobrescrita pela outra sem conflito de git
+# para denunciar. Antes desta linha o `LOOMD_CWD` era global — adicionar a segunda lane teria
+# criado, de dentro, o problema que o board existe para apontar.
+#
+# `loom-1` é a lane de LABORATÓRIO: é nela que se exerce protocolo novo, e ela pode ser derrubada
+# a qualquer momento. `codex-4` é lane de trabalho. NÃO adotar aqui uma das 11 que rodam CLI
+# interativa no tmux sem antes PARÁ-LA: dois processos codex no mesmo thread store colidem no
+# writer lock — foi assim que a codex-2 morreu em 09-ago.
+LANES="${SOUNIO_LOOMD_LANES:-loom-1:/workspace/.wt/loom-1,codex-4:/workspace/.wt/codex-4}"
+# A primeira lane, só para os caminhos que precisam de UMA (o `--seed`, as mensagens).
+LANE="${LANES%%:*}"
 PORT=4400
 # 4400 em hexadecimal, do jeito que /proc/net/tcp escreve a porta local.
 PORT_HEX=1130
@@ -82,7 +95,8 @@ export PATH="$BASE_HOME/.local/node-v20.20.2-linux-x64/bin:$BASE_HOME/bin:$PATH"
 export LOOMD_ADDR="127.0.0.1:$PORT"
 export LOOMD_TRAMA="$LOOMD_DIR/trama.jsonl"
 export LOOMD_CODEX_BIN="$BASE_HOME/.local/node-v20.20.2-linux-x64/bin/codex"
-export LOOMD_CODEX_LANES="$LANE"
+export LOOMD_CODEX_LANES="$LANES"
+# Padrão para lane declarada sem `:`. Cada lane de `$LANES` traz o seu, então isto é só a rede.
 export LOOMD_CWD="/workspace/.wt/$LANE"
 
 BASE="http://127.0.0.1:$PORT"
@@ -227,7 +241,13 @@ ensure() {
     echo "       e 'cargo test' NÃO atualiza target/release/loomd)" >&2
     exit 1
   }
-  mkdir -p "$LOOMD_CWD" "$LOOMD_DIR" "$TMUX_TMPDIR"
+  mkdir -p "$LOOMD_DIR" "$TMUX_TMPDIR"
+  # O cwd de CADA lane. Um `current_dir` inexistente faz o codex morrer no spawn, e o supervisor
+  # ficaria reiniciando um processo que não tem onde nascer.
+  for spec in ${LANES//,/ }; do
+    d="${spec#*:}"; [ "$d" = "$spec" ] && d="$LOOMD_CWD"
+    mkdir -p "$d"
+  done
 
   if alive; then
     echo "  loomd: já de pé (/livez 200) — nada a fazer"
