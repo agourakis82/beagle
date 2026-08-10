@@ -45,10 +45,14 @@ resposta de qualquer jeito).
 Um construtor lê o dump da openFDA e produz o SQLite, com um corte por parâmetro:
 
 - `--completo` → base do servidor: todos os ativos distintos.
-  Os 261.258 são rótulos de PRODUTO, não fármacos; indexado por ativo distinto,
-  cai para alguns milhares. Tamanho ESTIMADO em ~300 MB, extrapolando os 29 MB
-  dos 507 atuais — a primeira tarefa da implementação é MEDIR isso, porque se
-  passar de alguns GB a escolha do volume muda.
+  MEDIDO em 2026-08-10 contra o dump em massa da openFDA (export_date
+  2026-08-08, 14 partições, 8,2 GB de JSON cru): 14.747 ativos distintos em
+  86.619 rótulos de produto, 41 MB de texto útil das seções clínicas →
+  **base estimada em 66 MB** (texto + índice FTS ~1,6x). Muito abaixo do teto
+  de 1 GB que trocaria a escolha do volume — segue com PVC de 4 Gi. O dump
+  cru é bem maior do que o 1,8 GB compactado citado no plano (8,2 GB
+  descompactado); isso não é o tamanho da base, só o tamanho da matéria-prima
+  antes do corte por ativo distinto.
 - `--formulario` → base do telefone: os 507 do formulário dele (29 MB).
 
 Mesmo código, mesmo esquema, mesma normalização de nome, mesma regra de escolha do
