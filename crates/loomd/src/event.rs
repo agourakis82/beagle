@@ -24,6 +24,14 @@ pub enum Kind {
     SessionEnded,
     TurnStarted,
     TurnEnded,
+    /// O que o OPERADOR mandou. Sem isto a trama é monólogo: dava para reconstruir o que o
+    /// agente disse e nunca o que foi pedido — e uma tela de sessão precisa dos dois lados.
+    UserPrompt,
+    /// O que o agente disse, INTEIRO, em `text`. Distinto de `ToolCall`: até 10-ago-2026 os dois
+    /// caíam no mesmo balde porque a discriminação mora em `item.type`, que não era lida.
+    AgentMessage,
+    /// Pedaço de mensagem em voo. **Não vai para a trama** — ver a política em `codex.rs`.
+    Delta,
     ToolCall,
     ToolResult,
     DiffProposed,
@@ -35,6 +43,31 @@ pub enum Kind {
     /// O vocabulário CRESCE a cada versão do CLI (medido: codex 58→70 notificações em 22
     /// versões, nada removido). Desconhecido é informação registrada, nunca falha.
     Unknown,
+}
+
+/// Que tipo de permissão está sendo pedida. **Muda o risco**, então muda o rótulo do botão:
+/// aplicar um patch é reversível por git; rodar um comando não é.
+///
+/// Vive separado de `approval_method` porque aquele é a string do protocolo — necessária para
+/// responder com o enum certo — e esta é a pergunta que a tela faz ao operador.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalKind {
+    Command,
+    Patch,
+    Other,
+}
+
+impl ApprovalKind {
+    pub fn of(method: &str) -> Self {
+        if method.contains("fileChange") || method.contains("applyPatch") {
+            ApprovalKind::Patch
+        } else if method.contains("commandExecution") || method.contains("execCommand") {
+            ApprovalKind::Command
+        } else {
+            ApprovalKind::Other
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,8 +86,14 @@ pub struct AgentEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool: Option<String>,
     /// A evidência: a linha do diálogo, a mensagem de erro, o nome do evento cru desconhecido.
+    /// **Curta de propósito** — é o que cabe num card do board. Para ler a conversa, use `text`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// O texto ÍNTEGRO. Até 10-ago-2026 só existia `detail`, cortado em 240 caracteres — e uma
+    /// tela de conversa não pode ler de um campo truncado. `detail` continua sendo o resumo do
+    /// board; os dois coexistem porque respondem a perguntas diferentes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     /// Unified diff, quando o agente propõe mudança. Dado, não pixel.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
@@ -64,6 +103,9 @@ pub struct AgentEvent {
     /// O método que pediu a aprovação — decide QUAL enum a resposta precisa usar.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approval_method: Option<String>,
+    /// Comando ou patch — a distinção que muda o risco, derivada de `approval_method`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval_kind: Option<ApprovalKind>,
 }
 
 impl AgentEvent {
@@ -78,14 +120,42 @@ impl AgentEvent {
             turn: None,
             tool: None,
             detail: None,
+            text: None,
             diff: None,
             approval_id: None,
             approval_method: None,
+            approval_kind: None,
         }
     }
     pub fn detail(mut self, d: impl Into<String>) -> Self {
         self.detail = Some(d.into());
         self
+    }
+    /// Guarda o texto ÍNTEGRO e deriva o resumo do board a partir dele — nunca o contrário.
+    /// Derivar na direção certa é o que garante que os dois campos nunca discordem.
+    pub fn with_text(mut self, t: impl Into<String>) -> Self {
+        let t = t.into();
+        self.detail = Some(resumir(&t));
+        self.text = Some(t);
+        self
+    }
+}
+
+/// O resumo de card: primeira linha não vazia, teto de 240 caracteres.
+///
+/// Cortar o texto CRU em 240 partia no meio de uma palavra e, pior, podia devolver só espaço em
+/// branco quando a resposta começava com linha vazia. O card cita a primeira coisa que o agente
+/// disse, que é o que o operador reconhece.
+pub fn resumir(t: &str) -> String {
+    let linha = t.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    if linha.chars().count() <= 240 {
+        return linha.to_string();
+    }
+    let corte: String = linha.chars().take(239).collect();
+    // Não parte palavra ao meio se der para evitar sem perder mais de 40 caracteres.
+    match corte.rfind(' ') {
+        Some(i) if corte.len() - i < 40 => format!("{}…", &corte[..i]),
+        _ => format!("{corte}…"),
     }
 }
 
@@ -161,7 +231,17 @@ pub fn from_codex_notification(lane: &str, method: &str, p: &serde_json::Value) 
         "turn/started" => Kind::TurnStarted,
         "turn/completed" => Kind::TurnEnded,
         "turn/diff/updated" => Kind::DiffProposed,
-        "item/started" | "item/completed" => Kind::ToolCall,
+        // 🚨 MEDIDO em 10-ago-2026 (censo cru, codex 0.147.0): num único turno chegam **70**
+        // `item/agentMessage/delta` — e todos eram DESCARTADOS aqui, porque método desconhecido
+        // devolvia `None`. A fonte "exact" da Frota via 7 de 107 eventos.
+        "item/agentMessage/delta" => Kind::Delta,
+        // `item.type` é quem discrimina: `userMessage` é o operador, `agentMessage` é a fala do
+        // agente, o resto é ferramenta. Mandar os três para `ToolCall` apagava a conversa.
+        "item/started" | "item/completed" => match item_type(p).as_deref() {
+            Some("userMessage") => Kind::UserPrompt,
+            Some("agentMessage") => Kind::AgentMessage,
+            _ => Kind::ToolCall,
+        },
         "error" => Kind::Error,
         "thread/status/changed" => {
             // `ThreadActiveFlag` é enum do protocolo: waitingOnApproval | waitingOnUserInput.
@@ -188,26 +268,56 @@ pub fn from_codex_notification(lane: &str, method: &str, p: &serde_json::Value) 
     e.session = thread_id(p);
     e.turn = s(p, "turnId");
     e.diff = s(p, "diff");
-    if kind == Kind::ToolCall {
-        let item = p.get("item");
-        e.tool = item.and_then(|i| i.get("type")).and_then(|t| t.as_str()).map(str::to_string);
-        // O que o agente DISSE é a evidência que o card cita — e sem ela não há como provar que
-        // uma sessão retomada voltou com contexto. Formas variam por versão; leitor tolerante.
-        e.detail = item.and_then(|i| {
-            i.get("text")
-                .and_then(|t| t.as_str())
-                .or_else(|| i.get("message").and_then(|m| m.as_str()))
-                .or_else(|| {
-                    i.get("content")
-                        .and_then(|c| c.as_array())
-                        .and_then(|a| a.first())
-                        .and_then(|f| f.get("text"))
-                        .and_then(|t| t.as_str())
-                })
-        })
-        .map(|t| t.chars().take(240).collect());
+    match kind {
+        // O pedaço vem cru em `delta`. Quem monta a mensagem é o runtime; aqui só se traduz.
+        Kind::Delta => {
+            e.tool = s(p, "itemId");
+            e.text = s(p, "delta");
+        }
+        Kind::ToolCall | Kind::AgentMessage | Kind::UserPrompt => {
+            let item = p.get("item");
+            e.tool = item_type(p);
+            // O que foi DITO — pelo agente ou pelo operador. Sem isso não há como provar que uma
+            // sessão retomada voltou com contexto. Formas variam por versão; leitor tolerante.
+            if let Some(t) = item.and_then(item_text) {
+                e = e.with_text(t);
+            }
+        }
+        _ => {}
     }
     Some(e)
+}
+
+/// `item.type` — quem diz se aquilo é fala do operador, fala do agente ou ferramenta.
+fn item_type(p: &serde_json::Value) -> Option<String> {
+    p.get("item")
+        .and_then(|i| i.get("type"))
+        .and_then(|t| t.as_str())
+        .map(str::to_string)
+}
+
+/// O texto de um `item`, nas três formas que o protocolo já usou.
+///
+/// MEDIDO: `userMessage` traz `content: [{type:"text", text:"…"}]`; outras formas trazem `text`
+/// direto. Ler só uma delas apagaria metade da conversa — e apagaria em silêncio.
+fn item_text(i: &serde_json::Value) -> Option<String> {
+    if let Some(t) = i.get("text").and_then(|t| t.as_str()) {
+        return Some(t.to_string());
+    }
+    if let Some(m) = i.get("message").and_then(|m| m.as_str()) {
+        return Some(m.to_string());
+    }
+    // `content` é uma LISTA de blocos: juntar todos, não só o primeiro.
+    let blocos: Vec<&str> = i
+        .get("content")?
+        .as_array()?
+        .iter()
+        .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+        .collect();
+    if blocos.is_empty() {
+        return None;
+    }
+    Some(blocos.join("\n"))
 }
 
 /// A resposta que o Codex espera para CADA família de aprovação.
@@ -300,5 +410,82 @@ mod tests {
         .unwrap();
         assert_eq!(e.kind, Kind::DiffProposed);
         assert!(e.diff.as_deref().unwrap().starts_with("--- a"));
+    }
+
+    // ─── O que o censo de 10-ago-2026 obrigou a existir ─────────────────────────────────────
+
+    #[test]
+    fn o_delta_e_traduzido_em_vez_de_descartado() {
+        // 🚨 A regressão que estes testes guardam: num único turno chegam **70**
+        // `item/agentMessage/delta`, e TODOS eram descartados — método desconhecido devolvia
+        // `None`. A fonte "exact" da Frota via 7 de 107 eventos.
+        let p = serde_json::json!({
+            "threadId": "th-1", "turnId": "tu-1",
+            "itemId": "msg_0fee", "delta": "Vou"
+        });
+        let e = from_codex_notification("codex-1", "item/agentMessage/delta", &p).unwrap();
+        assert_eq!(e.kind, Kind::Delta);
+        assert_eq!(e.text.as_deref(), Some("Vou"));
+        assert_eq!(e.tool.as_deref(), Some("msg_0fee"), "o itemId agrupa os pedaços de UMA mensagem");
+    }
+
+    #[test]
+    fn item_type_separa_quem_falou() {
+        // Mandar os três para `ToolCall` apagava a conversa: não dava para saber o que o
+        // operador pediu nem o que o agente respondeu.
+        let faz = |tipo: &str| {
+            let p = serde_json::json!({
+                "threadId": "th-1", "turnId": "tu-1",
+                "item": { "type": tipo, "text": "oi" }
+            });
+            from_codex_notification("codex-1", "item/started", &p).unwrap().kind
+        };
+        assert_eq!(faz("userMessage"), Kind::UserPrompt);
+        assert_eq!(faz("agentMessage"), Kind::AgentMessage);
+        assert_eq!(faz("commandExecution"), Kind::ToolCall);
+        assert_eq!(faz("fileChange"), Kind::ToolCall, "o que não é fala é ferramenta");
+    }
+
+    #[test]
+    fn o_texto_integro_sobrevive_e_o_resumo_e_derivado_dele() {
+        // Uma tela de conversa não pode ler de um campo cortado em 240. `detail` continua curto
+        // porque é o que cabe no card; `text` é a mensagem.
+        let longo = format!("primeira linha\n{}", "x".repeat(900));
+        let p = serde_json::json!({
+            "threadId": "th-1", "item": { "type": "agentMessage", "text": longo }
+        });
+        let e = from_codex_notification("codex-1", "item/completed", &p).unwrap();
+        assert_eq!(e.text.as_deref().map(str::len), Some(longo.len()), "o texto NÃO é truncado");
+        assert_eq!(e.detail.as_deref(), Some("primeira linha"), "o card cita a primeira linha");
+    }
+
+    #[test]
+    fn content_com_varios_blocos_nao_perde_o_resto() {
+        // Ler só `content[0]` apagava metade de uma resposta longa — em silêncio, que é pior.
+        let p = serde_json::json!({
+            "item": { "type": "agentMessage", "content": [
+                {"type": "text", "text": "um"}, {"type": "text", "text": "dois"}
+            ]}
+        });
+        let e = from_codex_notification("codex-1", "item/completed", &p).unwrap();
+        assert_eq!(e.text.as_deref(), Some("um\ndois"));
+    }
+
+    #[test]
+    fn o_resumo_nao_devolve_linha_vazia_nem_parte_palavra() {
+        assert_eq!(resumir("\n\n  de verdade  \nresto"), "de verdade",
+            "resposta que começa com linha vazia daria card em branco");
+        let r = resumir(&format!("{} fim", "palavra ".repeat(40)));
+        assert!(r.ends_with('…') && !r.ends_with("pa…"), "não parte palavra ao meio: {r}");
+    }
+
+    #[test]
+    fn comando_e_patch_sao_riscos_diferentes() {
+        // Aplicar patch se desfaz por git; rodar comando, não. O rótulo do botão sai daqui.
+        assert_eq!(ApprovalKind::of("item/fileChange/requestApproval"), ApprovalKind::Patch);
+        assert_eq!(ApprovalKind::of("applyPatchApproval"), ApprovalKind::Patch);
+        assert_eq!(ApprovalKind::of("item/commandExecution/requestApproval"), ApprovalKind::Command);
+        assert_eq!(ApprovalKind::of("execCommandApproval"), ApprovalKind::Command);
+        assert_eq!(ApprovalKind::of("item/permissions/requestApproval"), ApprovalKind::Other);
     }
 }

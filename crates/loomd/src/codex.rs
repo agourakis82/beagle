@@ -159,6 +159,9 @@ impl CodexLane {
                 let mut e = AgentEvent::new(&self.lane, Kind::AwaitingApproval, Confidence::Exact);
                 e.approval_id = Some(id.clone());
                 e.approval_method = Some(method.to_string());
+                // Comando ou patch: é o que decide o rótulo do botão, porque decide o risco.
+                // Aplicar patch se desfaz por git; rodar comando, não.
+                e.approval_kind = Some(crate::event::ApprovalKind::of(method));
                 // `.map(to_string)` num JSON null produzia a string "null" no card — um detalhe
                 // que MENTE dizendo que há evidência. Ausente é ausente.
                 e.detail = m
@@ -238,6 +241,24 @@ impl CodexLane {
                 }
             }
             if let Some(e) = from_codex_notification(&self.lane, method, p) {
+                // 🚨 POLÍTICA DO DELTA, e ela é deliberada. Medido: **70 deltas num único turno**.
+                // Gravar cada um na trama trocaria um log de conversa legível por um dilúvio que
+                // estoura o teto de 20k eventos em poucos turnos e leva a conversa junto, sem
+                // acrescentar UMA informação — o texto final chega inteiro no `item/completed`.
+                //
+                // Então o pedaço vai para um acumulador em RAM, e o cliente lê o parcial em
+                // `/v2/state`. A trama guarda a MENSAGEM; o estado mostra ela sendo escrita.
+                if e.kind == Kind::Delta {
+                    if let Some(t) = e.text.as_deref() {
+                        self.trama.acumular_delta(&self.lane, t);
+                    }
+                    return;
+                }
+                // Mensagem completa chegou: o parcial cumpriu seu papel e some. Deixá-lo para
+                // trás faria o próximo turno começar com o texto do anterior colado na frente.
+                if e.kind == Kind::AgentMessage {
+                    self.trama.limpar_delta(&self.lane);
+                }
                 self.trama.append(e);
             }
         }

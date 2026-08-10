@@ -49,6 +49,14 @@ pub struct LaneState {
     /// Último diff proposto — respondido da trama, sem grep em rio ANSI.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_diff: Option<String>,
+    /// Comando ou patch, quando há aprovação pendente. Muda o rótulo do botão porque muda o risco.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_kind: Option<crate::event::ApprovalKind>,
+    /// A mensagem SENDO ESCRITA agora, montada dos deltas. **Não está na trama** — é estado em
+    /// voo, e some quando a mensagem completa chega. É isto que faz a tela mostrar o texto
+    /// chegando sem enterrar o diário em 70 linhas por turno.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub streaming_text: Option<String>,
     pub turns: u32,
 }
 
@@ -113,6 +121,39 @@ impl Trama {
             g.events.drain(0..5_000);
         }
         seq
+    }
+
+    /// Junta mais um pedaço da mensagem em voo.
+    ///
+    /// Vive aqui, e não em `codex.rs`, porque o estado da lane é UMA coisa só: dois lugares
+    /// guardando pedaço de verdade é como nasce card que discorda de si mesmo.
+    pub fn acumular_delta(&self, lane: &str, pedaco: &str) {
+        let mut g = self.inner.lock().unwrap();
+        let agora = crate::event::now_ms();
+        let st = g.lanes.entry(lane.to_string()).or_insert_with(|| LaneState {
+            lane: lane.to_string(),
+            kind: Kind::Unknown,
+            confidence: Confidence::Exact,
+            observed_at_ms: agora,
+            detail: None,
+            session: None,
+            pending_approval: None,
+            pending_kind: None,
+            last_diff: None,
+            streaming_text: None,
+            turns: 0,
+        });
+        st.observed_at_ms = agora;
+        st.streaming_text.get_or_insert_with(String::new).push_str(pedaco);
+    }
+
+    /// O parcial cumpriu seu papel: a mensagem completa chegou à trama.
+    /// Não limpar faria o próximo turno começar com o texto do anterior colado na frente.
+    pub fn limpar_delta(&self, lane: &str) {
+        let mut g = self.inner.lock().unwrap();
+        if let Some(st) = g.lanes.get_mut(lane) {
+            st.streaming_text = None;
+        }
     }
 
     pub fn state(&self) -> Vec<LaneState> {
@@ -208,7 +249,18 @@ fn urgency(k: Kind) -> u8 {
     match k {
         Kind::AwaitingApproval | Kind::AwaitingInput => 0,
         Kind::Error => 1,
-        Kind::TurnStarted | Kind::ToolCall | Kind::ToolResult | Kind::DiffProposed => 2,
+        // A lane está falando ou trabalhando — o turno andou, e o board mostra isso junto.
+        // `Delta` nunca chega aqui (não é reduzido), mas o match é exaustivo de propósito: é o
+        // compilador cobrando um lugar para cada variante nova, e essa cobrança é o ponto.
+        Kind::TurnStarted
+        | Kind::ToolCall
+        | Kind::ToolResult
+        | Kind::DiffProposed
+        | Kind::AgentMessage
+        | Kind::Delta => 2,
+        // Prompt do operador: ele acabou de mandar, a lane vai responder. Não é pedido de
+        // atenção — atenção é o que ele acabou de dar.
+        Kind::UserPrompt => 3,
         Kind::TurnEnded | Kind::Idle => 3,
         Kind::SessionStarted => 4,
         Kind::SessionEnded => 5,
@@ -228,7 +280,9 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
         detail: None,
         session: None,
         pending_approval: None,
+        pending_kind: None,
         last_diff: None,
+        streaming_text: None,
         turns: 0,
     });
 
@@ -248,6 +302,9 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
         Kind::AwaitingApproval => {
             if let (Some(id), Some(m)) = (&e.approval_id, &e.approval_method) {
                 st.pending_approval = Some((id.clone(), m.clone()));
+                // Derivado do método quando o evento não trouxe — assim um evento antigo,
+                // relido do jsonl de antes desta versão, ainda ganha o rótulo certo.
+                st.pending_kind = e.approval_kind.or(Some(crate::event::ApprovalKind::of(m)));
             }
         }
         // Qualquer coisa que signifique "o turno andou" limpa a pendência: uma aprovação que
@@ -255,13 +312,14 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
         // pedindo atenção que ninguém deve.
         Kind::ApprovalAnswered | Kind::TurnEnded | Kind::Idle | Kind::SessionEnded => {
             st.pending_approval = None;
+            st.pending_kind = None;
         }
         _ => {}
     }
 
     // `Unknown` NÃO sobrescreve um estado conhecido: um evento que ainda não sabemos ler não
     // deve apagar o que sabemos. Ele fica na trama; só não muda o veredicto.
-    if e.kind != Kind::Unknown {
+    if e.kind != Kind::Unknown && e.kind != Kind::Delta {
         st.kind = e.kind;
         st.detail = e.detail.clone();
     }
@@ -496,5 +554,58 @@ mod tests {
         // A janela é o FIM do arquivo: o evento mais antigo ficou no disco, o último está na RAM.
         assert_eq!(t.since(n - 1, None).len(), 1);
         assert!(t.since(0, None).iter().all(|e| e.seq > 1));
+    }
+
+    #[test]
+    fn o_delta_engorda_o_parcial_sem_entrar_no_diario() {
+        // A política, em uma asserção: **70 deltas por turno não podem virar 70 linhas**. Se
+        // entrassem, o teto de 20k eventos estouraria em poucos turnos e levaria a conversa
+        // junto — trocando um diário legível por um dilúvio que não acrescenta nada, porque o
+        // texto final chega inteiro no `item/completed`.
+        let t = Trama::open(arquivo_novo("delta-nao-entra"));
+        let antes = t.seq();
+        for pedaco in ["Vou", " ler", " os", " módulos"] {
+            t.acumular_delta("codex-1", pedaco);
+        }
+        assert_eq!(t.seq(), antes, "delta NÃO consome seq — não é evento de diário");
+        let st = t.state().into_iter().find(|l| l.lane == "codex-1").unwrap();
+        assert_eq!(st.streaming_text.as_deref(), Some("Vou ler os módulos"));
+        assert_eq!(
+            std::fs::read_to_string(t.path()).unwrap_or_default().lines().count(),
+            0,
+            "e nada foi escrito no jsonl"
+        );
+    }
+
+    #[test]
+    fn a_mensagem_completa_apaga_o_parcial() {
+        // Sem isto o próximo turno começaria com o texto do anterior colado na frente — e a tela
+        // mostraria uma resposta que ninguém deu.
+        let t = Trama::open(arquivo_novo("delta-limpa"));
+        t.acumular_delta("codex-1", "meio caminho");
+        t.limpar_delta("codex-1");
+        let mut e = AgentEvent::new("codex-1", Kind::AgentMessage, Confidence::Exact);
+        e.text = Some("resposta inteira".into());
+        t.append(e);
+        let st = t.state().into_iter().find(|l| l.lane == "codex-1").unwrap();
+        assert!(st.streaming_text.is_none(), "o parcial some quando a mensagem chega");
+        assert_eq!(st.kind, Kind::AgentMessage);
+    }
+
+    #[test]
+    fn a_pendencia_diz_se_e_comando_ou_patch() {
+        // O rótulo do botão sai daqui: aplicar patch se desfaz por git, rodar comando não.
+        let t = Trama::open(arquivo_novo("pendencia-kind"));
+        let mut e = AgentEvent::new("codex-1", Kind::AwaitingApproval, Confidence::Exact);
+        e.approval_id = Some("7".into());
+        e.approval_method = Some("item/fileChange/requestApproval".into());
+        t.append(e);
+        let st = t.state().into_iter().find(|l| l.lane == "codex-1").unwrap();
+        assert_eq!(st.pending_kind, Some(crate::event::ApprovalKind::Patch));
+
+        // E some junto com a pendência quando o turno anda.
+        t.append(AgentEvent::new("codex-1", Kind::TurnEnded, Confidence::Exact));
+        let st = t.state().into_iter().find(|l| l.lane == "codex-1").unwrap();
+        assert!(st.pending_kind.is_none() && st.pending_approval.is_none());
     }
 }
