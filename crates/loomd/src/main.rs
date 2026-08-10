@@ -19,6 +19,7 @@ mod codex;
 mod event;
 mod supervisao;
 mod trama;
+mod transcript;
 
 use axum::{
     extract::{Path, Query, State},
@@ -146,6 +147,18 @@ async fn main() {
                 trama.clone(),
             )),
         );
+    }
+
+    // Observação read-only das lanes TUI. Forma `lane:dir-de-projetos`, vírgula entre elas.
+    //   LOOMD_TAILS="claude-1:/workspace/.home/openvscode-server/.agents/claude-1/.claude/projects/-workspace-sounio,…"
+    for (l, d) in parse_lanes(&std::env::var("LOOMD_TAILS").unwrap_or_default(), "") {
+        if d.is_empty() {
+            eprintln!("[loomd] tail {l} SEM diretorio — ignorado");
+            continue;
+        }
+        eprintln!("[loomd] tail {l} em {d}");
+        trama.declarar(&l);
+        transcript::TranscriptTail::spawn(&l, &d, trama.clone());
     }
 
     let app_state = App {

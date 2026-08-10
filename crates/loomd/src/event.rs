@@ -400,6 +400,59 @@ pub fn codex_approval_reply(method: &str, allow: bool) -> serde_json::Value {
     serde_json::json!({ "decision": decision })
 }
 
+/// Traduz uma linha do transcript do Claude Code.
+///
+/// `Confidence::Exact` — e essa é a tese: até aqui as lanes Claude eram `Inferred` porque o
+/// loomd raspava a tela do tmux. O transcript é o que o próprio agente gravou.
+pub fn from_transcript_line(lane: &str, l: &serde_json::Value) -> Option<AgentEvent> {
+    let tipo = l.get("type").and_then(|x| x.as_str()).unwrap_or("");
+    match tipo {
+        "ai-title" => {
+            let t = l.get("title").and_then(|x| x.as_str())?;
+            Some(AgentEvent::new(lane, Kind::SessionStarted, Confidence::Exact).detail(t))
+        }
+        "last-prompt" => {
+            let p = l.get("prompt").and_then(|x| x.as_str())?;
+            Some(AgentEvent::new(lane, Kind::UserPrompt, Confidence::Exact).with_text(p))
+        }
+        "assistant" => {
+            // A fala vive em `message.content[]`; blocos de `tool_use` são ferramenta, não fala.
+            let cs = l.pointer("/message/content")?.as_array()?;
+            if let Some(tu) = cs
+                .iter()
+                .find(|c| c.get("type").and_then(|x| x.as_str()) == Some("tool_use"))
+            {
+                let mut e = AgentEvent::new(lane, Kind::ToolCall, Confidence::Exact);
+                e.tool = tu.get("name").and_then(|x| x.as_str()).map(str::to_string);
+                return Some(e);
+            }
+            let txt: String = cs
+                .iter()
+                .filter_map(|c| c.get("text").and_then(|x| x.as_str()))
+                .collect::<Vec<_>>()
+                .join("");
+            if txt.trim().is_empty() {
+                return None;
+            }
+            Some(AgentEvent::new(lane, Kind::AgentMessage, Confidence::Exact).with_text(txt))
+        }
+        "user" => {
+            let cs = l.pointer("/message/content")?.as_array()?;
+            cs.iter()
+                .find(|c| c.get("type").and_then(|x| x.as_str()) == Some("tool_result"))
+                .map(|_| AgentEvent::new(lane, Kind::ToolResult, Confidence::Exact))
+        }
+        "mode" | "permission-mode" => {
+            let m = l.get("mode").and_then(|x| x.as_str()).unwrap_or("?");
+            Some(
+                AgentEvent::new(lane, Kind::Unknown, Confidence::Exact)
+                    .detail(format!("modo: {m}")),
+            )
+        }
+        _ => None,
+    }
+}
+
 pub const FIXTURE_ACP: &str =
     "../../docs/superpowers/fixtures/2026-08-10-acp-censo-modo-default.jsonl";
 
@@ -555,6 +608,46 @@ pub fn from_acp_update(lane: &str, u: &serde_json::Value) -> Option<AgentEvent> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ai_title_do_transcript_vira_o_titulo_da_lane() {
+        // O Claude Code NOMEIA o que está fazendo (298 ocorrências no censo). É melhor que o
+        // título OSC raspado do tmux, que é o que a Frota usava.
+        let l = serde_json::json!({"type":"ai-title","title":"Consertar o gate do stdlib"});
+        let e = from_transcript_line("claude-2", &l).expect("ai-title e informacao");
+        assert_eq!(e.kind, Kind::SessionStarted);
+        assert_eq!(
+            e.confidence,
+            Confidence::Exact,
+            "transcript e fato, nao inferencia"
+        );
+        assert_eq!(e.detail.as_deref(), Some("Consertar o gate do stdlib"));
+    }
+
+    #[test]
+    fn last_prompt_do_transcript_vira_userprompt_exato() {
+        let l = serde_json::json!({"type":"last-prompt","prompt":"roda o gate de confiabilidade"});
+        let e = from_transcript_line("claude-2", &l).unwrap();
+        assert_eq!(e.kind, Kind::UserPrompt);
+        assert_eq!(e.confidence, Confidence::Exact);
+        assert_eq!(e.text.as_deref(), Some("roda o gate de confiabilidade"));
+    }
+
+    #[test]
+    fn linha_de_transcript_sem_valor_de_ui_nao_polui_a_trama() {
+        for t in [
+            "queue-operation",
+            "file-history-snapshot",
+            "pr-link",
+            "attachment",
+        ] {
+            let l = serde_json::json!({"type": t});
+            assert!(
+                from_transcript_line("claude-2", &l).is_none(),
+                "{t} nao e evento de UI"
+            );
+        }
+    }
 
     #[test]
     fn cada_familia_de_aprovacao_usa_o_seu_enum() {
