@@ -141,5 +141,32 @@ final class SessionSnapshotTests: XCTestCase {
         ])
         try render(retrato(cheia), width: 430, name: "15-sessao-estreita")
     }
+
+    // ─── o ícone ────────────────────────────────────────────────────────────────────────────
+
+    /// Rasteriza o ícone nos tamanhos que o `.icns` exige, e um contato-folha para revisão.
+    ///
+    /// O tamanho que importa é 32: é onde o ícone vive de verdade (Dock, ⌘Tab, barra de título).
+    /// Desenho que só funciona a 1024 é pôster, não ícone — então o retrato inclui os pequenos
+    /// lado a lado, para a decisão ser tomada no tamanho em que ele vai ser visto.
+    @MainActor
+    func testIcone() throws {
+        for lado in [16, 32, 64, 128, 256, 512, 1024] {
+            // ≤32pt recebe a arte simplificada. É o mesmo que o sistema faz, e o contato-folha
+            // provou que é necessário: onze fios a 16pt são um borrão.
+            try render(AppIconArt(pequeno: lado <= 32).frame(width: CGFloat(lado), height: CGFloat(lado)),
+                       width: CGFloat(lado), name: "icone-\(lado)")
+        }
+        // Contato-folha: os pequenos sobre o cinza do Dock, que é onde eles competem.
+        try render(
+            HStack(spacing: 18) {
+                ForEach([16, 24, 32, 48, 64, 128], id: \.self) { l in
+                    AppIconArt(pequeno: l <= 32).frame(width: CGFloat(l), height: CGFloat(l))
+                }
+            }
+            .padding(24)
+            .background(Color(white: 0.62)),
+            width: 460, name: "icone-contato")
+    }
 }
 #endif
