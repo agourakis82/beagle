@@ -82,6 +82,34 @@ public struct FleetTerminalsView: View {
         .background(Self.canvas)
     }
 
+    /// Encurta o título para caber num chip.
+    ///
+    /// O tmux publica coisas como `openvscode-server@sounio-workspace-control-0:/workspace/sounio`
+    /// ou `claude — Decide whether to land PR #1672 for self-compilation`. Duas regras, e as duas
+    /// são sobre onde a informação REALMENTE está:
+    ///
+    /// 1. de `user@host:/caminho/longo`, o que interessa é o último componente do caminho — o
+    ///    resto é o mesmo em todas as lanes e não distingue nada;
+    /// 2. de uma frase, o COMEÇO, porque é onde o assunto está; e o corte fica no fim da palavra,
+    ///    com reticência, em vez de partir uma no meio.
+    static func encurtar(_ t: String, teto: Int = 28) -> String {
+        var s = t
+        // `user@host:/caminho` → o último componente. O `:` só conta se vier depois de um `@`,
+        // senão um título com dois-pontos legítimo ("build: falhou") perderia a primeira metade.
+        if let arroba = s.firstIndex(of: "@"), let dp = s[arroba...].firstIndex(of: ":") {
+            let caminho = String(s[s.index(after: dp)...])
+            let ultimo = caminho.split(separator: "/").last.map(String.init) ?? caminho
+            if !ultimo.isEmpty { s = ultimo }
+        }
+        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard s.count > teto else { return s }
+        let corte = String(s.prefix(teto))
+        if let esp = corte.lastIndex(of: " "), corte.distance(from: esp, to: corte.endIndex) < 10 {
+            return String(corte[..<esp]) + "…"
+        }
+        return corte + "…"
+    }
+
     private func chip(_ agent: String) -> some View {
         let active = agent == store.activeAgent
         return Button {
@@ -92,17 +120,47 @@ public struct FleetTerminalsView: View {
                     Circle().fill(stateColor(store.state(for: agent))).frame(width: 7, height: 7)
                 }
                 Text(agent).font(.system(.caption, design: .monospaced))
+                // O TÍTULO que o processo remoto anunciou (OSC 0/2) — o tmux publica ali o que a
+                // lane está fazendo. Vem DEPOIS do nome e mais apagado: o nome é o endereço, que
+                // ele usa para navegar; o título é o assunto, que muda toda hora. Trocar um pelo
+                // outro faria a barra reordenar-se no olho a cada mudança de tarefa.
+                if let t = store.titulo(agent) {
+                    Text(Self.encurtar(t))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .lineLimit(1)
+                }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(active ? Self.amber.opacity(0.22) : Color.white.opacity(0.06))
             .overlay(Capsule().stroke(active ? Self.amber.opacity(0.6) : .clear, lineWidth: 1))
             .clipShape(Capsule())
+            // 🔔 Dois avisos DIFERENTES, e a distinção é o ponto: saída nova é a lane
+            // TRABALHANDO — acontece o tempo todo e não pede nada. O sino é a lane CHAMANDO: um
+            // agente que terminou, ou que travou esperando decisão. Um badge só para os dois
+            // transformaria o pedido de atenção em ruído de fundo, que é como um alarme morre.
+            //
+            // O sino VENCE quando os dois valem: quem chamou é mais urgente que quem falou.
             .overlay(alignment: .topTrailing) {
-                if store.hasUnread(agent) {
+                if store.chamou(agent) {
+                    Image(systemName: "bell.fill")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Self.canvas)
+                        .padding(2.5)
+                        .background(Circle().fill(Self.amber))
+                        .overlay(Circle().stroke(Self.canvas, lineWidth: 1.5))
+                        .offset(x: 5, y: -3)
+                        // Pulsa só ENQUANTO chama — animação perpétua num canto vira wallpaper e
+                        // para de ser vista. `reduce motion` recebe o sino parado, que ainda diz
+                        // tudo: a forma é o sinal, o movimento é o reforço.
+                        .modifier(PulsoDoSino())
+                        .accessibilityLabel("\(agent) chamou você")
+                } else if store.hasUnread(agent) {
                     Circle().fill(Self.amber)
                         .frame(width: 8, height: 8)
                         .overlay(Circle().stroke(Self.canvas, lineWidth: 1.5))
                         .offset(x: 3, y: -2)
+                        .accessibilityLabel("\(agent) tem saída nova")
                 }
             }
         }
@@ -207,3 +265,23 @@ public struct FleetTerminalsView: View {
     }
 }
 #endif
+
+/// Pulso do sino: chama a atenção e depois para de insistir.
+///
+/// `reduce motion` recebe o sino PARADO — a forma (um sino, não um ponto) já é o sinal; o
+/// movimento é reforço. Quem pediu menos animação continua vendo que foi chamado.
+private struct PulsoDoSino: ViewModifier {
+    @State private var grande = false
+    @Environment(\.accessibilityReduceMotion) private var reduzir
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(reduzir ? 1 : (grande ? 1.18 : 1))
+            .onAppear {
+                guard !reduzir else { return }
+                withAnimation(.easeInOut(duration: 0.7).repeatCount(6, autoreverses: true)) {
+                    grande = true
+                }
+            }
+    }
+}
