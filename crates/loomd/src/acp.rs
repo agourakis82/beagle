@@ -81,6 +81,15 @@ pub fn mensagens_de_abertura(
     v
 }
 
+/// A resposta de `session/new`/`session/load` deve disparar `set_mode`?
+///
+/// 🚨 SÓ quando a sessão era DESCONHECIDA. No caminho de sessão conhecida o `set_mode` já foi
+/// enfileirado estaticamente por `mensagens_de_abertura` (ali existe `sessionId` para usar), e
+/// disparar de novo mandaria duas requisições com o mesmo id JSON-RPC.
+pub fn deve_fixar_modo_na_resposta(sessao_previa: Option<&str>) -> bool {
+    sessao_previa.is_none()
+}
+
 impl AcpLane {
     pub fn spawn(lane: &str, bin: &str, cwd: &str, modo: &str, trama: Arc<Trama>) -> Arc<Self> {
         // A sessão vem da TRAMA na subida fria, igual ao codex: o daemon é descartável, a
@@ -164,15 +173,21 @@ impl AcpLane {
     }
 
     async fn on_message(&self, m: serde_json::Value) {
-        // Resposta ao `session/new` / `session/load`: guarda a sessão e FIXA O MODO.
+        // Resposta ao `session/new` / `session/load`: guarda a sessão e FIXA O MODO — mas só
+        // quando a sessão era desconhecida. Ver `deve_fixar_modo_na_resposta`.
         if m.get("id").and_then(|x| x.as_u64()) == Some(ID_SESSAO) {
             if let Some(sid) = m.pointer("/result/sessionId").and_then(|x| x.as_str()) {
+                let previa = self.sessao.lock().await.clone();
                 *self.sessao.lock().await = Some(sid.to_string());
                 let mut e = AgentEvent::new(&self.lane, Kind::SessionStarted, Confidence::Exact)
                     .detail(format!("sessao ACP {sid}"));
                 e.session = Some(sid.to_string());
                 self.trama.append(e);
-                self.fixar_modo(sid).await;
+                // Só no caminho de sessão NOVA: no de retomada o `set_mode` já foi no handshake,
+                // e repetir mandaria id JSON-RPC duplicado.
+                if deve_fixar_modo_na_resposta(previa.as_deref()) {
+                    self.fixar_modo(sid).await;
+                }
             }
             return;
         }
@@ -258,6 +273,18 @@ mod tests {
         // do `session/new` chegar. Duas mensagens aqui, e a segunda é `session/new`.
         assert_eq!(metodos, vec!["initialize", "session/new"]);
         assert_eq!(ms[1]["params"]["cwd"], "/workspace/.wt/claude-4");
+    }
+
+    #[test]
+    fn set_mode_na_resposta_so_quando_a_sessao_era_nova() {
+        assert!(
+            deve_fixar_modo_na_resposta(None),
+            "sessao nova: o handshake nao mandou"
+        );
+        assert!(
+            !deve_fixar_modo_na_resposta(Some("sess-1")),
+            "retomada: ja foi no handshake"
+        );
     }
 
     #[test]
