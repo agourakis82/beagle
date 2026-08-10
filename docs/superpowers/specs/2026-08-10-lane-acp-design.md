@@ -107,7 +107,7 @@ já usam (`settings.json` → `permissions.defaultMode: "auto"`).
 | | |
 |---|---|
 | **Escopo** | Lane **nova** (`claude-4`), as 3 existentes intactas — mesmo padrão do `codex-4`. |
-| **Permissão** | Auto-aprovar, alinhado ao `defaultMode: auto` que as lanes já têm. *Ressalva medida em §2:* `auto` pode silenciar o pedido de aprovação; até isso ser medido, o código usa `default`. |
+| **Permissão** | **`default`**: `request_permission` fica visível no Mission Control. `auto` foi medido em 0 pedidos na Task 1 e descartado — o classificador aprova sozinho, deixando a tela sem fonte. Diverge de propósito do `defaultMode: auto` das 3 lanes TUI: ali o operador olha o terminal, aqui olha a Frota (ver §2). |
 | **Observação das 3 atuais** | Ligar junto. *Revisado depois de medir:* transcript em vez de hooks (ver §3). |
 | **Protocolo** | ACP, não `stream-json` — decidido depois de ele apontar o Zed. |
 
