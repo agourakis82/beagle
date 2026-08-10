@@ -21,6 +21,28 @@ struct SounioMissionControlApp: App {
         }
         .defaultSize(width: 1280, height: 860)
         .commands {
+            // 🚨 SEM ISTO NÃO HÁ COPIAR NEM COLAR, e a causa é estrutural, não do terminal.
+            //
+            // O `SwiftTerm.TerminalView` JÁ implementa `copy(_:)`, `paste(_:)` e `selectAll(_:)`
+            // como `@objc open func` — a responder chain do macOS os encontraria sozinha. O que
+            // faltava era o MENU: um app SwiftUI sem grupo `.pasteboard` não tem ⌘C/⌘V ligados a
+            // ação nenhuma, e as teclas morrem antes de chegar no terminal.
+            //
+            // Consequência medida: sem colar, não dá para responder a um prompt de OAuth
+            // (`Paste code here if prompted >`), nem colar caminho, nem colar código numa lane.
+            // Uma lane ficou presa nesse prompt.
+            //
+            // `sendAction(to: nil)` percorre a responder chain — é o idioma correto e é o que faz
+            // o comando chegar em QUALQUER terminal focado, sem o app saber qual é.
+            CommandGroup(replacing: .pasteboard) {
+                Button("Copiar") { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
+                    .keyboardShortcut("c", modifiers: .command)
+                Button("Colar") { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
+                    .keyboardShortcut("v", modifiers: .command)
+                Divider()
+                Button("Selecionar tudo") { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+                    .keyboardShortcut("a", modifiers: .command)
+            }
             CommandGroup(after: .toolbar) {
                 Button("Frota") { NotificationCenter.default.post(name: .missionControlGo, object: Section.frota) }
                     .keyboardShortcut("1", modifiers: .command)

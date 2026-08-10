@@ -1,6 +1,9 @@
 #if os(iOS) || os(macOS)
 import SwiftUI
 import SwiftTerm
+#if canImport(AppKit)
+import AppKit
+#endif
 import BeagleCore
 #if os(iOS)
 import UIKit
@@ -75,7 +78,17 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
         public func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         public func scrolled(source: TerminalView, position: Double) {}
         public func requestOpenLink(source: TerminalView, link: String, params: [String: String]) {}
-        public func clipboardCopy(source: TerminalView, content: Data) {}
+        /// O programa REMOTO pedindo para copiar (OSC 52). Estava vazio: um `tmux` ou um agente
+        /// que copia para a área de transferência não chegava a lugar nenhum, em silêncio.
+        public func clipboardCopy(source: TerminalView, content: Data) {
+            guard let texto = String(data: content, encoding: .utf8), !texto.isEmpty else { return }
+            #if canImport(AppKit)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(texto, forType: .string)
+            #elseif canImport(UIKit)
+            UIPasteboard.general.string = texto
+            #endif
+        }
         public func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
         public func bell(source: TerminalView) {}
     }
