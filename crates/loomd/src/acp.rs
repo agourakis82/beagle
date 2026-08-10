@@ -23,7 +23,12 @@ pub struct AcpLane {
     pub lane: String,
     stdin: Arc<Mutex<Option<tokio::process::ChildStdin>>>,
     /// Aprovações penduradas: id JSON-RPC → quem espera a decisão do operador.
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<String>>>>,
+    ///
+    /// `Some(true)` permite, `Some(false)` nega, `None` é cancelamento — nunca uma string
+    /// livre. Um sentinel de texto (`"allow"` vs. qualquer outra coisa) tem a mesma classe de
+    /// defeito que escolher a opção pela posição: um valor futuro fora do vocabulário esperado
+    /// vira rejeição silenciosa em vez de erro.
+    pending: Arc<Mutex<HashMap<String, oneshot::Sender<Option<bool>>>>>,
     sessao: Arc<Mutex<Option<String>>>,
     proximo_id: Arc<Mutex<u64>>,
     trama: Arc<Trama>,
@@ -130,14 +135,25 @@ impl AcpLane {
         }
     }
 
+    /// 🚨 O CRITICAL DA REVISÃO: `spawn()` também pode falhar antes de qualquer leitura. Nesse
+    /// caminho a limpeza roda aqui, explicitamente — o `?` original saía de `run_once` sem
+    /// passar pelo ponto único de limpeza, e o `supervisao.rs` só registra `Kind::Error` e
+    /// respawna, deixando o mapa `pending` intacto de um ciclo anterior.
     async fn run_once(&self, bin: &str, cwd: &str) -> std::io::Result<()> {
-        let mut child = tokio::process::Command::new(bin)
+        let mut child = match tokio::process::Command::new(bin)
             .current_dir(cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true)
-            .spawn()?;
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                self.cancelar_pendentes("adaptador ACP nao subiu").await;
+                return Err(e);
+            }
+        };
         let out = child.stdout.take().expect("stdout pipe");
         *self.stdin.lock().await = child.stdin.take();
 
@@ -148,6 +164,15 @@ impl AcpLane {
             self.enviar(m).await;
         }
 
+        let r = self.ciclo_de_leitura(out).await;
+        let _ = child.wait().await;
+        r
+    }
+
+    /// O laço de leitura, genérico no leitor para que o caminho de ERRO seja testável. Um `?`
+    /// solto aqui dentro sairia de `run_once` antes da limpeza — foi o defeito reportado na
+    /// revisão.
+    async fn ler_ate_o_fim<R: tokio::io::AsyncRead + Unpin>(&self, out: R) -> std::io::Result<()> {
         let mut lines = BufReader::new(out).lines();
         while let Some(line) = lines.next_line().await? {
             if line.trim().is_empty() {
@@ -161,15 +186,24 @@ impl AcpLane {
             };
             self.on_message(m).await;
         }
+        Ok(())
+    }
 
-        let _ = child.wait().await;
+    /// Ponto ÚNICO de saída do ciclo de leitura: fim normal OU erro de I/O, a limpeza roda
+    /// sempre. Genérico no leitor (via `ler_ate_o_fim`) para que o caminho de erro seja coberto
+    /// por teste sem subir um Node — ver `erro_de_leitura_tambem_libera_as_pendencias`.
+    async fn ciclo_de_leitura<R: tokio::io::AsyncRead + Unpin>(
+        &self,
+        out: R,
+    ) -> std::io::Result<()> {
+        let r = self.ler_ate_o_fim(out).await;
         *self.stdin.lock().await = None;
         self.cancelar_pendentes("adaptador ACP encerrou").await;
         self.trama.append(
             AgentEvent::new(&self.lane, Kind::SessionEnded, Confidence::Exact)
                 .detail("adaptador ACP encerrou"),
         );
-        Ok(())
+        r
     }
 
     async fn on_message(&self, m: serde_json::Value) {
@@ -194,10 +228,16 @@ impl AcpLane {
         let metodo = m.get("method").and_then(|x| x.as_str()).unwrap_or("");
         if m.get("id").is_some() && metodo == "session/request_permission" {
             let rpc_id = m["id"].clone();
-            let id = rpc_id.to_string();
+            // `rpc_id.to_string()` num id JSON *string* devolve `"\"abc\""` — as aspas
+            // vazariam para a tela. `as_str()` despe a sintaxe; ids numéricos (sem `as_str`)
+            // continuam pelo `to_string()` de fallback.
+            let id = rpc_id
+                .as_str()
+                .map(str::to_string)
+                .unwrap_or_else(|| rpc_id.to_string());
             let params = m["params"].clone();
 
-            let (tx, rx) = oneshot::channel::<String>();
+            let (tx, rx) = oneshot::channel::<Option<bool>>();
             self.pending.lock().await.insert(id.clone(), tx);
 
             let mut e = crate::event::from_acp_permission(&self.lane, &id, &params);
@@ -209,11 +249,12 @@ impl AcpLane {
             // comportamento correto, e a tela mostra "esperando você", não "travado".
             let stdin = self.stdin.clone();
             tokio::spawn(async move {
-                let escolha = rx.await.unwrap_or_default();
-                if escolha.is_empty() {
-                    return; // cancelado pela morte do filho: não há a quem responder
-                }
-                let opt = crate::event::acp_option_id(&params, escolha == "allow");
+                // `Err` (o `Sender` foi derrubado) e `Ok(None)` (cancelamento explícito) são o
+                // mesmo caso: ninguém vai responder por este pedido.
+                let Ok(Some(allow)) = rx.await else {
+                    return;
+                };
+                let opt = crate::event::acp_option_id(&params, allow);
                 let resp = serde_json::json!({
                     "jsonrpc":"2.0","id":rpc_id,
                     "result":{"outcome":{"outcome":"selected","optionId":opt}}
@@ -295,10 +336,17 @@ impl AcpLane {
     ///
     /// Sem isto, a morte do filho deixa botões na tela que não respondem a ninguém — o único
     /// ponto deste desenho em que a falha produz UI mentirosa em vez de UI ausente.
+    ///
+    /// O guard de `pending` é solto ANTES de enviar e de escrever na trama: os métodos da
+    /// `Trama` são síncronos e não haveria deadlock segurando o lock por cima, mas não há
+    /// motivo para segurar um lock `tokio` por cima de I/O quando um `Vec` intermediário resolve.
     async fn cancelar_pendentes(&self, motivo: &str) {
-        let mut g = self.pending.lock().await;
-        for (id, tx) in g.drain() {
-            let _ = tx.send(String::new());
+        let itens: Vec<(String, oneshot::Sender<Option<bool>>)> = {
+            let mut g = self.pending.lock().await;
+            g.drain().collect()
+        };
+        for (id, tx) in itens {
+            let _ = tx.send(None);
             self.trama.append(
                 AgentEvent::new(&self.lane, Kind::ApprovalAnswered, Confidence::Exact)
                     .detail(format!("aprovacao {id} cancelada: {motivo}")),
@@ -313,11 +361,7 @@ impl AcpLane {
             .await
             .remove(approval_id)
             .ok_or_else(|| format!("aprovacao {approval_id} nao esta pendente"))?;
-        let _ = tx.send(if allow {
-            "allow".into()
-        } else {
-            "reject".into()
-        });
+        let _ = tx.send(Some(allow));
         self.trama.append(
             AgentEvent::new(&self.lane, Kind::ApprovalAnswered, Confidence::Exact).detail(format!(
                 "aprovacao {approval_id}: {}",
@@ -415,7 +459,7 @@ mod tests {
         let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
         let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", None);
 
-        let (tx, mut rx) = oneshot::channel::<String>();
+        let (tx, mut rx) = oneshot::channel::<Option<bool>>();
         lane.pending.lock().await.insert("77".into(), tx);
 
         lane.cancelar_pendentes("adaptador morreu").await;
@@ -443,6 +487,54 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("adaptador morreu"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Leitor que devolve erro de I/O na primeira leitura — sem escrever uma linha sequer.
+    /// Simula a queda do adaptador NO MEIO da leitura, o caminho que o `?` solto em
+    /// `run_once` costumava escapar sem passar pela limpeza.
+    #[derive(Default)]
+    struct LeitorQueCai;
+
+    impl tokio::io::AsyncRead for LeitorQueCai {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            _buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Err(std::io::Error::other("queda simulada")))
+        }
+    }
+
+    /// 🚨 O CRITICAL DA REVISÃO: `ler_ate_o_fim` propaga o erro com `?` — e se `ciclo_de_leitura`
+    /// não tivesse um ponto único de saída, esse `?` sairia de `run_once` ANTES da limpeza,
+    /// deixando `pending` intacto para o próximo `spawn` do supervisor. O adaptador novo
+    /// escreveria a resposta com um `rpc_id` que ele nunca emitiu, e a trama registraria
+    /// "aprovacao X: permitida" — a UI mentirosa.
+    #[tokio::test]
+    async fn erro_de_leitura_tambem_libera_as_pendencias() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-err-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", None);
+
+        let (tx, mut rx) = oneshot::channel::<Option<bool>>();
+        lane.pending.lock().await.insert("99".into(), tx);
+
+        let r = lane.ciclo_de_leitura(LeitorQueCai).await;
+
+        assert!(
+            r.is_err(),
+            "o erro de leitura tem de propagar — e o supervisor quem decide respawnar"
+        );
+        assert!(
+            lane.pending.lock().await.is_empty(),
+            "a queda NO MEIO da leitura tambem tem de limpar — nao so o fim normal"
+        );
+        assert!(
+            rx.try_recv().is_ok(),
+            "quem esperava a decisao tem de ser liberado mesmo no caminho de erro"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }
