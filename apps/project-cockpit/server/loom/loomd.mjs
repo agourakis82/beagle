@@ -106,6 +106,17 @@ export function loomdCard(l, readAtMs) {
     approveKey: null,
     pendingApproval: pendingOf(l?.pending_approval),
     hasDiff: typeof l?.last_diff === "string" && l.last_diff.length > 0,
+    // 🚨 O TEXTO do diff, não só o booleano. Até 10-ago-2026 o unified diff chegava pronto do
+    // loomd e era descartado aqui — a tela sabia que EXISTIA uma mudança proposta e não tinha
+    // como mostrá-la, então o operador voltava para o terminal justamente no momento em que a
+    // interface deveria servir para alguma coisa.
+    diff: typeof l?.last_diff === "string" && l.last_diff.length > 0 ? l.last_diff : null,
+    // A mensagem sendo escrita agora (deltas coalescidos no loomd). `null` quando não há turno
+    // em voo — e é `null` mesmo, não string vazia: vazio é um texto, ausente é outra coisa.
+    streamingText: typeof l?.streaming_text === "string" && l.streaming_text.length > 0
+      ? l.streaming_text : null,
+    // Comando ou patch: decide o rótulo do botão porque decide o risco.
+    approvalKind: l?.pending_kind || null,
     turns: Number(l?.turns) || 0,
     session: l?.session ? String(l.session) : null,
     atShell: false,
@@ -159,6 +170,9 @@ export function fuseFleet(entries, loomdLanes) {
       loomdKind: l.loomdKind,
       pendingApproval: l.pendingApproval,
       hasDiff: l.hasDiff,
+      diff: l.diff,
+      streamingText: l.streamingText,
+      approvalKind: l.approvalKind,
       turns: l.turns,
       approveKey: null,          // aprovação por RPC, não por tecla — ver loomdCard
       // Idem: o frescor vem da leitura do loomd, não do último evento da lane.

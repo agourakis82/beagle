@@ -20,7 +20,7 @@ import { execFile } from "node:child_process";
 import {
   WORKSPACE_LANES, LANE_KEYS, LANE_WT_ROOT,
   laneSendKeyArgv, laneIsolateArgv, laneWorktreeCheckArgv,
-  loomdApproveArgv, parseLoomdHttp, loomdErrorOf,
+  loomdApproveArgv, loomdPromptArgv, loomdTramaArgv, parseLoomdHttp, loomdErrorOf,
 } from "./platform-bridge.mjs";
 
 /// States in which typing a `cd` at the lane is sound at all. Necessary, NOT sufficient: see the
@@ -106,6 +106,40 @@ export function decideLoomdApprove({ lane, allow, card, truth }) {
   return { ok: true, pending: card.pendingApproval, allow: allow !== false };
 }
 
+/// Decisão pura do PROMPT de texto livre.
+///
+/// Diferente de `/key`, aqui não há tecla nem estado que autorize ou proíba: mandar um pedido a um
+/// agente é sempre legítimo, inclusive enquanto ele trabalha (o Codex enfileira). O que a decisão
+/// guarda é outra coisa:
+///   1. a lane precisa ser **do loomd** — numa lane de tela o texto viraria digitação cega num pty;
+///   2. a leitura precisa estar `observed` — mandar prompt para uma fonte caída daria 202 sem
+///      ninguém do outro lado, que é a mentira que este arquivo inteiro existe para não contar;
+///   3. o texto precisa ter conteúdo, e teto — sem teto, um paste acidental de 10 MB vira corpo
+///      de requisição dentro de um `kubectl exec`.
+export const PROMPT_MAX = 32_000;
+
+export function decidePrompt({ lane, text, card, truth }) {
+  const mode = truth?.mode || "unknown";
+  if (mode !== "observed") {
+    return {
+      status: 503,
+      error: `o loomd não respondeu nesta leitura (${mode}): ${truth?.error || "sem motivo declarado"} — não vou fingir que entreguei seu pedido`,
+    };
+  }
+  if (!card) {
+    return {
+      status: 409,
+      error: `a lane ${lane} não é servida pelo loomd — texto livre nela seria digitação cega num terminal; abra o Terminal`,
+    };
+  }
+  const t = String(text ?? "");
+  if (!t.trim()) return { status: 400, error: "prompt vazio" };
+  if (t.length > PROMPT_MAX) {
+    return { status: 413, error: `prompt de ${t.length} caracteres passa do teto de ${PROMPT_MAX}` };
+  }
+  return { ok: true, text: t };
+}
+
 /// Pure decision for moving a lane into its own worktree.
 export function decideIsolate({ lane, verdict, worktreeExists }) {
   if (!WORKSPACE_LANES.includes(lane)) return { status: 404, error: `lane desconhecida: ${lane}` };
@@ -128,6 +162,19 @@ export function decideIsolate({ lane, verdict, worktreeExists }) {
   }
   return { ok: true };
 }
+
+/// Igual a `run`, mas escrevendo no STDIN do processo. É o que mantém o texto do operador FORA
+/// do argv: `kubectl exec -i` repassa este stdin ao `curl --data-binary @-` do outro lado.
+const runWithInput = (bin, argv, exec, input) => new Promise((resolve) => {
+  const child = exec(bin, argv, { timeout: 20000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+    resolve({ err, stdout: String(stdout || ""), stderr: String(stderr || "") });
+  });
+  // `execFile` devolve o ChildProcess; um duplo (fake) de teste pode não devolver — e aí a
+  // ausência de stdin é silenciosa, então checar aqui é o que impede um teste verde de mentir.
+  if (!child?.stdin) return resolve({ err: new Error("sem stdin no processo — não dá para enviar o corpo"), stdout: "", stderr: "" });
+  child.stdin.on("error", () => {});
+  child.stdin.end(input);
+});
 
 const run = (bin, argv, exec) => new Promise((resolve) => {
   exec(bin, argv, { timeout: 15000, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
@@ -264,6 +311,86 @@ export function registerLaneActionRoutes(app, {
       ok: false,
       error: `a lane ${lane} é servida por tela, não pelo loomd — aprove por /key nomeando a tecla que o card mostra`,
     });
+  });
+
+  /// TEXTO LIVRE para uma lane de protocolo. É a maior superfície de escrita deste servidor, e a
+  /// forma dela é o que a torna segura: o texto vai pelo STDIN, nunca pelo argv.
+  app.post("/api/mobile/v1/lanes/:lane/prompt", async (req, res) => {
+    const lane = String(req.params.lane || "");
+    const text = String((req.body || {}).text ?? "");
+
+    if (!WORKSPACE_LANES.includes(lane) && !servedByLoomd(lane)) {
+      return res.status(404).json({ ok: false, error: `lane desconhecida: ${lane}` });
+    }
+    const verdict = await freshVerdict(lane, res);
+    if (!verdict) return;
+
+    const truth = poller.loomdTruth();
+    const d = decidePrompt({ lane, text, card: poller.loomd(lane), truth });
+    if (!d.ok) return res.status(d.status).json({ ok: false, error: d.error, data: { truth } });
+
+    const argv = loomdPromptArgv(ns, lane);
+    if (!argv) return res.status(400).json({ ok: false, error: "ação recusada pelo allowlist" });
+    // JSON montado pelo SERIALIZADOR, não por concatenação — e entregue pelo stdin.
+    const { err, stdout, stderr } = await runWithInput(
+      kubectl, argv, execFn, JSON.stringify({ text: d.text }));
+    const http = parseLoomdHttp(stdout);
+    if (http.code === null) {
+      return res.status(502).json({
+        ok: false,
+        error: `sem resposta do loomd ao enviar o prompt: ${loomdErrorOf(http.body) || stderr || err?.message || "motivo desconhecido"}`,
+      });
+    }
+    if (http.code < 200 || http.code >= 300) {
+      return res.status(http.code === 404 ? 404 : 502).json({
+        ok: false,
+        error: loomdErrorOf(http.body) || `o loomd recusou o prompt (HTTP ${http.code})`,
+      });
+    }
+    // 202 do loomd: o turno foi ACEITO, não concluído. Dizer "pronto" aqui seria prometer o que
+    // ainda não aconteceu — quem conta o resto é a trama.
+    await poller.refreshNow();
+    res.status(202).json({ ok: true, data: { lane, accepted: true, chars: d.text.length } });
+  });
+
+  /// A CONVERSA, a partir de um cursor. `seq` é monotônico e atravessa reinício do loomd, então o
+  /// cliente pede só o que ainda não viu — e não precisa de socket para acompanhar um turno.
+  app.get("/api/mobile/v1/lanes/:lane/turns", async (req, res) => {
+    const lane = String(req.params.lane || "");
+    const since = Number(req.query.since ?? 0);
+
+    if (!servedByLoomd(lane)) {
+      return res.status(409).json({
+        ok: false,
+        error: `a lane ${lane} é servida por tela, não pelo loomd — ela não tem turnos, tem scrollback`,
+      });
+    }
+    const argv = loomdTramaArgv(ns, lane, since);
+    if (!argv) return res.status(400).json({ ok: false, error: "cursor ou lane inválidos" });
+
+    const { err, stdout, stderr } = await run(kubectl, argv, execFn);
+    const http = parseLoomdHttp(stdout);
+    if (http.code === null) {
+      return res.status(502).json({
+        ok: false,
+        error: `sem resposta do loomd ao ler a trama: ${stderr || err?.message || "motivo desconhecido"}`,
+      });
+    }
+    if (http.code < 200 || http.code >= 300) {
+      return res.status(502).json({ ok: false, error: loomdErrorOf(http.body) || `o loomd recusou a leitura (HTTP ${http.code})` });
+    }
+    let payload;
+    try {
+      payload = JSON.parse(http.body);
+    } catch {
+      return res.status(502).json({ ok: false, error: "a trama voltou ilegível" });
+    }
+    const events = Array.isArray(payload?.events) ? payload.events : [];
+    // O cursor volta com a resposta para o cliente não ter que derivá-lo — derivar do último
+    // elemento quebra em lista vazia, que é o caso comum de um poll sem novidade.
+    const cursor = events.reduce((m, e) => Math.max(m, Number(e?.seq) || 0), Number(since) || 0);
+    res.json({ ok: true, data: { lane, since: Number(since) || 0, cursor, events,
+      streaming: poller.loomd(lane)?.streamingText || null } });
   });
 
   app.post("/api/mobile/v1/lanes/:lane/isolate", async (req, res) => {

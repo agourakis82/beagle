@@ -217,3 +217,53 @@ test("a fusão também honra o contrato: lane que o loomd declara `inferred` NÃ
   const cardExato = loomdCard({ lane: "codex-1", kind: "idle", confidence: "exact" }, 9);
   assert.equal(fuseFleet(daTela, new Map([["codex-1", cardExato]]))[0].confidence, "exact");
 });
+
+// ─── o que a Sessão precisa ler, e que era descartado ──────────────────────────────────────
+
+test("🚨 o TEXTO do diff atravessa, não só o booleano", () => {
+  // A regressão que isto guarda: o unified diff chegava pronto do loomd e morria aqui em
+  // `hasDiff: true`. A tela sabia que existia uma mudança proposta e não tinha como mostrá-la —
+  // então o operador voltava para o terminal exatamente quando a interface deveria servir.
+  const d = "diff --git a/alvo.txt b/alvo.txt\n@@ -0,0 +1 @@\n+oi\n";
+  const c = loomdCard(lane({ last_diff: d }));
+  assert.equal(c.hasDiff, true);
+  assert.equal(c.diff, d, "o diff inteiro, para a tela poder desenhar");
+});
+
+test("sem diff, o campo é null — e não string vazia", () => {
+  // Vazio é um texto ("o agente propôs um diff em branco"); ausente é outra coisa. A tela decide
+  // se desenha o bloco a partir disto.
+  const c = loomdCard(lane());
+  assert.equal(c.hasDiff, false);
+  assert.equal(c.diff, null);
+  assert.equal(loomdCard(lane({ last_diff: "" })).diff, null);
+});
+
+test("a mensagem em voo chega como streamingText", () => {
+  // É o que faz a tela mostrar o texto chegando sem que os 70 deltas por turno entrem no diário.
+  assert.equal(loomdCard(lane({ streaming_text: "Vou ler os" })).streamingText, "Vou ler os");
+  assert.equal(loomdCard(lane()).streamingText, null);
+  // Mesma regra do diff, e ela só apareceu porque a mutação passou: parcial vazio é AUSENTE.
+  // Sem isto, um turno que ainda não emitiu delta acenderia o bloco de streaming em branco.
+  assert.equal(loomdCard(lane({ streaming_text: "" })).streamingText, null);
+});
+
+test("comando e patch chegam separados — o rótulo do botão depende disso", () => {
+  assert.equal(loomdCard(lane({ pending_kind: "patch" })).approvalKind, "patch");
+  assert.equal(loomdCard(lane({ pending_kind: "command" })).approvalKind, "command");
+  assert.equal(loomdCard(lane()).approvalKind, null);
+});
+
+test("a fusão preserva diff, parcial e tipo de aprovação", () => {
+  // Rodada 2 da verificação adversarial de 09-ago já pegou `fuseFleet` DESFAZENDO um contrato que
+  // o `loomdCard` honrava. Uma asserção por campo novo, pelo mesmo motivo.
+  const d = "diff --git a/x b/x\n";
+  const fundido = fuseFleet(
+    [card("loom-1", { source: "loomd" })],
+    new Map([["loom-1", loomdCard(lane({ last_diff: d, streaming_text: "meio", pending_kind: "patch" }))]]),
+  );
+  const c = fundido.find((x) => x.sid === "loom-1");
+  assert.equal(c.diff, d);
+  assert.equal(c.streamingText, "meio");
+  assert.equal(c.approvalKind, "patch");
+});

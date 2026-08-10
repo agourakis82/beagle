@@ -278,6 +278,43 @@ export function loomdApproveArgv(ns, lane, allow) {
   return ["-n", ns, "exec", "-i", spec.pod, "-c", spec.container, "--", ...tmuxSu(spec, inner)];
 }
 
+/// Manda um prompt de TEXTO LIVRE para uma lane servida pelo loomd.
+///
+/// 🚨 A invariante que este argv existe para carregar: **o texto do operador NUNCA aparece aqui**.
+/// Ele vai pelo STDIN do `kubectl exec -i` e o curl o lê com `--data-binary @-`. Interpolar o
+/// texto no `sh -c` — ainda que escapado — seria a maior superfície de injeção que este servidor
+/// já teve, porque é o único campo em que o conteúdo é livre por definição. Um teste garante que
+/// nenhum elemento do argv contém o texto.
+///
+/// O corpo que o chamador deve escrever no stdin é `{"text": "..."}` serializado por
+/// `JSON.stringify` — quem monta JSON é o serializador, não concatenação de string.
+export function loomdPromptArgv(ns, lane) {
+  if (!SAFE_LOOMD_LANE.test(String(lane || ""))) return null;
+  const spec = SESSION_ALLOWLIST[WORKSPACE_LANES[0]];
+  const inner =
+    `curl -sS --max-time ${LOOMD_TIMEOUT_S} -X POST -H "Content-Type: application/json"` +
+    ` --data-binary @- -w "\\n${LOOMD_HTTP_DELIM}%{http_code}"` +
+    ` ${LOOMD_BASE}/v2/lanes/${lane}/prompt`;
+  return ["-n", ns, "exec", "-i", spec.pod, "-c", spec.container, "--", ...tmuxSu(spec, inner)];
+}
+
+/// Lê a trama de uma lane a partir de um cursor. É o que a Sessão consome para desenhar a
+/// conversa: `seq` monotônico, então o cliente só pede o que ainda não viu.
+///
+/// `since` é forçado a inteiro não-negativo AQUI, e não confiado ao chamador: ele vem da query
+/// string, e um `since=1;rm` interpolado numa URL dentro de `sh -c` é exatamente o que a
+/// allowlist de lane já impede do outro lado.
+export function loomdTramaArgv(ns, lane, since = 0) {
+  if (!SAFE_LOOMD_LANE.test(String(lane || ""))) return null;
+  const n = Number(since);
+  if (!Number.isInteger(n) || n < 0) return null;
+  const spec = SESSION_ALLOWLIST[WORKSPACE_LANES[0]];
+  const inner =
+    `curl -sS --max-time ${LOOMD_TIMEOUT_S} -w "\\n${LOOMD_HTTP_DELIM}%{http_code}"` +
+    ` "${LOOMD_BASE}/v2/trama?since=${n}&lane=${lane}"`;
+  return ["-n", ns, "exec", "-i", spec.pod, "-c", spec.container, "--", ...tmuxSu(spec, inner)];
+}
+
 /// { code, body } do stdout do exec acima. `code: null` = o curl não chegou a ter resposta HTTP
 /// (loomd fora do ar, exec falhou, timeout) — e isso NÃO pode ser tratado como sucesso.
 export function parseLoomdHttp(stdout) {

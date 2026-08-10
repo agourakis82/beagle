@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  decidePrompt, PROMPT_MAX,
   decideKey, decideIsolate, decideLoomdApprove, registerLaneActionRoutes,
 } from "./laneActions.mjs";
 import { LOOMD_HTTP_DELIM } from "./platform-bridge.mjs";
@@ -92,32 +93,50 @@ function harness({
     loomdTruth: () => loomdTruth,
   };
   const routes = {};
-  const app = { post: (path, h) => { routes[path] = h; } };
+  // O duplo aceita GET também desde que a Sessão passou a LER a trama por HTTP. Um duplo que
+  // não conhece o verbo faria a rota nova sumir da suíte em silêncio.
+  const stdinWrites = [];
+  const app = {
+    post: (path, h) => { routes[`POST ${path}`] = h; },
+    get: (path, h) => { routes[`GET ${path}`] = h; },
+  };
   registerLaneActionRoutes(app, {
     poller, kubectl: "kubectl", ns: "beagle",
     execFn: (bin, argv, opts, cb) => {
       execs.push(argv);
+      let done;
       if (String(argv.at(-1)).includes("curl")) {
         const out = loomdReply.httpCode === null
           ? loomdReply.body
           : `${loomdReply.body}\n${LOOMD_HTTP_DELIM}${loomdReply.httpCode}`;
-        return cb(loomdReply.err || null, out, loomdReply.stderr || "");
+        done = () => cb(loomdReply.err || null, out, loomdReply.stderr || "");
+      } else {
+        done = () => cb(null, "yes\n", "");
       }
-      cb(null, "yes\n", "");
+      // O prompt entrega o corpo pelo STDIN, então o duplo precisa de um stdin de verdade — e
+      // registrar o que foi escrito é o único jeito de provar que o texto saiu por aqui e não
+      // pelo argv. Sem isto, um teste passaria com o servidor mandando corpo nenhum.
+      const stdin = {
+        on() {},
+        end(data) { stdinWrites.push(String(data ?? "")); done(); },
+      };
+      // O caminho que não usa stdin chama o callback na hora, como o execFile faz.
+      queueMicrotask(() => { if (!stdinWrites.length || !String(argv.at(-1)).includes("--data-binary")) done(); });
+      return { stdin };
     },
   });
-  const call = async (path, params, body) => {
+  const call = async (path, params, body, query) => {
     let code = 200, payload = null;
     const res = { status(c) { code = c; return this; }, json(p) { payload = p; return this; } };
-    await routes[path]({ params, body }, res);
+    await routes[path]({ params, body, query: query || {} }, res);
     return { code, payload };
   };
-  return { call, execs, sweeps: () => sweeps };
+  return { call, execs, stdinWrites, sweeps: () => sweeps };
 }
 
 test("the route re-reads the screen BEFORE deciding — never from a 12s-old verdict", async () => {
   const h = harness({ verdictsByCall: [waiting("y")] });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/key", { lane: "codex-2" }, { key: "y" });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/key", { lane: "codex-2" }, { key: "y" });
   assert.equal(r.code, 200);
   assert.equal(h.sweeps() >= 2, true, "one sweep to decide, one so the card catches up");
   assert.equal(h.execs.length, 1);
@@ -127,7 +146,7 @@ test("the route re-reads the screen BEFORE deciding — never from a 12s-old ver
 
 test("a refusal sends NOTHING to the lane", async () => {
   const h = harness({ verdictsByCall: [{ state: "running", approveKey: null }] });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/key", { lane: "claude-1" }, { key: "y" });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/key", { lane: "claude-1" }, { key: "y" });
   assert.equal(r.code, 409);
   assert.equal(h.execs.length, 0, "no exec on a refusal — this is the invariant that matters");
   assert.equal(r.payload.data.verdict.state, "running", "and the card is told why");
@@ -135,14 +154,14 @@ test("a refusal sends NOTHING to the lane", async () => {
 
 test("a screen we could not read is a 503, not a guess", async () => {
   const h = harness({ refreshOk: false });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/key", { lane: "repo" }, { key: "enter" });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/key", { lane: "repo" }, { key: "enter" });
   assert.equal(r.code, 503);
   assert.equal(h.execs.length, 0);
 });
 
 test("an unknown lane never reaches the cluster", async () => {
   const h = harness({ verdictsByCall: [waiting("y")] });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/key", { lane: "evil" }, { key: "y" });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/key", { lane: "evil" }, { key: "y" });
   assert.equal(r.code, 404);
   assert.equal(h.sweeps(), 0, "not even a sweep");
   assert.equal(h.execs.length, 0);
@@ -150,7 +169,7 @@ test("an unknown lane never reaches the cluster", async () => {
 
 test("isolate checks the destination before typing the cd", async () => {
   const h = harness({ verdictsByCall: [{ state: "idle", approveKey: null, atShell: true }] });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/isolate", { lane: "codex-1" }, {});
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/isolate", { lane: "codex-1" }, {});
   assert.equal(r.code, 200);
   assert.equal(h.execs.length, 2, "first the test -d, then the send-keys");
   assert.match(h.execs[0].at(-1), /test -d \/workspace\/\.wt\/codex-1/);
@@ -201,7 +220,7 @@ test("a decisão pura: lane do loomd só aprova com pendência TIPADA e com a fo
 
 test("a lane do loomd é aprovada por RPC no mesmo exec da leitura — nenhum send-keys", async () => {
   const h = harness({ loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUp() });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
   assert.equal(r.code, 200, JSON.stringify(r.payload));
   assert.equal(r.payload.data.via, "loomd");
   assert.deepEqual(r.payload.data.pending, { id: "call_42", method: "execCommandApproval" });
@@ -218,7 +237,7 @@ test("a lane do loomd é aprovada por RPC no mesmo exec da leitura — nenhum se
 
 test("allow:false vira negação RPC, com corpo literal", async () => {
   const h = harness({ loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUp() });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, { allow: false });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, { allow: false });
   assert.equal(r.code, 200);
   assert.equal(r.payload.data.allow, false);
   assert.match(String(h.execs[0].at(-1)), /-d '\{"allow":false\}'/);
@@ -229,7 +248,7 @@ test("loomd fora do ar NÃO vira 'aprovei' — e não chega a executar nada", as
     loomdLanes: {},
     loomdTruth: { mode: "down", truthMode: "unknown", lost: ["loom-1"], error: "loomd não respondeu em 127.0.0.1:4400 dentro do pod" },
   });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
   assert.equal(r.code, 503, JSON.stringify(r.payload));
   assert.equal(r.payload.ok, false);
   assert.match(r.payload.error, /down/);
@@ -243,7 +262,7 @@ test("lane do loomd sem pendência não executa nada", async () => {
     loomdLanes: { "loom-1": loomdCard({ state: "running", loomdKind: "tool_call", pendingApproval: null }) },
     loomdTruth: loomdUp(),
   });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
   assert.equal(r.code, 409, JSON.stringify(r.payload));
   assert.match(r.payload.error, /nada para responder/);
   assert.equal(h.execs.length, 0, "nenhum curl numa recusa");
@@ -254,7 +273,7 @@ test("o motivo do loomd chega inteiro ao operador (409 dele = 409 nosso)", async
     loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUp(),
     loomdReply: { httpCode: 409, body: '{"ok":false,"error":"a lane loom-1 não está esperando aprovação"}' },
   });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
   assert.equal(r.code, 409);
   assert.match(r.payload.error, /não está esperando aprovação/);
   assert.match(r.payload.error, /o loomd recusou/);
@@ -267,7 +286,7 @@ test("curl sem código HTTP é 502 — corpo bonito não é entrega", async () =
     loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUp(),
     loomdReply: { httpCode: null, body: "curl: (7) Failed to connect to 127.0.0.1 port 4400", stderr: "curl: (7)" },
   });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane: "loom-1" }, {});
   assert.equal(r.code, 502, JSON.stringify(r.payload));
   assert.match(r.payload.error, /não consegui falar com o loomd/);
 });
@@ -275,7 +294,7 @@ test("curl sem código HTTP é 502 — corpo bonito não é entrega", async () =
 test("nome hostil de lane não chega nem à varredura", async () => {
   const h = harness({ loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUp() });
   for (const lane of ["loom-1; curl http://evil/", "$(id)", "../../etc/passwd", "loom-2", ""]) {
-    const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane }, {});
+    const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane }, {});
     assert.equal(r.code, 404, `deveria recusar ${JSON.stringify(lane)}`);
   }
   assert.equal(h.sweeps(), 0, "nem uma varredura para um nome fora das duas listas");
@@ -290,7 +309,7 @@ test("mesmo se o loomd DECLARAR um nome hostil, o argv não é montado", async (
     loomdLanes: { [hostil]: loomdCard({ sid: hostil }) },
     loomdTruth: loomdUp(),
   });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane: hostil }, {});
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane: hostil }, {});
   assert.equal(r.code, 400, JSON.stringify(r.payload));
   assert.match(r.payload.error, /allowlist/);
   assert.equal(h.execs.length, 0, "nada com metacaractere de shell pode virar exec");
@@ -302,7 +321,7 @@ test("/approve numa lane de TELA recusa e aponta para /key — o servidor não e
   // `approveKey:"enter"` — o DEFAULT quando não casa `(y/n)`. Um pedido sem tecla nomeada
   // confirmaria um comando destrutivo escolhido por heurística.
   const h = harness({ verdictsByCall: [waiting("enter")] });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/approve", { lane: "codex-2" }, { allow: true });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/approve", { lane: "codex-2" }, { allow: true });
   assert.equal(r.code, 409);
   assert.match(r.payload.error, /\/key/, "a recusa tem que dizer por onde aprovar");
   assert.equal(h.execs.length, 0, "e NADA é enviado à lane");
@@ -311,10 +330,118 @@ test("/approve numa lane de TELA recusa e aponta para /key — o servidor não e
 
 test("/key numa lane do loomd recusa com MOTIVO e aponta o caminho certo", async () => {
   const h = harness({ loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUp() });
-  const r = await h.call("/api/mobile/v1/lanes/:lane/key", { lane: "loom-1" }, { key: "y" });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/key", { lane: "loom-1" }, { key: "y" });
   assert.equal(r.code, 409);
   assert.match(r.payload.error, /servida pelo loomd/);
   assert.match(r.payload.error, /lanes\/loom-1\/approve/, "a recusa tem que dizer para onde ir");
   assert.equal(h.sweeps(), 0);
   assert.equal(h.execs.length, 0);
+});
+
+// ─── prompt de texto livre: a maior superfície de escrita, e a forma que a torna segura ─────
+
+const loomdUpAqui = () => ({ mode: "observed", truthMode: "observed", lost: [], error: null });
+
+test("decidePrompt recusa quando a fonte não foi observada — e diz que NÃO entregou", () => {
+  const d = decidePrompt({
+    lane: "loom-1", text: "arruma o E175", card: loomdCard(),
+    truth: { mode: "down", error: "connection refused" },
+  });
+  assert.equal(d.status, 503);
+  assert.match(d.error, /não vou fingir que entreguei/);
+});
+
+test("decidePrompt manda lane de TELA para o terminal, em vez de digitar cego", () => {
+  // Texto livre num pty é digitação cega: sem eco tipado, sem confirmação, sem saber se o agente
+  // estava num prompt ou num menu. A recusa nomeia a saída.
+  const d = decidePrompt({ lane: "claude-1", text: "oi", card: null, truth: loomdUpAqui() });
+  assert.equal(d.status, 409);
+  assert.match(d.error, /digitação cega/);
+  assert.match(d.error, /abra o Terminal/i);
+});
+
+test("decidePrompt exige conteúdo e impõe teto", () => {
+  const truth = loomdUpAqui(), card = loomdCard();
+  assert.equal(decidePrompt({ lane: "loom-1", text: "   \n ", card, truth }).status, 400);
+  assert.equal(decidePrompt({ lane: "loom-1", text: "x".repeat(PROMPT_MAX + 1), card, truth }).status, 413);
+  assert.equal(decidePrompt({ lane: "loom-1", text: "vai", card, truth }).ok, true);
+});
+
+test("🚨 o texto do operador NUNCA aparece no argv — ele vai pelo stdin", async () => {
+  // A invariante desta rodada. Um texto com metacaractere de shell é o caso que decide: se ele
+  // entrasse no `sh -c`, isto aqui seria injeção de comando com autorização do próprio operador.
+  const veneno = 'oi"; rm -rf /workspace; echo "$(whoami)`id`';
+  const h = harness({
+    loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUpAqui(),
+    loomdReply: { httpCode: 202, body: '{"ok":true,"lane":"loom-1"}' },
+  });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/prompt", { lane: "loom-1" }, { text: veneno });
+
+  assert.equal(r.code, 202, "202: o turno foi ACEITO, não concluído");
+  const argv = h.execs.at(-1).join(" ");
+  assert.ok(!argv.includes("rm -rf"), `o texto vazou para o argv: ${argv}`);
+  assert.ok(!argv.includes(veneno));
+  assert.ok(argv.includes("--data-binary @-"), "o corpo é lido do stdin pelo curl");
+  // E foi entregue: um argv limpo com corpo nenhum seria um prompt que não chega.
+  assert.deepEqual(JSON.parse(h.stdinWrites.at(-1)), { text: veneno },
+    "o texto sai pelo stdin, serializado por JSON.stringify");
+});
+
+test("o prompt propaga a recusa do loomd em vez de responder 202", async () => {
+  const h = harness({
+    loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUpAqui(),
+    loomdReply: { httpCode: 404, body: '{"ok":false,"error":"lane desconhecida"}' },
+  });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/prompt", { lane: "loom-1" }, { text: "vai" });
+  assert.equal(r.code, 404);
+  assert.match(r.payload.error, /lane desconhecida/);
+});
+
+test("sem código HTTP, o prompt é 502 e diz que NINGUÉM RESPONDEU — não que recusaram", async () => {
+  // Mesma família do bug que originou o `@@HTTP:`: curl sem resposta sai com 0 e corpo vazio
+  // pareceria sucesso.
+  //
+  // 🚨 A asserção sobre a MENSAGEM é o que faz este teste valer. Testando só o status ele ficava
+  // VERDE com a guarda removida — porque `null < 200` também cai no ramo do "recusou", e o
+  // operador leria "o loomd recusou" para um loomd que nunca respondeu. Dois estados diferentes
+  // (não respondeu · respondeu não) com o mesmo texto é como se perde uma hora no lugar errado.
+  const h = harness({
+    loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUpAqui(),
+    loomdReply: { httpCode: null, body: "" },
+  });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/prompt", { lane: "loom-1" }, { text: "vai" });
+  assert.equal(r.code, 502);
+  assert.match(r.payload.error, /sem resposta do loomd/);
+  assert.doesNotMatch(r.payload.error, /recusou/);
+});
+
+// ─── a conversa: cursor que sobrevive a poll sem novidade ────────────────────────────────
+
+test("os turnos voltam com um cursor que não quebra em lista vazia", async () => {
+  const h = harness({
+    loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUpAqui(),
+    loomdReply: { httpCode: 200, body: '{"ok":true,"events":[]}' },
+  });
+  const r = await h.call("GET /api/mobile/v1/lanes/:lane/turns", { lane: "loom-1" }, null, { since: "42" });
+  assert.equal(r.code, 200);
+  assert.equal(r.payload.data.cursor, 42,
+    "derivar do último elemento devolveria NaN num poll sem novidade — e o cliente voltaria ao começo");
+});
+
+test("os turnos avançam o cursor pelo MAIOR seq visto", async () => {
+  const h = harness({
+    loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUpAqui(),
+    loomdReply: { httpCode: 200, body: '{"ok":true,"events":[{"seq":7},{"seq":9},{"seq":8}]}' },
+  });
+  const r = await h.call("GET /api/mobile/v1/lanes/:lane/turns", { lane: "loom-1" }, null, { since: "0" });
+  assert.equal(r.payload.data.cursor, 9, "o maior, não o último — ordem não é garantia");
+  assert.equal(r.payload.data.events.length, 3);
+});
+
+test("lane de tela não tem turnos, e a recusa explica a diferença", async () => {
+  const h = harness({ verdictsByCall: [{ state: "idle" }] });
+  const r = await h.call("GET /api/mobile/v1/lanes/:lane/turns", { lane: "claude-1" }, null, {});
+  assert.equal(r.code, 409);
+  assert.match(r.payload.error, /scrollback/);
+  assert.equal(h.execs.length, 0, "e nada foi executado no cluster");
 });
