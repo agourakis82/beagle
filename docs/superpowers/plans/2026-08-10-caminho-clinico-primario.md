@@ -26,7 +26,15 @@
 
 ---
 
-### Task 1: Medir o tamanho real da base ampla
+### Task 1: Obter o dump em massa e medir o tamanho real da base ampla
+
+**PREMISSA CORRIGIDA (antes de executar):** não existe dump local. O
+`build_bula.py` atual usa a API `api.fda.gov`, que sem chave dá **1000
+requisições por dia por IP** — suficiente para os 507 do formulário, inútil para
+milhares de ativos. A base ampla exige o download em massa da openFDA (14
+partições, ~1,8 GB), que já foi feito uma vez nesta máquina e não sobrou.
+
+Baixar é o primeiro passo desta tarefa, não um pré-requisito implícito.
 
 O spec estima ~300 MB extrapolando os 29 MB dos 507 atuais. Se passar de alguns GB, a escolha do volume muda. Medir antes de decidir.
 
@@ -36,7 +44,36 @@ O spec estima ~300 MB extrapolando os 29 MB dos 507 atuais. Se passar de alguns 
 **Interfaces:**
 - Produz: um número (MB) e a contagem de ativos distintos, impressos no stdout.
 
-- [ ] **Passo 1: escrever o medidor**
+- [ ] **Passo 1: baixar o dump em massa**
+
+O índice de downloads da openFDA lista as partições com URL e tamanho.
+
+```bash
+mkdir -p /data/openfda-labels && cd /data/openfda-labels
+curl -s https://api.fda.gov/download.json \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)['results']['drug']['label']
+print('particoes:', len(d['partitions']), '| export:', d['export_date'], file=sys.stderr)
+for p in d['partitions']:
+    print(p['file'])
+" > urls.txt
+wc -l urls.txt   # esperado: 14 linhas
+# Sequencial de proposito: e um servico publico e a pressa nao vale o risco de
+# ser barrado no meio.
+while read u; do
+  arq=$(basename "$u")
+  [ -f "${arq%.zip}.json" ] && continue
+  curl -sS --retry 3 -o "$arq" "$u" && unzip -oq "$arq" && rm -f "$arq"
+  sleep 2
+done < urls.txt
+ls -la *.json | wc -l
+```
+
+Esperado: 14 arquivos `.json` descompactados. Guardar a `export_date` — ela vira a
+variável `OPENFDA_VERSAO` do carimbo na Task 2.
+
+- [ ] **Passo 2: escrever o medidor**
 
 ```python
 #!/usr/bin/env python3
@@ -73,16 +110,16 @@ print("texto util:       %.0f MB" % (bytes_secoes / 1048576))
 print("base estimada:    %.0f MB (texto + indice FTS ~1.6x)" % (bytes_secoes * 1.6 / 1048576))
 ```
 
-- [ ] **Passo 2: rodar contra o dump**
+- [ ] **Passo 3: rodar contra o dump**
 
-Rodar: `python3 tools/base-clinica/medir_ampla.py <dir-do-dump-openfda>`
+Rodar: `python3 tools/base-clinica/medir_ampla.py /data/openfda-labels`
 Esperado: imprime os quatro números.
 
-- [ ] **Passo 3: registrar a decisão no spec**
+- [ ] **Passo 4: registrar a decisão no spec**
 
 Se a base estimada ≤ 1 GB, seguir com PVC de 4 Gi. Se maior, abrir uma nota no spec e parar para decidir. Editar a seção "Arquitetura" do spec substituindo "Tamanho ESTIMADO em ~300 MB" pelo número medido.
 
-- [ ] **Passo 4: commit**
+- [ ] **Passo 5: commit**
 
 ```bash
 git add tools/base-clinica/medir_ampla.py docs/superpowers/specs/2026-08-10-caminho-clinico-primario-design.md
