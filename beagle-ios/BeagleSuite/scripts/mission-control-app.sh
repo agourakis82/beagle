@@ -138,7 +138,42 @@ touch "$DEST"
 
 echo "== pronto: $DEST =="
 if [ "${1:-}" = "--install" ]; then
+  # 🚨 REINICIAR, e PROVAR que reiniciou. Isto existe por uma falha medida, não por capricho:
+  # em 10-ago-2026 o operador testou TRÊS vezes um app cujo processo tinha sido lançado CINCO
+  # MINUTOS ANTES do binário novo ser escrito. Copiar para /Applications não toca no app já
+  # aberto — e "testei, não funciona" e "testei o build velho" são indistinguíveis de fora.
+  #
+  # `quit` limpo, nunca `pkill -9`: medido também — matar à força deixa o app reabrindo SEM
+  # janela nenhuma, e aí ele fica com um app inútil e nenhuma pista do porquê.
+  echo "== instalando =="
+  osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+  for _ in $(seq 1 20); do pgrep -f "$APP_NAME.app/Contents/MacOS" >/dev/null || break; sleep 0.5; done
+  pgrep -f "$APP_NAME.app/Contents/MacOS" >/dev/null && { echo "  (não encerrou sozinho; forçando)"; pkill -f "$APP_NAME.app/Contents/MacOS" || true; sleep 2; }
+
   rm -rf "/Applications/$APP_NAME.app"
   cp -R "$DEST" "/Applications/$APP_NAME.app"
-  echo "== instalado em /Applications =="
+  open -a "/Applications/$APP_NAME.app"
+
+  # A PROVA. Um PID mais velho que o binário significa que ele está testando outra coisa.
+  for _ in $(seq 1 24); do PID=$(pgrep -f "/Applications/$APP_NAME.app/Contents/MacOS" | head -1); [ -n "$PID" ] && break; sleep 0.5; done
+  BIN_MTIME=$(stat -f %m "/Applications/$APP_NAME.app/Contents/MacOS/$APP_NAME" 2>/dev/null || echo 0)
+  if [ -z "${PID:-}" ]; then
+    echo "  ⚠️  o app NÃO subiu — nada do que for testado agora vale" >&2; exit 1
+  fi
+  PID_START=$(ps -o lstart= -p "$PID" 2>/dev/null | xargs -0 date -j -f "%a %b %d %T %Y" +%s 2>/dev/null || echo 0)
+  # ESPERAR a janela antes de reportar. Medido: contar imediatamente devolve 0 mesmo quando o app
+  # sobe bem — e um script que existe para PROVAR não pode dar falso alarme; ele perde a autoridade
+  # na primeira vez que grita errado.
+  JANELAS=0
+  for _ in $(seq 1 30); do
+    JANELAS=$(osascript -e "tell application \"System Events\" to tell process \"$APP_NAME\" to count windows" 2>/dev/null || echo 0)
+    [ "${JANELAS:-0}" -ge 1 ] && break
+    sleep 0.5
+  done
+  echo "== instalado e REINICIADO =="
+  echo "   pid=$PID  build=$BUILD_STAMP  janelas=$JANELAS"
+  [ "${JANELAS:-0}" -ge 1 ] || echo "  ⚠️  subiu SEM JANELA — o app está inútil assim (File ▸ New Window)" >&2
+  if [ "$PID_START" -gt 0 ] && [ "$PID_START" -lt "$BIN_MTIME" ]; then
+    echo "  ⚠️  o processo é MAIS VELHO que o binário — ele está rodando o build anterior" >&2; exit 1
+  fi
 fi

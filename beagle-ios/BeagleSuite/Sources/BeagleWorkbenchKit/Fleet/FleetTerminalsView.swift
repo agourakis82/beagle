@@ -1,6 +1,9 @@
 #if os(iOS) || os(macOS)
 import SwiftUI
 import BeagleCore
+#if os(iOS) || os(macOS)
+import class SwiftTerm.TerminalView
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -28,6 +31,7 @@ public struct FleetTerminalsView: View {
     public var body: some View {
         VStack(spacing: 0) {
             agentBar
+            barraDeControles
             statusLine
             Divider().overlay(Color.white.opacity(0.08))
             terminals
@@ -40,6 +44,9 @@ public struct FleetTerminalsView: View {
         }
         .background(switcherShortcut)
         .sheet(isPresented: $showSwitcher) { agentSwitcher }
+        .onReceive(NotificationCenter.default.publisher(for: .abrirGavetaDeSessoes)) { _ in
+            showSwitcher = true
+        }
         .navigationTitle("Fleet")
     }
 
@@ -139,7 +146,7 @@ public struct FleetTerminalsView: View {
                         .padding(2.5)
                         .background(Circle().fill(Self.amber))
                         .overlay(Circle().stroke(Self.canvas, lineWidth: 1.5))
-                        .offset(x: 5, y: -3)
+                        .offset(x: 1, y: 1)
                         // Pulsa só ENQUANTO chama — animação perpétua num canto vira wallpaper e
                         // para de ser vista. `reduce motion` recebe o sino parado, que ainda diz
                         // tudo: a forma é o sinal, o movimento é o reforço.
@@ -149,7 +156,7 @@ public struct FleetTerminalsView: View {
                     Circle().fill(Self.amber)
                         .frame(width: 8, height: 8)
                         .overlay(Circle().stroke(Self.canvas, lineWidth: 1.5))
-                        .offset(x: 3, y: -2)
+                        .offset(x: 1, y: 1)
                         .accessibilityLabel("\(agent) tem saída nova")
                 }
             }
@@ -167,6 +174,74 @@ public struct FleetTerminalsView: View {
             }
         }
     }
+
+    /// A BARRA DE CONTROLES.
+    ///
+    /// 🚨 Existe porque ele disse "não tem controle nenhum", e estava certo: tudo morava em menu, e
+    /// menu não se descobre olhando. Um recurso que só existe atrás de um atalho invisível é um
+    /// recurso que não existe — foi literalmente o caso da gaveta, que tinha ⌘K colidindo e nenhum
+    /// botão.
+    ///
+    /// Os mesmos despachos do menu (`TerminalTools.swift`), não uma segunda implementação: dois
+    /// caminhos para a mesma ação divergem, e aí um funciona e o outro não.
+    #if os(macOS)
+    private var barraDeControles: some View {
+        HStack(spacing: 10) {
+            // O título que a lane anuncia (OSC 0/2) — o que ela está fazendo AGORA.
+            if let t = store.titulo(store.activeAgent) {
+                Text(Self.encurtar(t, teto: 46))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+
+            controle("magnifyingglass", "Buscar (⌘F)") { _ = enviarBusca(.showFindPanel) }
+            controle("textformat.size.smaller", "Diminuir fonte (⌘−)") {
+                enviarAoTerminal(#selector(TerminalView.diminuirFonte(_:)))
+            }
+            controle("textformat.size.larger", "Aumentar fonte (⌘+)") {
+                enviarAoTerminal(#selector(TerminalView.aumentarFonte(_:)))
+            }
+            controle("delete.left", "Limpar tela (⇧⌘K) — apaga o que está desenhado, sem mandar nada para o agente") {
+                enviarAoTerminal(#selector(TerminalView.limparTela(_:)))
+            }
+            Divider().frame(height: 12).overlay(Color.white.opacity(0.12))
+            controle("rectangle.stack", "Trocar de sessão (⌘K)") { showSwitcher = true }
+            controle("arrow.clockwise", "Reconectar esta lane") {
+                store.client(for: store.activeAgent).connect()
+            }
+            // Fechar é o único destrutivo da barra, e o custo é real: solta o socket E o
+            // `tmux attach` no pod. Por isso fica separado e nomeia a lane no tooltip.
+            controle("xmark", "Fechar \(store.activeAgent) — solta o socket e o attach no pod") {
+                store.close(store.activeAgent)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(Self.canvas)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
+        }
+    }
+
+    /// Um controle da barra. `.plain` + `.contentShape` pelo mesmo motivo da gaveta: sem eles a
+    /// área clicável no macOS fica só no glifo, e um alvo de 11pt é um alvo que se erra.
+    private func controle(_ icone: String, _ ajuda: String, _ acao: @escaping () -> Void) -> some View {
+        Button(action: acao) {
+            Image(systemName: icone)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 22, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white.opacity(0.62))
+        .help(ajuda)
+        .accessibilityLabel(ajuda)
+    }
+    #else
+    private var barraDeControles: some View { EmptyView() }
+    #endif
 
     @ViewBuilder private var statusLine: some View {
         let s = store.state(for: store.activeAgent)
@@ -196,6 +271,10 @@ public struct FleetTerminalsView: View {
     private var agentSwitcher: some View {
         NavigationStack {
             List(store.agents, id: \.self) { agent in
+                // 🚨 `.buttonStyle(.plain)` + `.contentShape` NÃO são cosméticos aqui: sem eles, no
+                // macOS a área clicável de um Button dentro de List fica só no TEXTO, não na linha.
+                // Ele clicava na linha e nada acontecia — "selecionar outra sessão não vai". No iPad
+                // a área maior escondia o problema; esta tela foi escrita para iPad.
                 Button {
                     store.open(agent); haptic(); showSwitcher = false
                 } label: {
@@ -211,16 +290,21 @@ public struct FleetTerminalsView: View {
                             Image(systemName: "checkmark").foregroundStyle(Self.amber)
                         }
                     }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
             }
-            .navigationTitle("Switch agent")
+            .navigationTitle("Trocar de sessão")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { showSwitcher = false }
                 }
             }
         }
+        // API de iOS — no macOS é no-op, e deixá-la solta esconde que a gaveta nunca foi portada.
+        #if os(iOS)
         .presentationDetents([.medium, .large])
+        #endif
     }
 
     private func haptic() {

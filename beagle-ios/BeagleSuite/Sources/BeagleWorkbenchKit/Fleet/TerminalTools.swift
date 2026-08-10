@@ -47,6 +47,15 @@ public enum TerminalAtivo {
     }
 }
 
+public extension Notification.Name {
+    /// A gaveta de sessões, aberta pelo menu.
+    ///
+    /// Vive em `BeagleWorkbenchKit` e não na Scene por dependência: a Scene importa este módulo,
+    /// nunca o contrário. E é notificação, não estado compartilhado, porque o menu não deveria
+    /// guardar nada sobre uma tela que ele nem sabe se está aberta.
+    static let abrirGavetaDeSessoes = Notification.Name("abrirGavetaDeSessoes")
+}
+
 // MARK: - O que o SwiftTerm não tem
 
 extension TerminalView {

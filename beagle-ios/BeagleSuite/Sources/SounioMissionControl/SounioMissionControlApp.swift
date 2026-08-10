@@ -71,8 +71,20 @@ struct SounioMissionControlApp: App {
                 Divider()
                 // ⌘K limpa o que está DESENHADO, sem mandar nada pelo socket: mandar `^L` seria
                 // digitar no agente, e num prompt de agente isso vira entrada, não comando.
+                // 🚨 ⇧⌘K, não ⌘K. Eu criei uma COLISÃO ontem: este item (um NSMenuItem de verdade,
+                // no nível da Scene) vencia o Button invisível que abre a gaveta em
+                // `FleetTerminalsView`. Resultado: ⌘K limpava a tela e a gaveta NUNCA abria — e não
+                // havia nenhum outro caminho de UI para ela. Trocar de sessão é muito mais
+                // frequente que limpar, então ⌘K fica com a gaveta.
                 Button("Limpar tela") { enviarAoTerminal(#selector(TerminalView.limparTela(_:))) }
-                    .keyboardShortcut("k", modifiers: .command)
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                Divider()
+                // O caminho VISÍVEL para a gaveta. Um atalho invisível como único acesso é um
+                // recurso que não existe: não se descobre olhando, e não se descobre procurando.
+                Button("Trocar de sessão…") {
+                    NotificationCenter.default.post(name: .abrirGavetaDeSessoes, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
                 Button("Frota") { NotificationCenter.default.post(name: .missionControlGo, object: Section.frota) }

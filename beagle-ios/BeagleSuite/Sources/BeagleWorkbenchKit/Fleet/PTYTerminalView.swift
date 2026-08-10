@@ -65,7 +65,17 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
     /// `firstResponder != nsView` evita reivindicar a cada redesenho — pedir foco em laço briga
     /// com qualquer campo de texto que exista na mesma janela.
     public func updateNSView(_ nsView: TerminalView, context: Context) {
-        guard let janela = nsView.window, janela.firstResponder !== nsView else { return }
+        // 🚨 A GUARDA QUE CONSERTA A GAVETA. Sem `attachedSheet == nil`, este `makeFirstResponder`
+        // roda a cada `update` — inclusive com a gaveta (`.sheet`) apresentada — e rouba o foco de
+        // volta para o terminal. A lista da gaveta então para de responder ao clique, que é
+        // exatamente o "selecionar outra sessão não vai" que ele relatou. Fui eu que introduzi isto.
+        //
+        // `isKeyWindow` pelo mesmo motivo, um degrau acima: reivindicar foco numa janela que não é
+        // a ativa mexe no foco de OUTRO app.
+        guard let janela = nsView.window,
+              janela.isKeyWindow,
+              janela.attachedSheet == nil,
+              janela.firstResponder !== nsView else { return }
         // Assíncrono: durante o `update` a hierarquia ainda está sendo montada, e um
         // `makeFirstResponder` aqui pode ser desfeito pelo próprio ciclo de layout.
         // Só a lane VISÍVEL reivindica: registrar uma invisível mandaria o ⌘V para um terminal
@@ -73,7 +83,10 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
         guard ativo else { return }
         registrarSeAtivo(nsView)
         DispatchQueue.main.async { [weak nsView] in
-            guard let v = nsView, let w = v.window, w.firstResponder !== v else { return }
+            // Reconferido no assíncrono: entre o agendamento e a execução a gaveta pode ter
+            // aberto, e aí o roubo aconteceria mesmo com a guarda de cima.
+            guard let v = nsView, let w = v.window,
+                  w.isKeyWindow, w.attachedSheet == nil, w.firstResponder !== v else { return }
             w.makeFirstResponder(v)
         }
     }
@@ -87,7 +100,14 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
         init(client: PTYClient) { self.client = client }
 
         func makeTerminal() -> TerminalView {
+            // No Mac, a SUBCLASSE: é ela que traz menu de contexto, `acceptsFirstMouse` e o foco
+            // no clique — coisas que o SwiftTerm não tem, e que SwiftUI (em beta) não garante por
+            // cima. No iOS o `TerminalView` cru basta: lá não há clique direito nem janela inativa.
+            #if os(macOS)
+            let tv = TerminalDaFrota(frame: .zero)
+            #else
             let tv = TerminalView(frame: .zero)
+            #endif
             tv.terminalDelegate = self
             terminal = tv
             // Cockpit identity: plum canvas, light text. This used to be iOS-only, so the Mac
