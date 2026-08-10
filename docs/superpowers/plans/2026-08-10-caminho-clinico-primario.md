@@ -1082,7 +1082,7 @@ Esperado: testes passam, build SUCCEEDED.
 - [ ] **Passo 6: commit**
 
 ```bash
-git add -A
+git add <apenas os arquivos desta tarefa>   # NUNCA -A: outra sessao commita neste mesmo repo
 git commit -m "clinico: o aviso de 'nao acompanha offline' vira FATO verificado
 
 A cobertura online e ampla e a offline e estreita — escolha dele. O preco e que
