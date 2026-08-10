@@ -117,6 +117,9 @@ export function loomdCard(l, readAtMs) {
       ? l.streaming_text : null,
     // Comando ou patch: decide o rótulo do botão porque decide o risco.
     approvalKind: l?.pending_kind || null,
+    // O turno EM CURSO. É o que decide se a tela oferece parar/guiar — e a resposta vem daqui,
+    // nunca de um palpite do cliente sobre o último passo que ele viu.
+    currentTurn: l?.current_turn || null,
     turns: Number(l?.turns) || 0,
     session: l?.session ? String(l.session) : null,
     atShell: false,
@@ -173,6 +176,7 @@ export function fuseFleet(entries, loomdLanes) {
       diff: l.diff,
       streamingText: l.streamingText,
       approvalKind: l.approvalKind,
+      currentTurn: l.currentTurn,
       turns: l.turns,
       approveKey: null,          // aprovação por RPC, não por tecla — ver loomdCard
       // Idem: o frescor vem da leitura do loomd, não do último evento da lane.

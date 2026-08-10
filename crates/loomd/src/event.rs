@@ -187,6 +187,22 @@ pub fn thread_id(v: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// O id do TURNO, onde quer que esta versão do Codex o tenha posto.
+///
+/// 🚨 MEDIDO ao tentar interromper um turno vivo e receber "nenhum turno em curso": a forma não é
+/// uniforme, exatamente como no `threadId`.
+///   turn/started, turn/completed  → params.turn.id
+///   item/*, turn/diff/updated     → params.turnId
+/// Ler só `turnId` fazia o `turn/started` — o ÚNICO evento que abre o turno — passar sem alvo, e
+/// então `turn/interrupt`/`turn/steer` recusavam por falta de precondição. A armadilha já estava
+/// documentada no README para a thread; o turno caiu nela do mesmo jeito.
+pub fn turn_id(v: &serde_json::Value) -> Option<String> {
+    v.get("turnId")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("turn").and_then(|t| t.get("id")).and_then(|x| x.as_str()))
+        .map(str::to_string)
+}
+
 // ─── Claude Code: hooks HTTP ────────────────────────────────────────────────────────────────
 // O CLI liga de volta a cada transição. Não somos donos do processo — é CONFIGURAÇÃO.
 // É isso que permite supervisionar lane que já estava rodando.
@@ -286,7 +302,7 @@ pub fn from_codex_notification(lane: &str, method: &str, p: &serde_json::Value) 
     };
     let mut e = AgentEvent::new(lane, kind, Confidence::Exact);
     e.session = thread_id(p);
-    e.turn = s(p, "turnId");
+    e.turn = turn_id(p);
     e.diff = s(p, "diff");
     match kind {
         // O pedaço vem cru em `delta`. Quem monta a mensagem é o runtime; aqui só se traduz.
@@ -538,5 +554,21 @@ mod tests {
         assert_eq!(ApprovalKind::of("item/commandExecution/requestApproval"), ApprovalKind::Command);
         assert_eq!(ApprovalKind::of("execCommandApproval"), ApprovalKind::Command);
         assert_eq!(ApprovalKind::of("item/permissions/requestApproval"), ApprovalKind::Other);
+    }
+
+    #[test]
+    fn o_id_do_turno_e_lido_nas_duas_formas() {
+        // A mesma armadilha do threadId, paga de novo — e descoberta só ao tentar interromper um
+        // turno vivo e ouvir "nenhum turno em curso".
+        let aninhado = serde_json::json!({"threadId":"th","turn":{"id":"tu-7","status":"inProgress"}});
+        assert_eq!(turn_id(&aninhado).as_deref(), Some("tu-7"));
+        let plano = serde_json::json!({"threadId":"th","turnId":"tu-9"});
+        assert_eq!(turn_id(&plano).as_deref(), Some("tu-9"));
+
+        // E pelo caminho que importa: `turn/started` é o único evento que ABRE o turno.
+        let e = from_codex_notification("c", "turn/started", &aninhado).unwrap();
+        assert_eq!(e.kind, Kind::TurnStarted);
+        assert_eq!(e.turn.as_deref(), Some("tu-7"),
+            "sem isto o turno nasce sem alvo e não dá para interromper nem guiar");
     }
 }

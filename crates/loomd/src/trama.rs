@@ -49,6 +49,11 @@ pub struct LaneState {
     /// Último diff proposto — respondido da trama, sem grep em rio ANSI.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_diff: Option<String>,
+    /// O turno EM CURSO. `turn/interrupt` e `turn/steer` exigem `turnId` como precondição, e o
+    /// loomd recebia esse id em todo evento e o descartava — dava para ver a lane trabalhando e
+    /// não havia como falar com o turno. `None` = nada rodando.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_turn: Option<String>,
     /// Comando ou patch, quando há aprovação pendente. Muda o rótulo do botão porque muda o risco.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_kind: Option<crate::event::ApprovalKind>,
@@ -139,6 +144,7 @@ impl Trama {
             session: None,
             pending_approval: None,
             pending_kind: None,
+            current_turn: None,
             last_diff: None,
             streaming_text: None,
             turns: 0,
@@ -186,6 +192,12 @@ impl Trama {
     pub fn session_of(&self, lane: &str) -> Option<String> {
         let g = self.inner.lock().unwrap();
         g.lanes.get(lane).and_then(|s| s.session.clone())
+    }
+
+    /// O turno em curso, se houver. É a precondição de `turn/interrupt` e `turn/steer`.
+    pub fn current_turn(&self, lane: &str) -> Option<String> {
+        let g = self.inner.lock().unwrap();
+        g.lanes.get(lane).and_then(|s| s.current_turn.clone())
     }
 
     /// O maior `seq` já emitido. Existe para o teste poder afirmar a monotonicidade sem
@@ -281,6 +293,7 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
         session: None,
         pending_approval: None,
         pending_kind: None,
+        current_turn: None,
         last_diff: None,
         streaming_text: None,
         turns: 0,
@@ -296,6 +309,13 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
     }
     if e.kind == Kind::TurnStarted {
         st.turns += 1;
+        st.current_turn = e.turn.clone();
+    }
+    // Fim de turno, ociosidade ou queda de sessão: não há mais turno com quem falar. Deixar o id
+    // para trás faria um "interromper" mirar num turno que já acabou — e o codex recusa com uma
+    // precondição, o que na tela viraria um botão que falha sem explicação.
+    if matches!(e.kind, Kind::TurnEnded | Kind::Idle | Kind::SessionEnded) {
+        st.current_turn = None;
     }
 
     match e.kind {
@@ -607,5 +627,42 @@ mod tests {
         t.append(AgentEvent::new("codex-1", Kind::TurnEnded, Confidence::Exact));
         let st = t.state().into_iter().find(|l| l.lane == "codex-1").unwrap();
         assert!(st.pending_kind.is_none() && st.pending_approval.is_none());
+    }
+
+    #[test]
+    fn o_turno_corrente_existe_enquanto_ele_roda_e_some_quando_acaba() {
+        // 🚨 `turn/interrupt` e `turn/steer` exigem `turnId` como PRECONDIÇÃO. O loomd recebia
+        // esse id em todo evento e o descartava — dava para ver a lane trabalhando e não havia
+        // como falar com o turno. E o inverso importa igual: deixar o id para trás faria um
+        // "interromper" mirar num turno já encerrado, que o codex recusa — na tela, um botão que
+        // falha sem explicação.
+        let t = Trama::open(arquivo_novo("turno-corrente"));
+        assert_eq!(t.current_turn("codex-1"), None, "lane parada não tem turno");
+
+        let mut inicio = AgentEvent::new("codex-1", Kind::TurnStarted, Confidence::Exact);
+        inicio.turn = Some("tu-7".into());
+        t.append(inicio);
+        assert_eq!(t.current_turn("codex-1").as_deref(), Some("tu-7"));
+
+        // Um evento no MEIO do turno não pode apagar o alvo.
+        t.append(AgentEvent::new("codex-1", Kind::ToolCall, Confidence::Exact));
+        assert_eq!(t.current_turn("codex-1").as_deref(), Some("tu-7"));
+
+        t.append(AgentEvent::new("codex-1", Kind::TurnEnded, Confidence::Exact));
+        assert_eq!(t.current_turn("codex-1"), None, "turno encerrado não é alvo");
+    }
+
+    #[test]
+    fn a_lane_ociosa_perde_o_alvo_mesmo_sem_turn_ended() {
+        // O codex nem sempre fecha com `turn/completed` — uma queda de sessão ou um `idle`
+        // também significam "não há mais turno". Confiar só no fim feliz deixaria o id preso.
+        for fim in [Kind::Idle, Kind::SessionEnded] {
+            let t = Trama::open(arquivo_novo(&format!("turno-{fim:?}")));
+            let mut inicio = AgentEvent::new("c", Kind::TurnStarted, Confidence::Exact);
+            inicio.turn = Some("tu-1".into());
+            t.append(inicio);
+            t.append(AgentEvent::new("c", fim, Confidence::Exact));
+            assert_eq!(t.current_turn("c"), None, "{fim:?} deveria limpar o alvo");
+        }
     }
 }

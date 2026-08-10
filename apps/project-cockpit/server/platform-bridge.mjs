@@ -298,6 +298,26 @@ export function loomdPromptArgv(ns, lane) {
   return ["-n", ns, "exec", "-i", spec.pod, "-c", spec.container, "--", ...tmuxSu(spec, inner)];
 }
 
+/// Parar o turno em curso, ou GUIÁ-LO sem matar.
+///
+/// A distinção não é detalhe: interromper joga fora o que o agente já fez; guiar acrescenta
+/// instrução ao turno que está correndo. Quando dá para corrigir o rumo em vez de recomeçar,
+/// guiar é sempre mais barato — e é por isso que as duas existem em vez de só a primeira.
+///
+/// `steer` carrega TEXTO LIVRE, então segue a mesma regra do prompt: o corpo vai pelo STDIN,
+/// nunca pelo argv. `interrupt` não tem corpo.
+export function loomdTurnArgv(ns, lane, acao) {
+  if (!SAFE_LOOMD_LANE.test(String(lane || ""))) return null;
+  if (acao !== "interrupt" && acao !== "steer") return null;
+  const spec = SESSION_ALLOWLIST[WORKSPACE_LANES[0]];
+  const corpo = acao === "steer" ? ' --data-binary @-' : "";
+  const inner =
+    `curl -sS --max-time ${LOOMD_TIMEOUT_S} -X POST -H "Content-Type: application/json"` +
+    `${corpo} -w "\\n${LOOMD_HTTP_DELIM}%{http_code}"` +
+    ` ${LOOMD_BASE}/v2/lanes/${lane}/${acao}`;
+  return ["-n", ns, "exec", "-i", spec.pod, "-c", spec.container, "--", ...tmuxSu(spec, inner)];
+}
+
 /// Lê a trama de uma lane a partir de um cursor. É o que a Sessão consome para desenhar a
 /// conversa: `seq` monotônico, então o cliente só pede o que ainda não viu.
 ///

@@ -267,3 +267,16 @@ test("a fusão preserva diff, parcial e tipo de aprovação", () => {
   assert.equal(c.streamingText, "meio");
   assert.equal(c.approvalKind, "patch");
 });
+
+test("o turno em curso atravessa — é o que acende parar/guiar", () => {
+  // Explícito, e não derivado do parcial: um turno que ainda não emitiu texto também é um turno,
+  // e é justamente aí que mais se quer o botão de parar.
+  assert.equal(loomdCard(lane({ current_turn: "tu-7" })).currentTurn, "tu-7");
+  assert.equal(loomdCard(lane()).currentTurn, null);
+  const fundido = fuseFleet(
+    [card("loom-1", { source: "loomd" })],
+    new Map([["loom-1", loomdCard(lane({ current_turn: "tu-7" }))]]),
+  );
+  assert.equal(fundido.find((x) => x.sid === "loom-1").currentTurn, "tu-7",
+    "a fusão não pode desfazer o contrato — já aconteceu antes");
+});

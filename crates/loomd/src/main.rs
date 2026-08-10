@@ -69,6 +69,8 @@ async fn main() {
         .route("/v2/trama", get(since))
         .route("/v2/lanes/:lane/approve", post(approve))
         .route("/v2/lanes/:lane/prompt", post(prompt))
+        .route("/v2/lanes/:lane/interrupt", post(interrupt))
+        .route("/v2/lanes/:lane/steer", post(steer))
         .with_state(app_state);
 
     eprintln!("[loomd] {addr} · trama={jsonl} · lanes codex: {lanes:?}");
@@ -146,6 +148,40 @@ struct PromptBody {
 
 /// Dirigir a lane sem terminal: texto entra por HTTP, o turno acontece, e tudo que ele fizer
 /// volta pela trama como evento tipado.
+/// Parar o turno em curso. 409 quando não há turno — pedir para interromper uma lane parada é
+/// erro do chamador, e o motivo tem que dizer isso em vez de um 500 genérico.
+async fn interrupt(
+    State(a): State<App>,
+    Path(lane): Path<String>,
+) -> (axum::http::StatusCode, Json<serde_json::Value>) {
+    let Some(l) = a.codex.get(&lane) else {
+        return err(axum::http::StatusCode::NOT_FOUND, format!("lane {lane} não é supervisionada pelo loomd"));
+    };
+    match l.interrupt().await {
+        Ok(()) => (axum::http::StatusCode::ACCEPTED, Json(serde_json::json!({"ok":true,"lane":lane}))),
+        Err(e) => err(axum::http::StatusCode::CONFLICT, e),
+    }
+}
+
+/// GUIAR o turno em curso sem matá-lo — acrescenta instrução ao que já está correndo.
+/// É mais barato que interromper: interromper joga fora o trabalho já feito.
+async fn steer(
+    State(a): State<App>,
+    Path(lane): Path<String>,
+    Json(b): Json<PromptBody>,
+) -> (axum::http::StatusCode, Json<serde_json::Value>) {
+    let Some(l) = a.codex.get(&lane) else {
+        return err(axum::http::StatusCode::NOT_FOUND, format!("lane {lane} não é supervisionada pelo loomd"));
+    };
+    if b.text.trim().is_empty() {
+        return err(axum::http::StatusCode::BAD_REQUEST, "guiar exige texto".to_string());
+    }
+    match l.steer(&b.text).await {
+        Ok(()) => (axum::http::StatusCode::ACCEPTED, Json(serde_json::json!({"ok":true,"lane":lane}))),
+        Err(e) => err(axum::http::StatusCode::CONFLICT, e),
+    }
+}
+
 async fn prompt(
     State(a): State<App>,
     Path(lane): Path<String>,

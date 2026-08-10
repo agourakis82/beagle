@@ -445,3 +445,51 @@ test("lane de tela não tem turnos, e a recusa explica a diferença", async () =
   assert.match(r.payload.error, /scrollback/);
   assert.equal(h.execs.length, 0, "e nada foi executado no cluster");
 });
+
+// ─── parar ou guiar o turno ─────────────────────────────────────────────────────────────────
+
+test("lane de TELA é mandada para a tecla esc, não para o loomd", async () => {
+  // Interromper existe nas duas categorias; o MECANISMO é que difere. Dizer "lane desconhecida"
+  // aqui mandaria ele procurar um erro que não existe.
+  const h = harness({ verdictsByCall: [{ state: "running" }] });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/interrupt", { lane: "claude-1" }, {});
+  assert.equal(r.code, 409);
+  assert.match(r.payload.error, /key.*esc/);
+  assert.equal(h.execs.length, 0, "e nada foi executado no cluster");
+});
+
+test("guiar exige texto, e o texto vai pelo STDIN", async () => {
+  const h = harness({
+    loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUpAqui(),
+    loomdReply: { httpCode: 202, body: '{"ok":true,"lane":"loom-1"}' },
+  });
+  assert.equal((await h.call("POST /api/mobile/v1/lanes/:lane/steer", { lane: "loom-1" }, { text: "  " })).code, 400);
+
+  const veneno = 'muda o rumo"; rm -rf /workspace';
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/steer", { lane: "loom-1" }, { text: veneno });
+  assert.equal(r.code, 202);
+  const argv = h.execs.at(-1).join(" ");
+  assert.ok(!argv.includes("rm -rf"), "o texto de guiar vazou para o argv");
+  assert.deepEqual(JSON.parse(h.stdinWrites.at(-1)), { text: veneno });
+});
+
+test("o 409 do loomd ATRAVESSA — 'nenhum turno em curso' não é falha de transporte", async () => {
+  // Transformar a recusa do chamador em 502 mandaria o operador caçar rede quando o problema é
+  // que a lane está parada.
+  const h = harness({
+    loomdLanes: { "loom-1": loomdCard() }, loomdTruth: loomdUpAqui(),
+    loomdReply: { httpCode: 409, body: '{"ok":false,"error":"nenhum turno em curso nesta lane"}' },
+  });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/interrupt", { lane: "loom-1" }, {});
+  assert.equal(r.code, 409);
+  assert.match(r.payload.error, /nenhum turno em curso/);
+});
+
+test("fonte não observada: não digo que parei o turno", async () => {
+  const h = harness({ loomdLanes: { "loom-1": loomdCard() },
+    loomdTruth: { mode: "down", truthMode: "unknown", lost: [], error: "connection refused" } });
+  const r = await h.call("POST /api/mobile/v1/lanes/:lane/interrupt", { lane: "loom-1" }, {});
+  assert.equal(r.code, 503);
+  assert.match(r.payload.error, /não vou dizer que parei/);
+  assert.equal(h.execs.length, 0);
+});

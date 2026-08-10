@@ -20,7 +20,7 @@ import { execFile } from "node:child_process";
 import {
   WORKSPACE_LANES, LANE_KEYS, LANE_WT_ROOT,
   laneSendKeyArgv, laneIsolateArgv, laneWorktreeCheckArgv,
-  loomdApproveArgv, loomdPromptArgv, loomdTramaArgv, parseLoomdHttp, loomdErrorOf,
+  loomdApproveArgv, loomdPromptArgv, loomdTramaArgv, loomdTurnArgv, parseLoomdHttp, loomdErrorOf,
 } from "./platform-bridge.mjs";
 
 /// States in which typing a `cd` at the lane is sound at all. Necessary, NOT sufficient: see the
@@ -353,6 +353,59 @@ export function registerLaneActionRoutes(app, {
     res.status(202).json({ ok: true, data: { lane, accepted: true, chars: d.text.length } });
   });
 
+  /// Parar o turno, ou GUIÁ-LO. Duas ações no mesmo lugar porque a decisão é a mesma — "este
+  /// turno está indo para o lugar errado" — e o que muda é quanto se joga fora.
+  for (const acao of ["interrupt", "steer"]) {
+    app.post(`/api/mobile/v1/lanes/:lane/${acao}`, async (req, res) => {
+      const lane = String(req.params.lane || "");
+      const text = String((req.body || {}).text ?? "");
+
+      if (!servedByLoomd(lane)) {
+        // Numa lane de tela quem interrompe é a tecla `esc`, que a rota `/key` já entrega.
+        return res.status(409).json({
+          ok: false,
+          error: `a lane ${lane} é servida por tela — interrompa com POST /api/mobile/v1/lanes/${lane}/key {"key":"esc"}`,
+        });
+      }
+      if (acao === "steer" && !text.trim()) {
+        return res.status(400).json({ ok: false, error: "guiar exige texto" });
+      }
+      const verdict = await freshVerdict(lane, res);
+      if (!verdict) return;
+      const truth = poller.loomdTruth();
+      if (truth.mode !== "observed") {
+        return res.status(503).json({
+          ok: false,
+          error: `o loomd não respondeu nesta leitura (${truth.mode}) — não vou dizer que parei o turno`,
+          data: { truth },
+        });
+      }
+
+      const argv = loomdTurnArgv(ns, lane, acao);
+      if (!argv) return res.status(400).json({ ok: false, error: "ação recusada pelo allowlist" });
+      const r = acao === "steer"
+        ? await runWithInput(kubectl, argv, execFn, JSON.stringify({ text }))
+        : await run(kubectl, argv, execFn);
+      const http = parseLoomdHttp(r.stdout);
+      if (http.code === null) {
+        return res.status(502).json({
+          ok: false,
+          error: `sem resposta do loomd: ${r.stderr || r.err?.message || "motivo desconhecido"}`,
+        });
+      }
+      if (http.code < 200 || http.code >= 300) {
+        // 409 do loomd = "nenhum turno em curso". É recusa do CHAMADOR, e o status precisa
+        // atravessar: transformá-la em 502 mandaria o operador caçar falha de transporte.
+        return res.status(http.code === 409 || http.code === 404 ? http.code : 502).json({
+          ok: false,
+          error: loomdErrorOf(http.body) || `o loomd recusou (HTTP ${http.code})`,
+        });
+      }
+      await poller.refreshNow();
+      res.status(202).json({ ok: true, data: { lane, acao } });
+    });
+  }
+
   /// A CONVERSA, a partir de um cursor. `seq` é monotônico e atravessa reinício do loomd, então o
   /// cliente pede só o que ainda não viu — e não precisa de socket para acompanhar um turno.
   app.get("/api/mobile/v1/lanes/:lane/turns", async (req, res) => {
@@ -389,8 +442,14 @@ export function registerLaneActionRoutes(app, {
     // O cursor volta com a resposta para o cliente não ter que derivá-lo — derivar do último
     // elemento quebra em lista vazia, que é o caso comum de um poll sem novidade.
     const cursor = events.reduce((m, e) => Math.max(m, Number(e?.seq) || 0), Number(since) || 0);
-    res.json({ ok: true, data: { lane, since: Number(since) || 0, cursor, events,
-      streaming: poller.loomd(lane)?.streamingText || null } });
+    const card = poller.loomd(lane);
+    res.json({ ok: true, data: {
+      lane, since: Number(since) || 0, cursor, events,
+      streaming: card?.streamingText || null,
+      // Explícito, e não derivado do parcial: um turno que ainda não emitiu texto também é um
+      // turno, e a tela precisa oferecer "parar" nele — que é justamente quando mais se quer.
+      turnRunning: Boolean(card?.currentTurn),
+    } });
   });
 
   app.post("/api/mobile/v1/lanes/:lane/isolate", async (req, res) => {

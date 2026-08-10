@@ -284,6 +284,48 @@ impl CodexLane {
         Ok(())
     }
 
+    /// Parar um turno em curso.
+    ///
+    /// `turn/interrupt` exige `{threadId, turnId}` — o `turnId` é PRECONDIÇÃO, não enfeite: sem
+    /// ele o codex recusa, e na tela isso viraria um botão que falha sem dizer por quê. O id vem
+    /// da trama, que já o recebia em todo evento e o descartava.
+    pub async fn interrupt(&self) -> Result<(), String> {
+        let (tid, turn) = self.alvo_de_turno().await?;
+        self.send(serde_json::json!({
+            "jsonrpc":"2.0","id":902,"method":"turn/interrupt",
+            "params":{"threadId": tid, "turnId": turn}
+        })).await;
+        Ok(())
+    }
+
+    /// GUIAR um turno em curso, sem matá-lo.
+    ///
+    /// A diferença que importa no uso: interromper joga fora o que o agente já fez; guiar
+    /// acrescenta instrução ao turno que está correndo. Quando dá para corrigir o rumo em vez de
+    /// recomeçar, guiar é sempre mais barato — e é o que a tela deve oferecer primeiro.
+    pub async fn steer(&self, text: &str) -> Result<(), String> {
+        let (tid, turn) = self.alvo_de_turno().await?;
+        self.send(serde_json::json!({
+            "jsonrpc":"2.0","id":903,"method":"turn/steer",
+            "params":{
+                "threadId": tid,
+                "expectedTurnId": turn,
+                "input":[{"type":"text","text": text}]
+            }
+        })).await;
+        Ok(())
+    }
+
+    /// A thread e o turno com quem falar. Recusa CEDO e com motivo: pedir para interromper uma
+    /// lane parada é erro do chamador, não falha de transporte, e o 409 tem que dizer isso.
+    async fn alvo_de_turno(&self) -> Result<(String, String), String> {
+        let tid = self.thread.lock().await.clone()
+            .ok_or_else(|| "a lane ainda não abriu thread — não há turno".to_string())?;
+        let turn = self.trama.current_turn(&self.lane)
+            .ok_or_else(|| "nenhum turno em curso nesta lane".to_string())?;
+        Ok((tid, turn))
+    }
+
     async fn prompt_inner(&self, text: &str) -> Result<String, String> {
         let tid = {
             let g = self.thread.lock().await;
