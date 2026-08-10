@@ -155,6 +155,37 @@ public struct FleetEndpoint: Sendable {
         return req
     }
 
+    /// Um pedido em TEXTO LIVRE para uma lane de protocolo.
+    ///
+    /// O texto vai no CORPO, e a única razão de isto ser dizível em uma linha é que o servidor
+    /// nunca o interpola num shell: ele o repassa pelo stdin do exec. A checagem de charset aqui
+    /// é do `sid` — que entra no caminho da URL — nunca do texto, que é livre por definição.
+    ///
+    /// O 202 do servidor significa ACEITO, não concluído: quem conta o resto é a trama.
+    public func lanePromptRequest(sid: String, text: String) -> URLRequest? {
+        guard Self.isLaneName(sid) else { return nil }
+        guard var req = jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/prompt") else { return nil }
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
+        return req
+    }
+
+    /// A conversa a partir de um cursor. `since` é o maior `seq` já visto — o servidor devolve o
+    /// próximo cursor pronto, então o cliente nunca o deriva do último elemento (que é `nil`
+    /// quando o poll não trouxe novidade, o caso comum).
+    public func laneTurnsRequest(sid: String, since: Int) -> URLRequest? {
+        guard Self.isLaneName(sid), since >= 0 else { return nil }
+        return jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/turns?since=\(since)")
+    }
+
+    /// Charset de nome de lane que pode entrar num caminho de URL. Espelha `SAFE_LOOMD_LANE` do
+    /// servidor — que é a tranca de verdade; esta evita construir um request condenado.
+    static func isLaneName(_ sid: String) -> Bool {
+        !sid.isEmpty && sid.count <= 64
+            && sid.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+    }
+
     public func laneIsolateRequest(sid: String) -> URLRequest? {
         guard Self.isKnownAgent(sid) else { return nil }
         guard var req = jsonRequest(path: "/api/mobile/v1/lanes/\(sid)/isolate") else { return nil }

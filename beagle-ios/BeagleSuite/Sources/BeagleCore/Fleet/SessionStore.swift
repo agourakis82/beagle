@@ -1,0 +1,284 @@
+import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+import Observation
+
+// SESSÃO — a conversa de uma lane, montada dos eventos do protocolo.
+//
+// Por que um modelo próprio, e não `ChatMessage`: uma sessão de agente não é uma conversa. Ela
+// tem chamada de ferramenta, diff proposto e pedido de aprovação — três coisas que uma bolha de
+// chat não sabe carregar, e que são exatamente o que o operador precisa ver para decidir.
+// Reaproveitar a bolha faria diff e aprovação virarem anexo dentro de um balão, que é a forma de
+// "nem uma coisa nem outra" que motivou esta rodada.
+//
+// O transporte é polling com cursor, não socket. A escolha é medida, não preguiça: `seq` é
+// monotônico e ATRAVESSA reinício do loomd, então um poll perdido se recupera sozinho na próxima
+// volta. Um socket dá latência menor e devolve o problema de reconexão, deduplicação e cursor —
+// que é justamente o que o `seq` já resolve. Se a latência incomodar, o teto é SSE no loomd; não
+// é remendar aqui.
+
+/// O que o agente fez num passo. `Kind` do loomd, traduzido para o que a tela desenha.
+public enum SessionStep: Sendable, Equatable, Identifiable {
+    /// O que o operador pediu.
+    case prompt(id: Int, text: String, at: Date)
+    /// O que o agente respondeu, inteiro.
+    case message(id: Int, text: String, at: Date)
+    /// Ferramenta executada — nome e alvo, uma linha. Não é texto para ler, é rastro para varrer.
+    case tool(id: Int, name: String, detail: String, at: Date)
+    /// Mudança proposta, em unified diff.
+    case diff(id: Int, patch: String, at: Date)
+    /// O agente parou e está esperando. `kind` decide o rótulo: patch se desfaz por git, comando não.
+    case approval(id: Int, kind: ApprovalKind, detail: String, at: Date)
+    /// Algo quebrou. Erro é conteúdo de primeira classe: escondê-lo faz a tela mentir por omissão.
+    case failure(id: Int, text: String, at: Date)
+
+    public enum ApprovalKind: String, Sendable, Codable {
+        case command, patch, other
+
+        public var label: String {
+            switch self {
+            case .command: return "rodar um comando"
+            case .patch: return "aplicar uma mudança"
+            case .other: return "seguir"
+            }
+        }
+        /// Comando não se desfaz; patch sim. A tela diz isso ANTES do toque, não depois.
+        public var reversible: Bool { self == .patch }
+    }
+
+    public var id: Int {
+        switch self {
+        case .prompt(let i, _, _), .message(let i, _, _), .tool(let i, _, _, _),
+             .diff(let i, _, _), .approval(let i, _, _, _), .failure(let i, _, _):
+            return i
+        }
+    }
+    public var at: Date {
+        switch self {
+        case .prompt(_, _, let t), .message(_, _, let t), .diff(_, _, let t),
+             .failure(_, _, let t):
+            return t
+        case .tool(_, _, _, let t), .approval(_, _, _, let t):
+            return t
+        }
+    }
+
+    /// Quem falou. A tela alinha e colore por isto — e é a pergunta que o olho faz primeiro.
+    public var isOperator: Bool { if case .prompt = self { return true }; return false }
+}
+
+/// Um evento cru da trama, como o cockpit o devolve em `/turns`.
+public struct TramaEvent: Decodable, Sendable {
+    public let seq: Int
+    public let tsMs: Double
+    public let lane: String
+    public let kind: String
+    public let text: String?
+    public let detail: String?
+    public let diff: String?
+    public let tool: String?
+    public let approvalKind: SessionStep.ApprovalKind?
+
+    enum CodingKeys: String, CodingKey {
+        case seq, lane, kind, text, detail, diff, tool
+        case tsMs = "ts_ms"
+        case approvalKind = "approval_kind"
+    }
+
+    public var at: Date { Date(timeIntervalSince1970: tsMs / 1000) }
+}
+
+@MainActor
+@Observable
+public final class SessionStore {
+    public enum Link: Sendable, Equatable { case idle, live, failed(String) }
+
+    public private(set) var lane: String
+    public private(set) var steps: [SessionStep] = []
+    /// A mensagem SENDO ESCRITA agora — os deltas coalescidos do outro lado. Não é um passo:
+    /// vira um quando fecha, e mostrá-la como passo faria a lista piscar a cada volta do poll.
+    public private(set) var streaming: String?
+    public private(set) var link: Link = .idle
+    public private(set) var sending = false
+    /// A recusa do servidor, nas palavras dele. Ele sabe o motivo; nós inventaríamos um pior.
+    public private(set) var note: String?
+    public private(set) var lastPollAt: Date?
+
+    private var cursor = 0
+    private let endpoint: FleetEndpoint
+    private let session: URLSession
+    private var loop: Task<Void, Never>?
+    /// Intervalo do poll. 900ms porque é o teto em que texto chegando ainda LÊ como chegando;
+    /// mais rápido gasta exec no cluster sem o olho perceber a diferença.
+    private let intervalo: Duration = .milliseconds(900)
+
+    public init(lane: String, endpoint: FleetEndpoint = FleetEndpoint(), session: URLSession = .shared) {
+        self.lane = lane
+        self.endpoint = endpoint
+        self.session = session
+    }
+
+    /// Fonte PARADA, para retrato e teste — sem rede, como a da Frota. Uma tela que só se
+    /// inspeciona ao vivo é uma tela que se desenha no escuro.
+    public static func fixture(lane: String, steps: [SessionStep], streaming: String? = nil,
+                               link: Link = .live, note: String? = nil) -> SessionStore {
+        let s = SessionStore(lane: lane)
+        s.steps = steps
+        s.streaming = streaming
+        s.link = link
+        s.note = note
+        s.lastPollAt = Date()
+        s.parada = true
+        return s
+    }
+    private var parada = false
+
+    public func start() {
+        guard !parada, loop == nil else { return }
+        loop = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.poll()
+                try? await Task.sleep(for: self?.intervalo ?? .milliseconds(900))
+            }
+        }
+    }
+
+    public func stop() {
+        loop?.cancel()
+        loop = nil
+    }
+
+    public func poll() async {
+        guard let req = endpoint.laneTurnsRequest(sid: lane, since: cursor) else {
+            link = .failed("lane inválida: \(lane)")
+            return
+        }
+        do {
+            let (data, resp) = try await session.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(code) else {
+                link = .failed(Self.motivo(data) ?? "HTTP \(code)")
+                return
+            }
+            let env = try JSONDecoder().decode(Envelope.self, from: data)
+            apply(env.data)
+            link = .live
+            lastPollAt = Date()
+        } catch {
+            link = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Aplica uma resposta de poll. Separado da rede de propósito: é aqui que mora a decisão de
+    /// como um evento vira passo, e decisão que só se alcança abrindo socket não é testável.
+    public func apply(_ page: Page) {
+        // O cursor vem PRONTO do servidor. Derivar do último elemento devolve nil num poll sem
+        // novidade — e o cliente voltaria ao começo do diário a cada volta silenciosa.
+        cursor = max(cursor, page.cursor)
+        streaming = page.streaming
+        for e in page.events {
+            guard let passo = Self.passo(de: e) else { continue }
+            // A trama é append-only e o cursor é monotônico, então repetição só acontece se um
+            // poll for reaplicado. Guardar por `seq` é barato e evita a lista duplicar na tela.
+            if steps.contains(where: { $0.id == passo.id }) { continue }
+            steps.append(passo)
+        }
+    }
+
+    /// A tradução. `Delta` nunca chega aqui — ele é coalescido no loomd e vem em `streaming`.
+    public static func passo(de e: TramaEvent) -> SessionStep? {
+        let corpo = e.text ?? e.detail ?? ""
+        switch e.kind {
+        case "user_prompt":
+            return .prompt(id: e.seq, text: corpo, at: e.at)
+        case "agent_message":
+            return .message(id: e.seq, text: corpo, at: e.at)
+        case "diff_proposed":
+            guard let d = e.diff, !d.isEmpty else { return nil }
+            return .diff(id: e.seq, patch: d, at: e.at)
+        case "awaiting_approval":
+            return .approval(id: e.seq, kind: e.approvalKind ?? .other, detail: corpo, at: e.at)
+        case "error":
+            return .failure(id: e.seq, text: corpo.isEmpty ? "erro sem descrição" : corpo, at: e.at)
+        case "tool_call", "tool_result":
+            return .tool(id: e.seq, name: e.tool ?? "ferramenta", detail: corpo, at: e.at)
+        // Ruído de ciclo de vida: existe na trama porque é verdade, e não vira linha na tela
+        // porque não é decisão nem conteúdo. Um turno que começa não é notícia.
+        case "turn_started", "turn_ended", "session_started", "session_ended",
+             "idle", "approval_answered", "unknown", "delta":
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    // MARK: - Escrever
+
+    /// Manda um pedido. Falha VISÍVEL: um prompt que não chegou não pode parecer que chegou.
+    @discardableResult
+    public func send(_ text: String) async -> Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, !sending else { return false }
+        guard let req = endpoint.lanePromptRequest(sid: lane, text: t) else {
+            note = "lane inválida: \(lane)"
+            return false
+        }
+        sending = true
+        note = nil
+        defer { sending = false }
+        do {
+            let (data, resp) = try await session.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(code) else {
+                note = Self.motivo(data) ?? "o cockpit recusou (HTTP \(code))"
+                return false
+            }
+            await poll()
+            return true
+        } catch {
+            note = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Responde ao pedido de aprovação pendente.
+    @discardableResult
+    public func approve(_ allow: Bool) async -> Bool {
+        guard let req = endpoint.laneApproveRequest(sid: lane, allow: allow) else { return false }
+        sending = true
+        note = nil
+        defer { sending = false }
+        do {
+            let (data, resp) = try await session.data(for: req)
+            let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+            guard (200..<300).contains(code) else {
+                note = Self.motivo(data) ?? "o cockpit recusou (HTTP \(code))"
+                return false
+            }
+            await poll()
+            return true
+        } catch {
+            note = error.localizedDescription
+            return false
+        }
+    }
+
+    /// O motivo que o SERVIDOR deu. Ele sabe se a lane é de tela, se a fonte caiu ou se o texto
+    /// passou do teto; qualquer frase nossa aqui seria menos específica.
+    static func motivo(_ data: Data) -> String? {
+        guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return (o["error"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    // MARK: - Fio
+
+    public struct Page: Decodable, Sendable {
+        public let lane: String
+        public let since: Int
+        public let cursor: Int
+        public let events: [TramaEvent]
+        public let streaming: String?
+    }
+    struct Envelope: Decodable { let ok: Bool; let data: Page }
+}
