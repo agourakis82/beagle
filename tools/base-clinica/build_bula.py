@@ -156,11 +156,12 @@ def todos_os_ativos_do_dump(diretorio):
     aparecer no dump antes do produto isolado, e os dois compartilharem
     generic_name[0] (a ordem dos sinônimos na lista não é estável), o
     combinado venceria por chegar primeiro. Por isso aqui NÃO ficamos com o
-    primeiro: para cada chave, comparamos todos os candidatos com peso() —
-    a mesma função que --formulario usa — e ficamos com o de maior peso
+    primeiro: para cada chave, comparamos todos os candidatos com melhor() —
+    a MESMA função de escolha que --formulario chama, não uma reimplementação
+    paralela de max() por cima de peso() — e ficamos com o de maior peso
     (isolado > combinado, e mais completo entre os isolados).
     """
-    melhores = {}  # chave -> (peso_do_atual, campos, nome_original)
+    melhores = {}  # chave -> (campos, nome_original)
 
     def visitante(r):
         of = r.get("openfda") or {}
@@ -171,30 +172,61 @@ def todos_os_ativos_do_dump(diretorio):
         chave = nome.strip().lower()
         if not chave:
             return
-        p = peso(r, chave)
+        campos = extrai_campos(r)
         atual = melhores.get(chave)
-        if atual is None or p > atual[0]:
-            melhores[chave] = (p, extrai_campos(r), nome)
+        if atual is None:
+            melhores[chave] = (campos, nome)
+            return
+        # melhor() de verdade, nao um max reimplementado na mao: os dois
+        # cortes precisam usar a MESMA funcao de escolha, nao so a mesma
+        # peso() por baixo. Comparamos [candidato atual, candidato novo] e
+        # ficamos com o vencedor (identidade de objeto decide qual dos dois
+        # -- atual ou novo -- ganhou, para herdar o nome_original certo).
+        vencedor = melhor([atual[0], campos], chave)
+        nome_vencedor = nome if vencedor is campos else atual[1]
+        melhores[chave] = (vencedor, nome_vencedor)
 
     _varre_dump(diretorio, visitante)
     return melhores
+
+
+def _compila_padroes_de_termo(alvos):
+    """Um padrão por alvo, casando por PALAVRA INTEIRA (limite \b), não por
+    substring solta.
+
+    Achado de revisão: 'epinephrine' é substring de 'norepinephrine
+    bitartrate', e 'omeprazole' é substring de 'esomeprazole magnesium' —
+    fármacos DIFERENTES, não uma associação do mesmo ativo (que é o caso que
+    peso()/melhor() sabem resolver, priorizando o isolado). Com substring
+    solta, os dois entrariam como candidatos ao alvo errado; hoje eles
+    resolvem certo só porque o rótulo isolado correto tem generic_name igual
+    ao alvo (exato bate em peso()) — sorte estrutural, não garantia. Se a
+    grafia ou o sal diferisse, o fármaco errado venceria em silêncio.
+    \b em regex já exige transição letra<->não-letra (espaço, vírgula,
+    hífen, início/fim de string) dos dois lados do alvo, então
+    'epinephrine' não casa dentro de 'norepinephrine' (não há fronteira
+    entre 'nor' e 'epinephrine', são todas letras), mas casa dentro de
+    'sitagliptin and metformin hydrochloride' com o alvo 'metformin
+    hydrochloride' (fronteira no espaço antes e no fim da string)."""
+    return {alvo: re.compile(r"\b" + re.escape(alvo) + r"\b") for alvo in alvos}
 
 
 def casa_formulario_no_dump(diretorio, formulario):
     """Acha, no MESMO dump local, o melhor rótulo para cada par (nome_pt,
     generico) de FORMULARIO.
 
-    Casa por SUBSTRING (case-insensitive) do genérico-alvo contra os itens de
-    openfda.generic_name — a mesma semântica de busca por frase que a API
-    pública usava (`openfda.generic_name:"{generico}"` é phrase match, não
-    igualdade exata do elemento da lista). É por isso que 'metformin
-    hydrochloride' também batia no rótulo combinado
-    'sitagliptin and metformin hydrochloride' do ZITUVIM: peso()/melhor() já
-    resolvem isso priorizando o produto isolado — a mesma regra usada por
-    --completo.
+    Casa por PALAVRA INTEIRA (ver _compila_padroes_de_termo) do genérico-alvo
+    contra os itens de openfda.generic_name — aproxima a busca por frase que
+    a API pública usava (`openfda.generic_name:"{generico}"`), sem os falsos
+    positivos de substring embutida em outra palavra. É por isso que
+    'metformin hydrochloride' também bate no rótulo combinado 'sitagliptin
+    and metformin hydrochloride' do ZITUVIM (frase inteira, fronteira de
+    palavra dos dois lados): melhor() resolve isso priorizando o produto
+    isolado — a MESMA função de escolha que --completo chama.
     """
     alvos = sorted({generico.lower() for _, generico in formulario})
-    melhores = {}  # alvo -> (peso, campos)
+    padroes = _compila_padroes_de_termo(alvos)
+    melhores = {}  # alvo -> campos
 
     def visitante(r):
         of = r.get("openfda") or {}
@@ -203,14 +235,12 @@ def casa_formulario_no_dump(diretorio, formulario):
             return
         campos = None  # só extrai se algum alvo bater, poupa trabalho
         for alvo in alvos:
-            if not any(alvo in g for g in genes):
+            if not any(padroes[alvo].search(g) for g in genes):
                 continue
             if campos is None:
                 campos = extrai_campos(r)
-            p = peso(campos, alvo)
             atual = melhores.get(alvo)
-            if atual is None or p > atual[0]:
-                melhores[alvo] = (p, campos)
+            melhores[alvo] = campos if atual is None else melhor([atual, campos], alvo)
 
     _varre_dump(diretorio, visitante)
     return melhores
@@ -318,12 +348,11 @@ def main():
         melhores = casa_formulario_no_dump(args.dump, FORMULARIO)
         total = len(FORMULARIO)
         for i, (pt, generico) in enumerate(FORMULARIO, 1):
-            item = melhores.get(generico.lower())
-            if item is None:
+            rec = melhores.get(generico.lower())
+            if rec is None:
                 faltantes.append(f"{pt} ({generico})")
                 falhou += 1
                 continue
-            _, rec = item
             if grava_farmaco(db, pt, generico, rec):
                 ok += 1
             else:
@@ -336,7 +365,7 @@ def main():
         melhores = todos_os_ativos_do_dump(args.dump)
         total = len(melhores)
         for i, chave in enumerate(sorted(melhores), 1):
-            _, rec, nome_original = melhores[chave]
+            rec, nome_original = melhores[chave]
             # Sem lista de traducao PT para 14 mil ativos: nome_pt fica o nome
             # generico original do dump (a base do servidor e para o backend
             # citar, nao para exibir direto na tela do paciente).
