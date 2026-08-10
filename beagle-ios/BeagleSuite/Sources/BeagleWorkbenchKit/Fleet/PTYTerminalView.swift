@@ -24,8 +24,38 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
     public func makeUIView(context: Context) -> TerminalView { context.coordinator.makeTerminal() }
     public func updateUIView(_ uiView: TerminalView, context: Context) {}
     #else
-    public func makeNSView(context: Context) -> TerminalView { context.coordinator.makeTerminal() }
-    public func updateNSView(_ nsView: TerminalView, context: Context) {}
+    public func makeNSView(context: Context) -> TerminalView {
+        let v = context.coordinator.makeTerminal()
+        TerminalAtivo.registrar(v)
+        return v
+    }
+
+    /// 🚨 O TERMINAL PRECISA VIRAR FIRST RESPONDER, e nada fazia isso.
+    ///
+    /// Medido no app instalado: `AXFocusedUIElement` era NULO — não havia foco em elemento nenhum.
+    /// `NSApp.sendAction(to: nil)` percorre a responder chain a partir do FOCO, então ⌘C/⌘V/⌘F
+    /// existiam no menu, com atalho ligado, e não chegavam a lugar nenhum. O menu estava certo; o
+    /// foco é que nunca ia para o terminal.
+    ///
+    /// Isso também explica por que digitar podia parecer funcionar e colar não: cliques vão para a
+    /// view sob o cursor, mas comando de menu só segue a chain do first responder.
+    ///
+    /// Feito em `updateNSView` e não só na criação porque a aba TROCA de terminal: cada vez que
+    /// ele muda de lane, a view que aparece precisa reivindicar o foco de novo. E a guarda de
+    /// `firstResponder != nsView` evita reivindicar a cada redesenho — pedir foco em laço briga
+    /// com qualquer campo de texto que exista na mesma janela.
+    public func updateNSView(_ nsView: TerminalView, context: Context) {
+        guard let janela = nsView.window, janela.firstResponder !== nsView else { return }
+        // Assíncrono: durante o `update` a hierarquia ainda está sendo montada, e um
+        // `makeFirstResponder` aqui pode ser desfeito pelo próprio ciclo de layout.
+        // O registro é o que faz os comandos de menu chegarem: `sendAction` depende do foco, e o
+        // foco fica na sidebar até alguém clicar no terminal.
+        TerminalAtivo.registrar(nsView)
+        DispatchQueue.main.async { [weak nsView] in
+            guard let v = nsView, let w = v.window, w.firstResponder !== v else { return }
+            w.makeFirstResponder(v)
+        }
+    }
     #endif
 
     @MainActor

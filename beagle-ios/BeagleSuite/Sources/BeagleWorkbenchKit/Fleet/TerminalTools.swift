@@ -16,6 +16,37 @@ import SwiftTerm
 // Todas entram pela responder chain (`sendAction(to: nil)`), então funcionam em QUALQUER terminal
 // focado sem a cena precisar saber qual é — e continuam funcionando quando houver dois abertos.
 
+/// O terminal ATIVO, para os comandos de menu não dependerem de quem tem o foco.
+///
+/// 🚨 MEDIDO no app instalado, e é a causa do "copiar e colar não funciona": o foco estava no
+/// `AXOutline` — a sidebar do `NavigationSplitView` —, e `NSApp.sendAction(to: nil)` percorre a
+/// responder chain A PARTIR DO FOCO. Os atalhos existiam, ligados, e morriam na sidebar. Antes
+/// disso, o foco era simplesmente NULO: `AXFocusedUIElement` não existia.
+///
+/// Pedir foco resolve o caso de quem clicou no terminal, e só ele. Isto resolve todos: o comando
+/// vai para o terminal ativo, tenha ele foco ou não — que é o que o operador quer quando aperta
+/// ⌘V com a sidebar selecionada.
+///
+/// `weak` de propósito: a view morre quando a lane fecha, e um registro forte a manteria viva
+/// segurando um WebSocket e um `tmux attach` no pod.
+@MainActor
+public enum TerminalAtivo {
+    public private(set) static weak var view: TerminalView?
+
+    /// Chamado pela representable quando a view aparece ou reaparece.
+    public static func registrar(_ v: TerminalView) { view = v }
+
+    /// Executa algo no terminal ativo. Devolve `false` quando não há nenhum — e o chamador PRECISA
+    /// distinguir: um comando que "funcionou" sem terminal é a falha silenciosa que esta rodada
+    /// inteira existe para não repetir.
+    @discardableResult
+    public static func com(_ acao: (TerminalView) -> Void) -> Bool {
+        guard let v = view else { return false }
+        acao(v)
+        return true
+    }
+}
+
 // MARK: - O que o SwiftTerm não tem
 
 extension TerminalView {
@@ -66,7 +97,13 @@ extension TerminalView {
 @MainActor
 @discardableResult
 public func enviarAoTerminal(_ sel: Selector, from: Any? = nil) -> Bool {
-    NSApp.sendAction(sel, to: nil, from: from)
+    // O terminal ativo PRIMEIRO. `sendAction` só como último recurso — ele depende do foco, e o
+    // foco é justamente o que estava quebrado.
+    if let v = TerminalAtivo.view, v.responds(to: sel) {
+        _ = v.perform(sel, with: from)
+        return true
+    }
+    return NSApp.sendAction(sel, to: nil, from: from)
 }
 
 /// A busca do SwiftTerm exige um `NSMenuItem` com `tag` — `performFindPanelAction` faz
@@ -77,5 +114,19 @@ public func enviarBusca(_ acao: NSFindPanelAction) -> Bool {
     let item = NSMenuItem()
     item.tag = Int(acao.rawValue)
     return enviarAoTerminal(#selector(TerminalView.performFindPanelAction(_:)), from: item)
+}
+
+/// Copiar e colar vão pelo MESMO caminho dos outros comandos, e não por `NSText.copy/paste`.
+///
+/// Motivo: `NSApp.sendAction(#selector(NSText.paste(_:)))` entrega ao first responder — que era a
+/// sidebar. Aqui o destino é o terminal ativo, que é onde o operador está olhando.
+@MainActor @discardableResult public func terminalCopiar() -> Bool {
+    enviarAoTerminal(#selector(TerminalView.copy(_:)))
+}
+@MainActor @discardableResult public func terminalColar() -> Bool {
+    enviarAoTerminal(#selector(TerminalView.paste(_:)))
+}
+@MainActor @discardableResult public func terminalSelecionarTudo() -> Bool {
+    enviarAoTerminal(#selector(TerminalView.selectAll(_:)))
 }
 #endif

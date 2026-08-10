@@ -36,12 +36,12 @@ struct SounioMissionControlApp: App {
             // `sendAction(to: nil)` percorre a responder chain — é o idioma correto e é o que faz
             // o comando chegar em QUALQUER terminal focado, sem o app saber qual é.
             CommandGroup(replacing: .pasteboard) {
-                Button("Copiar") { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
+                Button("Copiar") { terminalCopiar() }
                     .keyboardShortcut("c", modifiers: .command)
-                Button("Colar") { NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil) }
+                Button("Colar") { terminalColar() }
                     .keyboardShortcut("v", modifiers: .command)
                 Divider()
-                Button("Selecionar tudo") { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+                Button("Selecionar tudo") { terminalSelecionarTudo() }
                     .keyboardShortcut("a", modifiers: .command)
             }
 
