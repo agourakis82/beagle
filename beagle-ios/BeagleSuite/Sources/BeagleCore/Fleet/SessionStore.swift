@@ -75,6 +75,14 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
 
     /// Quem falou. A tela alinha e colore por isto — e é a pergunta que o olho faz primeiro.
     public var isOperator: Bool { if case .prompt = self { return true }; return false }
+
+    /// Custo não é fala: não se desenha na linha do diálogo, vira rodapé do turno.
+    /// 🚨 Filtrado ANTES do ForEach — um braço que devolve EmptyView() ainda ocupa
+    /// posição no VStack e o `spacing` fixo abre um buraco por evento.
+    public var desenhavel: Bool {
+        if case .uso = self { return false }
+        return true
+    }
 }
 
 /// Um TURNO: o pedido, e tudo que o agente fez por causa dele.

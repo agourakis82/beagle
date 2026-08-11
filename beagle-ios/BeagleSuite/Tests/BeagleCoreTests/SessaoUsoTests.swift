@@ -123,4 +123,24 @@ final class SessaoUsoTests: XCTestCase {
         XCTAssertEqual(uso.contextoUsado, 38_718, "mas o contexto é o último, sempre")
     }
 
+    /// 🚨 Achado da review: `.uso` devolvia `EmptyView()` na trilha, mas um `EmptyView()` ainda
+    /// ocupa posição no `ForEach` dentro do `VStack` — o `spacing` fixo abre um buraco visível a
+    /// cada evento `uso`. O passo tem de ser filtrado ANTES de chegar à lista, não desenhado
+    /// vazio. Este teste prende as duas metades: o custo não desaparece (`turno.uso` continua
+    /// alcançável) e não polui a conversa (`desenhavel` corta para 2 de 3 passos).
+    func testUsoNaoEhDesenhavelMasContinuaAlcancavelViaTurnoUso() throws {
+        let t0 = Date()
+        let passos: [SessionStep] = [
+            .prompt(id: 1, text: "faz", at: t0),
+            .message(id: 2, text: "feito", at: t0),
+            .uso(id: 3, contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728, at: t0),
+        ]
+        let turno = Turno.agrupar(passos)[0]
+        XCTAssertEqual(turno.passos.count, 3, "os três passos existem no turno")
+        XCTAssertEqual(turno.passos.filter(\.desenhavel).count, 2,
+                        "custo não é fala: não entra na trilha desenhada")
+        XCTAssertEqual(try XCTUnwrap(turno.uso).usd, 0.3728, accuracy: 0.0001,
+                        "mas o custo continua alcançável pelo rodapé")
+    }
+
 }

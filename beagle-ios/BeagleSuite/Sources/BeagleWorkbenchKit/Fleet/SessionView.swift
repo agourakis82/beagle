@@ -311,7 +311,7 @@ private struct TurnoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             cabecalho
-            ForEach(turno.passos) { passo in
+            ForEach(turno.passos.filter(\.desenhavel)) { passo in
                 PassoView(passo: passo, enviando: enviando, onAprovar: onAprovar)
             }
         }
