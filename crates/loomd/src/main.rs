@@ -115,6 +115,11 @@ async fn main() {
     // O modo vem da Task 1 do plano — MEDIDO, não escolhido pela descrição.
     let acp_modo = std::env::var("LOOMD_ACP_MODO").unwrap_or_else(|_| "default".into());
     let acp_lanes = parse_lanes(&std::env::var("LOOMD_ACP_LANES").unwrap_or_default(), &cwd);
+    // Opcional: quando definida, cada lane ACP sobe com HOME próprio (`<base>/<lane>`), a mesma
+    // convenção que o wrapper `sounio-lane-shell` já usa para as lanes de tmux. Ausente, o
+    // filho herda o HOME do daemon — o comportamento de sempre, mantido para não quebrar quem
+    // não usa. Ver `acp::home_da_lane`.
+    let acp_home_base = std::env::var("LOOMD_ACP_HOME_BASE").ok();
 
     // Observação read-only das lanes TUI. Forma `lane:dir-de-projetos`, vírgula entre elas.
     //   LOOMD_TAILS="claude-1:/workspace/.home/openvscode-server/.agents/claude-1/.claude/projects/-workspace-sounio,…"
@@ -166,6 +171,7 @@ async fn main() {
                 &acp_bin,
                 c,
                 &acp_modo,
+                acp_home_base.as_deref(),
                 trama.clone(),
             )),
         );

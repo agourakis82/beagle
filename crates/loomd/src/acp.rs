@@ -33,6 +33,11 @@ pub struct AcpLane {
     proximo_id: Arc<Mutex<u64>>,
     trama: Arc<Trama>,
     modo: String,
+    /// Base de `LOOMD_ACP_HOME_BASE`. `None` = a lane herda o HOME do daemon (comportamento de
+    /// sempre). Guardamos a base crua, não o caminho já resolvido: `home_da_lane` é a única
+    /// dona da regra de junção, e é chamada de novo a cada `run_once` para valer também em
+    /// respawn.
+    home_base: Option<String>,
 }
 
 /// Parte um bloco cru em mensagens. Linha vazia é ignorada; linha ilegível é DESCARTADA e não
@@ -127,8 +132,46 @@ pub fn deve_fixar_modo_na_resposta(sessao_previa: Option<&str>) -> bool {
     sessao_previa.is_none()
 }
 
+/// O HOME do filho desta lane. `None` = herdar o do daemon.
+///
+/// 🚨 Cada lane Claude tem credencial PRÓPRIA em `HOME/.claude/.credentials.json`. Sem isto o
+/// adaptador herda o HOME do daemon e roda sob a identidade errada — medido em produção: os
+/// prompts entram na trama, o turno nunca executa, e NADA denuncia.
+pub fn home_da_lane(base: Option<&str>, lane: &str) -> Option<std::path::PathBuf> {
+    base.map(|b| std::path::Path::new(b).join(lane))
+}
+
+/// Monta o `Command` do filho ACP, aplicando `HOME` da lane quando `home` for `Some`.
+///
+/// Extraída de `run_once` para ser testável ponta-a-ponta: assertar só `home_da_lane` prova a
+/// DECISÃO, não que o `.env("HOME", …)` foi de fato aplicado no `Command` real — foi exatamente
+/// esse elo (a decisão certa, nunca aplicada ao processo) que falhou em produção.
+fn comando_do_filho(
+    bin: &str,
+    cwd: &str,
+    home: Option<&std::path::Path>,
+) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(bin);
+    cmd.current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    if let Some(h) = home {
+        cmd.env("HOME", h);
+    }
+    cmd
+}
+
 impl AcpLane {
-    pub fn spawn(lane: &str, bin: &str, cwd: &str, modo: &str, trama: Arc<Trama>) -> Arc<Self> {
+    pub fn spawn(
+        lane: &str,
+        bin: &str,
+        cwd: &str,
+        modo: &str,
+        home_base: Option<&str>,
+        trama: Arc<Trama>,
+    ) -> Arc<Self> {
         // A sessão vem da TRAMA na subida fria, igual ao codex: o daemon é descartável, a
         // sessão não. `session/load` é capacidade anunciada (`loadSession: true`), então
         // retomar é chamada de protocolo e não heurística.
@@ -144,6 +187,7 @@ impl AcpLane {
             proximo_id: Arc::new(Mutex::new(10)),
             trama: trama.clone(),
             modo: modo.to_string(),
+            home_base: home_base.map(str::to_string),
         });
         let (b, c) = (bin.to_string(), cwd.to_string());
         let this = me.clone();
@@ -177,14 +221,30 @@ impl AcpLane {
     /// passar pelo ponto único de limpeza, e o `supervisao.rs` só registra `Kind::Error` e
     /// respawna, deixando o mapa `pending` intacto de um ciclo anterior.
     async fn run_once(&self, bin: &str, cwd: &str) -> std::io::Result<()> {
-        let mut child = match tokio::process::Command::new(bin)
-            .current_dir(cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-        {
+        let home = home_da_lane(self.home_base.as_deref(), &self.lane);
+
+        // 🚨 A GUARDA: se `LOOMD_ACP_HOME_BASE` está definida mas o diretório da lane não
+        // existe, a lane NÃO SOBE. Deixar o filho herdar o HOME do daemon aqui seria repetir
+        // exatamente o defeito medido em produção — silêncio disfarçado de sucesso. Melhor uma
+        // lane que não roda e denuncia o caminho exato do que uma lane rodando sob a identidade
+        // errada.
+        if let Some(h) = &home {
+            if !h.is_dir() {
+                let caminho = h.display().to_string();
+                self.trama.append(
+                    AgentEvent::new(&self.lane, Kind::Error, Confidence::Exact).detail(format!(
+                        "LOOMD_ACP_HOME_BASE definido mas o HOME da lane nao existe: {caminho} \
+                         — lane nao sobe"
+                    )),
+                );
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("HOME da lane ACP nao existe: {caminho}"),
+                ));
+            }
+        }
+
+        let mut child = match comando_do_filho(bin, cwd, home.as_deref()).spawn() {
             Ok(c) => c,
             Err(e) => {
                 self.cancelar_pendentes("adaptador ACP nao subiu").await;
@@ -434,6 +494,19 @@ impl AcpLane {
         modo: &str,
         sessao: Option<&str>,
     ) -> Arc<Self> {
+        Self::nua_para_teste_com_home_base(lane, trama, modo, sessao, None)
+    }
+
+    /// Igual a `nua_para_teste`, mas deixa escolher `LOOMD_ACP_HOME_BASE` — para os testes da
+    /// guarda de HOME por lane, que precisam de um `run_once` de verdade.
+    #[cfg(test)]
+    pub(crate) fn nua_para_teste_com_home_base(
+        lane: &str,
+        trama: Arc<Trama>,
+        modo: &str,
+        sessao: Option<&str>,
+        home_base: Option<&str>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             lane: lane.to_string(),
             stdin: Arc::new(Mutex::new(None)),
@@ -442,6 +515,7 @@ impl AcpLane {
             proximo_id: Arc::new(Mutex::new(10)),
             trama,
             modo: modo.to_string(),
+            home_base: home_base.map(str::to_string),
         })
     }
 
@@ -1042,6 +1116,93 @@ mod tests {
             falas[0].text.as_deref(),
             Some("Vou ler o arquivo"),
             "o pensamento nao pode aparecer colado na frente da fala"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── HOME por lane (LOOMD_ACP_HOME_BASE) ─────────────────────────────────────────────────
+
+    #[test]
+    fn home_da_lane_junta_base_e_lane() {
+        assert_eq!(
+            home_da_lane(
+                Some("/workspace/.home/openvscode-server/.agents"),
+                "claude-4"
+            ),
+            Some(std::path::PathBuf::from(
+                "/workspace/.home/openvscode-server/.agents/claude-4"
+            ))
+        );
+    }
+
+    #[test]
+    fn home_da_lane_sem_base_herda_do_daemon() {
+        assert_eq!(home_da_lane(None, "claude-4"), None);
+    }
+
+    /// O elo que faltou em produção: a DECISÃO certa (`home_da_lane`) já existia em espírito no
+    /// `sounio-lane-shell`, mas nunca chegava a virar `.env("HOME", …)` no `Command` de verdade.
+    /// Este teste spawna `/bin/sh -c 'printf %s "$HOME"'` através de `comando_do_filho` — o
+    /// MESMO código que `run_once` usa para subir o adaptador — e lê o HOME que o filho de fato
+    /// enxergou.
+    #[tokio::test]
+    async fn home_da_lane_chega_ao_filho_de_verdade() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-home-{}", std::process::id()));
+        let home = dir.join("claude-4");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let mut cmd = comando_do_filho("/bin/sh", "/tmp", Some(&home));
+        cmd.arg("-c").arg("printf %s \"$HOME\"");
+        let mut child = cmd.spawn().expect("spawn /bin/sh");
+        let mut out = child.stdout.take().expect("stdout piped");
+        let mut buf = String::new();
+        tokio::io::AsyncReadExt::read_to_string(&mut out, &mut buf)
+            .await
+            .unwrap();
+        child.wait().await.unwrap();
+
+        assert_eq!(
+            buf,
+            home.display().to_string(),
+            "o filho tem de enxergar o HOME da SUA lane, nao o do daemon"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A guarda: base definida, diretório da lane ausente → a lane NÃO SOBE, e a trama cita o
+    /// caminho exato que faltou. Silêncio aqui é o defeito original — uma lane rodando sob
+    /// identidade errada, sem nada denunciando.
+    #[tokio::test]
+    async fn home_ausente_a_lane_nao_sobe_e_a_trama_cita_o_caminho() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-guarda-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let base = dir.join("bases"); // "claude-4" dentro dela nunca e criado
+        let lane = AcpLane::nua_para_teste_com_home_base(
+            "claude-4",
+            t.clone(),
+            "default",
+            None,
+            Some(base.to_str().unwrap()),
+        );
+
+        let r = lane.run_once("/bin/true", "/tmp").await;
+        assert!(r.is_err(), "lane com HOME ausente nao pode subir");
+
+        let esperado = base.join("claude-4");
+        let erros: Vec<_> = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::Error)
+            .collect();
+        assert!(
+            erros.iter().any(|e| e
+                .detail
+                .as_deref()
+                .unwrap_or("")
+                .contains(&esperado.display().to_string())),
+            "a trama tem de citar o caminho EXATO que faltou: {:?}",
+            erros
         );
         std::fs::remove_dir_all(&dir).ok();
     }
