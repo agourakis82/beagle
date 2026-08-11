@@ -19,11 +19,19 @@ pub struct TranscriptTail;
 pub fn arquivo_mais_novo(dir: &std::path::Path) -> Option<std::path::PathBuf> {
     let mut melhor: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
     for e in std::fs::read_dir(dir).ok()? {
-        let p = e.ok()?.path();
+        // 🚨 ACHADO 3: `.ok()?` aqui abortava a FUNÇÃO inteira, não só esta iteração. Um
+        // `.jsonl` que é symlink quebrado, ou removido entre `read_dir` e `metadata` (corrida
+        // normal com a lane escrevendo), fazia a função inteira devolver `None` — mesmo com um
+        // `melhor` já achado. Se a condição for permanente (symlink que nunca se resolve), a
+        // lane fica MUDA para sempre, sem um evento na trama dizendo por quê. `continue` erra só
+        // a entrada torta, nunca a varredura inteira.
+        let Ok(entry) = e else { continue };
+        let p = entry.path();
         if p.extension().and_then(|x| x.to_str()) != Some("jsonl") {
             continue;
         }
-        let mt = p.metadata().ok()?.modified().ok()?;
+        let Ok(md) = p.metadata() else { continue };
+        let Ok(mt) = md.modified() else { continue };
         if melhor.as_ref().map_or(true, |(m, _)| mt > *m) {
             melhor = Some((mt, p));
         }
@@ -205,6 +213,26 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("loomd-tt-vazio-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         assert!(arquivo_mais_novo(&dir).is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Achado 3: uma entrada ilegível no diretório não pode cegar o tail para sempre ───────
+
+    #[test]
+    fn symlink_quebrado_nao_impede_de_achar_o_jsonl_valido() {
+        let dir = std::env::temp_dir().join(format!("loomd-tt-symlink-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("bom.jsonl"), "{}\n").unwrap();
+        // Um symlink cujo alvo não existe: `metadata()` (que segue o link) falha com NotFound.
+        // O `.ok()?` original abortava a FUNÇÃO inteira nesse ponto — não só a iteração — então
+        // o `melhor` já encontrado era jogado fora, e a função devolvia `None` mesmo tendo um
+        // `.jsonl` válido no diretório.
+        std::os::unix::fs::symlink(dir.join("nao-existe"), dir.join("quebrado.jsonl")).unwrap();
+
+        let f = arquivo_mais_novo(&dir).expect(
+            "uma entrada ilegível não pode cegar a lane inteira — o .jsonl válido tem de ser achado",
+        );
+        assert_eq!(f.file_name().unwrap(), "bom.jsonl");
         std::fs::remove_dir_all(&dir).ok();
     }
 
