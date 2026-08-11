@@ -112,3 +112,10 @@ tmp/
 # Segredo do app iOS. O token do cockpit ficou hardcoded em BeagleClient.swift e
 # esteve PÚBLICO no GitHub de 01-jul a 06-ago-2026. Nunca mais em código-fonte.
 beagle-ios/BeagleSuite/Sources/BeagleCockpit/Resources/Secrets.plist
+
+# DerivedData do Xcode: artefato de build, nunca versionado.
+# Entrou por engano em 10-ago quando o instalador passou a usar
+# -derivedDataPath .derived e um git add -A o levou junto — 16.816
+# arquivos, e o GitHub recusou o push por tamanho.
+.derived/
+beagle-ios/.derived/
