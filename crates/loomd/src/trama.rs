@@ -13,7 +13,7 @@
 //!    id da thread de cada lane. Nenhum arquivo de estado paralelo — um segundo arquivo é uma
 //!    segunda verdade, e as duas divergem.
 use crate::event::{AgentEvent, Confidence, Kind};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::sync::Mutex;
@@ -31,6 +31,42 @@ const JANELA_RELEITURA: u64 = 1 << 20;
 /// `?since=`, não o histórico: o histórico é o arquivo. Menor que o teto de runtime (20k) de
 /// propósito — quem acabou de subir não tem cliente com cursor antigo pendurado.
 const TETO_RELEITURA: usize = 5_000;
+
+/// O que ESTA lane aceita. A tela lê isto para nunca oferecer o que devolve 404, e para dizer
+/// "enfileirar" onde enfileira e "redirecionar" onde redireciona.
+///
+/// 🚨 NÃO se deduz do nome. `claude-1` é tail (só leitura) e `claude-4` é ACP (dirigível) — mesmo
+/// prefixo, comportamentos opostos. Deduzir do sid é o defeito que este tipo existe para impedir.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Aceita {
+    /// codex: `turn/steer` REDIRECIONA o turno em curso.
+    Redireciona,
+    /// ACP: não há steer; `promptQueueing` ENFILEIRA para depois.
+    Enfileira,
+    /// tail: o loomd só LÊ o transcript. `/prompt` e `/steer` devolvem 404.
+    SomenteLeitura,
+}
+
+/// De qual conjunto a lane veio. A guarda de sobreposição em `main()` já garante que ela está em
+/// no máximo um, então a ordem de teste aqui não pode produzir ambiguidade.
+pub fn aceita_da_lane(
+    codex: &[(String, String)],
+    acp: &[(String, String)],
+    tails: &[(String, String)],
+    lane: &str,
+) -> Option<Aceita> {
+    let tem = |v: &[(String, String)]| v.iter().any(|(l, _)| l == lane);
+    if tem(codex) {
+        Some(Aceita::Redireciona)
+    } else if tem(acp) {
+        Some(Aceita::Enfileira)
+    } else if tem(tails) {
+        Some(Aceita::SomenteLeitura)
+    } else {
+        None
+    }
+}
 
 /// O que o operador precisa saber de uma lane, tudo derivado da trama.
 #[derive(Debug, Clone, Serialize)]
@@ -62,6 +98,9 @@ pub struct LaneState {
     /// chegando sem enterrar o diário em 70 linhas por turno.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub streaming_text: Option<String>,
+    /// O que esta lane aceita — ver `Aceita`. `None` só antes de a lane ser declarada.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aceita: Option<Aceita>,
     pub turns: u32,
 }
 
@@ -162,6 +201,7 @@ impl Trama {
                 current_turn: None,
                 last_diff: None,
                 streaming_text: None,
+                aceita: None,
                 turns: 0,
             });
         st.observed_at_ms = agora;
@@ -206,7 +246,20 @@ impl Trama {
     /// `Unknown` de propósito, e é o oposto de um chute otimista: significa "supervisionada, nada
     /// observado ainda". O primeiro evento real substitui — `reduce` não deixa `Unknown` apagar
     /// estado conhecido, e aqui o caminho é o inverso: só cria se não existe.
+    ///
+    /// Sem capacidade conhecida — equivalente a `declarar_com(lane, None)`.
+    ///
+    /// `main()` já anota a capacidade em toda chamada real via `declarar_com`; este invólucro
+    /// segue existindo para não quebrar quem ainda chama sem capacidade — hoje, só os testes.
+    #[allow(dead_code)]
     pub fn declarar(&self, lane: &str) {
+        self.declarar_com(lane, None);
+    }
+
+    /// Como `declarar`, mas anota também o que a lane ACEITA (`Aceita`) — a capacidade é
+    /// registrada junto da declaração, então nunca há janela em que a lane apareça no board sem
+    /// a tela saber se um botão nela funciona.
+    pub fn declarar_com(&self, lane: &str, aceita: Option<Aceita>) {
         let mut g = self.inner.lock().unwrap();
         let agora = crate::event::now_ms();
         g.lanes
@@ -223,6 +276,7 @@ impl Trama {
                 current_turn: None,
                 last_diff: None,
                 streaming_text: None,
+                aceita,
                 turns: 0,
             });
     }
@@ -369,6 +423,7 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
         current_turn: None,
         last_diff: None,
         streaming_text: None,
+        aceita: None,
         turns: 0,
     });
 
@@ -437,6 +492,47 @@ mod tests {
         let p = std::env::temp_dir().join(format!("loomd-test-{nome}.jsonl"));
         let _ = std::fs::remove_file(&p);
         p
+    }
+
+    /// 🚨 O que a lane ACEITA não se deduz do NOME. `claude-1` (tail, só leitura) e `claude-4`
+    /// (ACP, dirigível) têm o mesmo prefixo e comportamentos OPOSTOS: `/prompt` na primeira
+    /// devolve 404. O cliente lê este campo; nunca infere do sid.
+    #[test]
+    fn aceita_sai_de_qual_conjunto_a_lane_veio() {
+        let codex = vec![("codex-4".to_string(), "/wt/codex-4".to_string())];
+        let acp = vec![("claude-4".to_string(), "/wt/claude-4".to_string())];
+        let tails = vec![("claude-1".to_string(), "/dir".to_string())];
+
+        assert_eq!(
+            aceita_da_lane(&codex, &acp, &tails, "codex-4"),
+            Some(Aceita::Redireciona)
+        );
+        assert_eq!(
+            aceita_da_lane(&codex, &acp, &tails, "claude-4"),
+            Some(Aceita::Enfileira)
+        );
+        assert_eq!(
+            aceita_da_lane(&codex, &acp, &tails, "claude-1"),
+            Some(Aceita::SomenteLeitura)
+        );
+        assert_eq!(aceita_da_lane(&codex, &acp, &tails, "nao-existe"), None);
+    }
+
+    /// O prefixo do nome NÃO decide. Duas lanes `claude-*` em conjuntos diferentes têm de sair
+    /// diferentes — é este teste que impede alguém de "simplificar" para `sid.starts_with`.
+    #[test]
+    fn duas_lanes_do_mesmo_prefixo_podem_aceitar_coisas_opostas() {
+        let acp = vec![("claude-4".to_string(), "/wt".to_string())];
+        let tails = vec![("claude-1".to_string(), "/dir".to_string())];
+        let a = aceita_da_lane(&[], &acp, &tails, "claude-4");
+        let b = aceita_da_lane(&[], &acp, &tails, "claude-1");
+        assert_ne!(a, b, "mesmo prefixo, capacidades opostas");
+    }
+
+    #[test]
+    fn aceita_serializa_em_snake_case() {
+        let j = serde_json::to_string(&Aceita::SomenteLeitura).unwrap();
+        assert_eq!(j, "\"somente_leitura\"");
     }
 
     #[test]

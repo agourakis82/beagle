@@ -148,7 +148,10 @@ async fn main() {
         eprintln!("[loomd] lane {l} em {c}");
         // Declara ANTES de subir: uma lane que o daemon supervisiona precisa existir no board
         // mesmo antes do primeiro turno, senão a adoção parece ter falhado.
-        trama.declarar(l);
+        //
+        // A capacidade é registrada junto da declaração: a lane aparece no board já dizendo o
+        // que aceita, e não há janela em que a tela mostre botão sem saber se ele funciona.
+        trama.declarar_com(l, trama::aceita_da_lane(&lanes, &acp_lanes, &tails, l));
         map.insert(
             l.clone(),
             LaneHandle::Codex(codex::CodexLane::spawn(
@@ -163,7 +166,7 @@ async fn main() {
 
     for (l, c) in &acp_lanes {
         eprintln!("[loomd] lane ACP {l} em {c} (modo {acp_modo})");
-        trama.declarar(l);
+        trama.declarar_com(l, trama::aceita_da_lane(&lanes, &acp_lanes, &tails, l));
         map.insert(
             l.clone(),
             LaneHandle::Acp(acp::AcpLane::spawn(
@@ -183,7 +186,7 @@ async fn main() {
             continue;
         }
         eprintln!("[loomd] tail {l} em {d}");
-        trama.declarar(l);
+        trama.declarar_com(l, trama::aceita_da_lane(&lanes, &acp_lanes, &tails, l));
         transcript::TranscriptTail::spawn(l, d, trama.clone());
     }
 
