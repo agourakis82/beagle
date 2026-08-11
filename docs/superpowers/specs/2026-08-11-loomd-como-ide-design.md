@@ -1,0 +1,206 @@
+# loomd como autoridade de IDE
+
+**Data:** 11-ago-2026
+**Repo:** `beagle`, branch `reconcile/unify-beagle`
+**Crate:** `crates/loomd`
+**Antecessora:** [Lane ACP](2026-08-10-lane-acp-design.md) — entregue, 89 testes, em produção.
+
+## O problema
+
+As 3 lanes Claude que o operador usa todo dia rodam em TUI no tmux. Depois da fatia anterior, o
+loomd **observa** o que elas fazem (transcript → `confidence: exact`, 3.298 eventos). Mas ele não
+**serve** nada a elas: não há diff no Mission Control vindo dessas lanes, não há diagnóstico, e o
+agente não tem como pedir coisa alguma.
+
+O caminho para dirigir uma lane por protocolo existe (ACP, `claude-4`) e custou caro: adaptador
+Node, credencial própria, e um dia perdido atrás de OAuth expirado. Para as lanes que **já estão
+trabalhando**, dirigir não é o que falta — falta **servir**.
+
+## A descoberta
+
+A extensão oficial `anthropic.claude-code-2.1.225-linux-x64` **já está instalada** no
+openvscode-server do workspace, e ela implementa o lado IDE do protocolo. O contrato é trivial:
+
+```json
+// $HOME/.claude/ide/<porta>.lock   (modo 0600)
+{ "pid": 321, "workspaceFolders": [], "ideName": "OpenVSCode Server",
+  "transport": "ws", "runningInWindows": false, "authToken": "<36 chars, formato UUID>" }
+```
+
+Quem escreve o lock é **servidor**; o `claude` lê, conecta por WebSocket em `127.0.0.1:<porta>` e
+autentica no cabeçalho `x-claude-code-ide-authorization`. O servidor oferece oito métodos:
+`openDiff`, `getDiagnostics`, `getOpenEditors`, `getCurrentSelection`, `openFile`, `saveDocument`,
+`close_tab`, `executeCode`.
+
+**Qualquer coisa que escreva esse lock e sirva esses métodos é uma IDE aos olhos do agente.**
+
+Dois fatos medidos que motivam a fatia:
+
+- `$HOME/.claude/ide/56908.lock` existe desde 07-ago e **ninguém escuta naquela porta** — lock
+  órfão. Um agente que confia nele espera um servidor morto.
+- **`.agents/claude-{1,2,3}/.claude/ide/` estão VAZIOS.** Cada lane tem HOME próprio, e a extensão
+  anunciou apenas no HOME compartilhado. As 3 lanes **nunca viram IDE nenhuma**.
+
+## A tese (consulta ao Fable)
+
+Uma IDE pessoal não supera as comerciais no jogo delas; joga um jogo que elas estão
+estruturalmente proibidas de jogar. Das quatro frentes que a consulta identificou, esta fatia
+planta a fundação de uma e abre caminho para as outras:
+
+1. **Ser cúmplice do compilador** — o dono da IDE é dono do `souc`. ← *esta fatia começa aqui*
+2. Computação especulativa (GPU ociosa a 0,08 ms) — fatia futura, sobre este canal.
+3. Trama tipada em `Knowledge[T]` + GUM — fatia futura.
+4. N agentes como cidadãos de primeira classe — o loomd já é isso.
+
+O que **não** se constrói: editor de texto, LSP genérico, autocomplete, temas, extensões.
+*"Não compita em teclado; compita em verdade."*
+
+## §1 Arquitetura
+
+**Um servidor, um lock por lane.** Módulo novo `src/ide.rs`. Ele **não conhece a tabela de
+tradução do ACP** — publica na trama pelos mesmos `AgentEvent`. A costura é a trama, como já é
+para `acp.rs` e `transcript.rs`.
+
+```
+loomd ──escreve──▶ .agents/claude-1/.claude/ide/<porta>.lock   (token A)
+                   .agents/claude-2/.claude/ide/<porta>.lock   (token B)
+                   .agents/claude-3/.claude/ide/<porta>.lock   (token C)
+                            │
+   claude (tmux) lê o lock e conecta ──▶ WS 127.0.0.1:<porta>
+                            │
+                   openDiff · getDiagnostics · …  ──▶ trama
+```
+
+**Papéis opostos no mesmo processo, de propósito:** o loomd é **cliente ACP** para `claude-4` e
+**servidor de IDE** para as lanes TUI. Dirigir e servir são coisas diferentes, e o operador quer
+as duas.
+
+**`ideName: "Sounio Mission Control"`.** Não me passo por OpenVSCode Server. Quando o agente
+perguntar quem é a IDE (`/ide`), a resposta é honesta — e é o nome que ele mostra.
+
+**Lock órfão é problema do servidor, não do agente.** Ao subir, o loomd apaga locks que ele mesmo
+escreveu (identificados pelo `pid` do arquivo, comparado com processos vivos) e escreve os novos.
+Ao morrer, o lock fica — e é o `pid` que permite ao próximo saber que é lixo. Sem isso acumulam-se
+locks apontando para portas mortas, exatamente como o de 07-ago.
+
+## §2 Os oito métodos
+
+| método | resposta do loomd | por quê |
+|---|---|---|
+| **`getDiagnostics`** | **verdade do compilador**: `souc` + gates | §3, é o coração |
+| **`openDiff`** | aceita e publica `DiffProposed` na trama | o diff da lane TUI aparece no Mission Control |
+| `getOpenEditors` | a worktree da lane e os arquivos tocados no turno | contexto que hoje o agente não tem |
+| `getCurrentSelection` | **vazio** | não há cursor humano numa lane de tmux |
+| `openFile` / `saveDocument` | registra a intenção na trama; **não age** | não há editor para abrir |
+| `close_tab` | aceito, registrado, ignorado | — |
+| **`executeCode`** | **não implementado** | §4 |
+
+Três decisões declaradas:
+
+- **`getCurrentSelection` vazio de propósito.** Inventar seleção é mentir sobre um humano que não
+  está lá. Vazio é a verdade.
+- **`openFile`/`saveDocument` registram sem agir.** A operação de *protocolo* funcionou; a trama
+  registra que o agente **pediu**, nunca que foi feito. "Ok" para ação que não aconteceu é a UI
+  mentirosa que esta linhagem de fatias tem como inimiga declarada.
+- **`executeCode` ausente, não stub.** Servido pelo loomd, executaria **no cluster**. Fatia própria,
+  atrás de aprovação explícita, como patch e comando já ficam.
+
+## §3 `getDiagnostics` como autoridade
+
+```
+getDiagnostics(uri) → souc check <arquivo>  (+ gates de stdlib quando o alvo é stdlib)
+                    → Diagnostic{ severity, range, message, source: "souc" }
+```
+
+Nenhuma ferramenta comercial faria isso para uma linguagem de um usuário — custo marginal infinito
+para elas, um binário que já existe para ele.
+
+### 🚨 O pré-requisito: o `souc` chama erro de aviso
+
+Registrado em memória e verdadeiro: **nome inexistente produz `warning` e `xor eax,eax`**, e o
+`make build` trunca a saída em 1 MiB. Repassar isso faria a IDE responder **"limpo" sobre código
+que não roda** — e com autoridade maior que um aviso de terminal, porque o agente confia nesta
+resposta.
+
+A camada de IDE **promove** classes conhecidas de aviso para `Error`, sem esperar o compilador
+mudar:
+
+```rust
+/// 🚨 O `souc` chama de `warning` o que é erro semântico. Repassar faria a IDE afirmar "limpo"
+/// sobre código que não roda — e o agente confia nesta resposta mais do que num aviso de terminal.
+pub fn promover_severidade(bruto: &DiagnosticoBruto) -> Severidade
+```
+
+### Silêncio ≠ limpo
+
+Se o `souc` não pôde rodar — binário ausente, timeout, saída truncada — a resposta **não** é lista
+vazia. É um diagnóstico dizendo **"não consegui verificar"**. Lista vazia significa "verifiquei e
+está bom"; um agente que a recebe segue construindo sobre areia.
+
+### Latência
+
+`souc check` não é instantâneo e o agente espera. **Cache por `mtime`**, e nada além nesta fatia. A
+computação especulativa no cluster é fatia futura, sobre este canal.
+
+## §4 Segurança
+
+**Um token por lane, não um por servidor.** Consequência arquitetural, não detalhe: com tokens
+distintos, o servidor **sabe qual lane conectou** — sem isso as três seriam indistinguíveis, e não
+haveria como atribuir o `openDiff` à lane certa na trama nem confinar caminho.
+
+**Confinamento de caminho.** Cada lane tem sua worktree (`/workspace/.wt/<lane>`). Requisição sobre
+caminho fora dela é **recusada e registrada na trama** — nunca ignorada em silêncio. Uma lane
+olhando a árvore de outra é o hazard que a Frota existe para avisar; aqui eu o criaria de dentro.
+
+O resto copia o que a extensão já faz: escutar **só em `127.0.0.1`**, lock em **0600**, token no
+cabeçalho `x-claude-code-ide-authorization`, e `executeCode` **ausente**.
+
+## §5 Testes
+
+Funções puras, onde mora a decisão:
+
+| função | o que prende |
+|---|---|
+| `conteudo_do_lock(porta, token, lane)` | `ideName: "Sounio Mission Control"`, `transport: "ws"`, `pid` real |
+| `lock_e_orfao(lock, pids_vivos)` | o lock de 07-ago (pid 321 morto) **é** órfão |
+| `promover_severidade(bruto)` | aviso de nome inexistente **vira `Error`** |
+| `caminho_permitido(lane, path)` | caminho fora da worktree é recusado |
+| `diagnostico_de_falha(motivo)` | `souc` inacessível produz diagnóstico, **nunca lista vazia** |
+
+**Mutações obrigatórias**, e o vermelho tem de vir de **asserção** — vermelho por erro de
+compilação prova que o compilador cobra algo, não que o teste pega o defeito:
+
+1. `promover_severidade` devolvendo o valor bruto → vermelho
+2. `caminho_permitido` sempre `true` → vermelho
+3. `souc` indisponível devolvendo lista vazia → vermelho *(a mentira mais perigosa da fatia)*
+4. Token único para todas as lanes → o teste de identificação de lane fica vermelho
+
+**Prova ao vivo:** numa lane real do tmux, `/ide` mostra **`Sounio Mission Control`** conectado;
+pedir diagnóstico de um `.sio` com nome inexistente devolve **`Error`**, não `warning`. Se o agente
+aceitar o erro e corrigir, a tese está provada no menor exemplo possível: **a IDE pessoal como
+autoridade epistêmica entre um agente que especula e um compilador que não mente.**
+
+## Riscos
+
+- **O protocolo não é publicado.** Foi lido do bundle instalado (versão 2.1.225). Uma atualização
+  da CLI pode mudar o contrato sem aviso. Mitigação: a prova ao vivo é o teste de contrato, e o
+  `ideName` no lock deixa rastro de quem serviu.
+- **Promover severidade é julgamento.** A lista de classes promovidas começa pequena (nome
+  inexistente) e cresce com evidência. Promover errado gera falso positivo, que é melhor que falso
+  negativo aqui — mas não é grátis.
+- **`souc` lento degrada a experiência do agente.** Cache por `mtime` cobre o caso comum; o caso
+  frio continua custando.
+- **Um servidor para N lanes** é ponto único de falha para a função de IDE. Se ele cair, as lanes
+  voltam ao que são hoje (sem IDE) — degradação, não quebra.
+
+## Fora de escopo
+
+- `executeCode` — fatia própria, atrás de aprovação.
+- Computação especulativa no cluster (pré-compilar e pré-explicar a cada save).
+- Trama tipada em `Knowledge[T]`/GUM.
+- Transporte do ACP pelo crate `agent-client-protocol` e migração do `codex.rs` — **fatia seguinte,
+  já pesquisada**: `gemini --acp` e `qwen --acp` são nativos (sem adaptador), mas nenhum está
+  verificado contra ACP 2.0.0 (Qwen reportado em v1, `QwenLM/qwen-code#1502`), então compatibilidade
+  se estabelece por handshake. Modelos locais (Ollama/vLLM/llama.cpp/LM Studio) não têm agente ACP
+  conhecido nem adaptador genérico — **não resolvido**, não "não existe".
+- Editor de texto, LSP genérico, autocomplete, temas.
