@@ -34,7 +34,7 @@ O §5 do spec lista "erro de protocolo visível" como item de acabamento. **Já 
 |---|---|---|
 | `crates/loomd/src/trama.rs` (modificar) | `enum Aceita` + campo em `LaneState` | t560 |
 | `crates/loomd/src/main.rs` (modificar) | derivar `Aceita` de qual mapa a lane veio | t560 |
-| `BeagleCore/Fleet/LaneState.swift` (modificar) | `Aceita` decodificado, **não inferido**; `isAbsent` sai da prosa | Mac |
+| `BeagleCore/Fleet/LaneState.swift` (modificar) | `Aceita` decodificado, **não inferido**; comentário de dívida em `isAbsent` | Mac |
 | `BeagleCore/Fleet/SessionStore.swift` (modificar) | `SessionStep.uso`, `UsoDoTurno`, `rotuloDeGuiar` | Mac |
 | `BeagleWorkbenchKit/Fleet/SessionView.swift` (modificar) | rodapé, ferramenta recolhida, diff, caixa condicional | Mac |
 | `BeagleWorkbenchKit/Fleet/FrotaView.swift` (modificar) | acumulado no `LaneCard` | Mac |
@@ -295,32 +295,28 @@ Em `LaneSnapshot`, junto dos campos:
 
 Se `LaneSnapshot` tiver `init` explícito, acrescente o parâmetro com valor padrão `nil` para não quebrar chamadas. Se houver `CodingKeys`, acrescente `case aceita`. Exponha o helper que o teste usa (ou aponte o teste para o decodificador que já existir — se `FleetStateClient` já tem função de decodificação de lane, **use a existente** em vez de criar outra, e ajuste o teste; duas rotas de decodificação divergem).
 
-- [ ] **Step 4: Matar a dedução por prosa**
+- [ ] **Step 4: NÃO tocar em `isAbsent` — e por quê**
 
-`isAbsent` hoje deduz capacidade de frase em português:
+`isAbsent` deduz capacidade de prosa (`detail.localizedCaseInsensitiveContains("não existe no
+tmux")`), e isso é dívida real: muda a redação no servidor e a tela volta a oferecer ação em lane
+que não existe.
+
+**Mas a autoridade dessa frase não é o `loomd`** — é o `LanePoller` do project-cockpit (Node), que
+escreve o `detail`. Consertar de verdade exige tocar naquele serviço, o que é **fora do escopo desta
+fatia**.
+
+Então: **deixe `isAbsent` exatamente como está.** Não acrescente teste, não acrescente
+`XCTExpectFailure`, não mexa. Um teste marcado para falhar sobre algo que decidimos não consertar é
+ruído, não cobertura.
+
+Acrescente **apenas** um comentário de uma linha acima dele apontando a dívida:
 
 ```swift
-    public var isAbsent: Bool {
-        state == .exited && detail.localizedCaseInsensitiveContains("não existe no tmux")
-    }
+    // ⚠️ DÍVIDA: capacidade deduzida de prosa. A frase vem do LanePoller do project-cockpit (Node),
+    // não do loomd — consertar exige tocar naquele serviço. Ver o spec desta fatia, §1.
 ```
 
-Isso quebra em silêncio se o servidor mudar a redação. Acrescente o teste e o conserto:
-
-```swift
-    /// A prosa do servidor NÃO é contrato. Se a redação mudar, `isAbsent` deixa de funcionar sem
-    /// nenhum sinal — e a tela volta a oferecer ação em lane que não existe.
-    func testAusenciaNaoSaiDeFraseEmPortugues() {
-        let comOutraRedacao = LaneSnapshot.paraTeste(sid: "grok-cli1", state: .exited,
-                                                     detail: "session not found in tmux")
-        XCTAssertTrue(comOutraRedacao.isAbsent, "a ausência tem de sobreviver à troca de idioma")
-    }
-```
-
-Conserto: o servidor passa a declarar um booleano e `isAbsent` o lê; enquanto o servidor não o
-tiver, mantenha a checagem de prosa **como fallback** e deixe o comentário dizendo que é dívida.
-**Não** finja que está resolvido — se você escolher o fallback, o teste acima deve ser marcado
-`XCTExpectFailure` com o motivo escrito, para a dívida ficar visível em vez de esquecida.
+Isto é registrado no ledger como dívida conhecida, para o review final triar antes do merge.
 
 - [ ] **Step 5: Rodar e ver passar**
 
@@ -511,27 +507,40 @@ ssh -o StrictHostKeyChecking=no demetriosagourakis@100.91.184.41 \
   'cd ~/Developer/beagle && swift test --package-path beagle-ios/BeagleSuite 2>&1 | tail -6'
 ```
 
-- [ ] **Step 5: Mutação**
+- [ ] **Step 5: Mutação — e ela precisa de um caso a mais no teste**
 
-Troque o corpo de `Turno.uso` por soma:
+A mutação óbvia (somar em vez de pegar o último) dá **o mesmo resultado** com os dados do Step 1,
+porque os eventos intermediários trazem custo zero. Uma mutação que não muda o resultado não prova
+nada. Então **primeiro acrescente o caso que a torna exercitável** — um `usage` de fechamento **sem
+custo depois** de um com custo, que é o que o adaptador de fato emite:
 
 ```swift
-        var soma = 0.0; var ult: UsoDoTurno?
-        for p in passos { if case .uso(_, let u, let t, let d, _) = p { soma += d; ult = UsoDoTurno(contextoUsado: u, contextoTeto: t, usd: soma) } }
-        return ult
+    /// O último evento de `usage` do turno pode vir SEM custo (fechamento). Se o código
+    /// sobrescrever o custo com esse zero, o turno perde o preço que já tinha.
+    func testUsoNaoPerdeOCustoQuandoOUltimoEventoVemZerado() {
+        let t0 = Date()
+        let passos: [SessionStep] = [
+            .prompt(id: 1, text: "x", at: t0),
+            .uso(id: 2, contextoUsado: 38_000, contextoTeto: 1_000_000, usd: 0.3728, at: t0),
+            .uso(id: 3, contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0, at: t0),
+        ]
+        let uso = try! XCTUnwrap(Turno.agrupar(passos)[0].uso)
+        XCTAssertEqual(uso.usd, 0.3728, accuracy: 0.0001, "o zero de fechamento não apaga o custo")
+        XCTAssertEqual(uso.contextoUsado, 38_718, "mas o contexto é o último, sempre")
+    }
 ```
 
-Com os valores do teste a soma dá o mesmo (os outros são zero) — **e é justamente esse o ponto**.
-Então a mutação correta é outra: faça o `usd` **sobrescrever sempre**, inclusive com zero:
+Rode e veja passar. **Agora a mutação:** faça o `usd` sobrescrever sempre, inclusive com zero —
 
 ```swift
                 ultimo = UsoDoTurno(contextoUsado: usado, contextoTeto: teto, usd: usd)
 ```
 
-Acrescente ao teste um caso em que o **último** evento vem com custo zero depois de um com custo
-(acontece: o adaptador emite `usage` de fechamento sem custo), e confirme que a mutação fica
-**vermelha por asserção**. Se você não conseguir uma mutação que fique vermelha por asserção,
-**diga isso no relatório** em vez de declarar cobertura que não existe.
+— e confirme que `testUsoNaoPerdeOCustoQuandoOUltimoEventoVemZerado` fica **vermelho por asserção**
+(`0.0` em vez de `0.3728`). Restaure e confirme o verde.
+
+Uma segunda mutação, para o contexto: faça o `contextoUsado` guardar o **primeiro** em vez do último
+→ `testUsoDoTurnoPegaOUltimoComCustoNaoASoma` fica vermelho.
 
 - [ ] **Step 6: Commit no Mac**
 
@@ -916,5 +925,6 @@ commite no t560 (branch `reconcile/unify-beagle`).
   o chip soma duas vezes.
 - **O fonte do Mac é o vivo.** Trabalhe em `~/Developer/beagle` no Mac; nunca faça `rsync` do t560
   para o Mac nesta fatia.
-- **`isAbsent` deduz de prosa** e continua deduzindo (dívida marcada, não resolvida). Se o servidor
-  mudar a redação, a tela volta a oferecer ação em lane que não existe.
+- **`isAbsent` deduz de prosa** e continua deduzindo. **Deliberadamente não tocado**: a frase vem do
+  `LanePoller` do project-cockpit (Node), não do `loomd`, então consertar é outra fatia. Fica um
+  comentário de dívida no código e uma linha no ledger para o review final triar.
