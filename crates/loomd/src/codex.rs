@@ -488,9 +488,6 @@ mod tests {
     /// girava em silêncio e o board não tinha como dizer por quê.
     #[tokio::test]
     async fn lane_com_binario_inexistente_registra_erro_em_vez_de_ficar_muda() {
-        let t = std::sync::Arc::new(crate::trama::Trama::open(
-            std::env::temp_dir().join("loomd-test-nao-sobe.jsonl"),
-        ));
         let _ = std::fs::remove_file(std::env::temp_dir().join("loomd-test-nao-sobe.jsonl"));
         let t = std::sync::Arc::new(crate::trama::Trama::open(
             std::env::temp_dir().join("loomd-test-nao-sobe.jsonl"),

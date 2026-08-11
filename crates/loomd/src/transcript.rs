@@ -32,7 +32,7 @@ pub fn arquivo_mais_novo(dir: &std::path::Path) -> Option<std::path::PathBuf> {
         }
         let Ok(md) = p.metadata() else { continue };
         let Ok(mt) = md.modified() else { continue };
-        if melhor.as_ref().map_or(true, |(m, _)| mt > *m) {
+        if melhor.as_ref().is_none_or(|(m, _)| mt > *m) {
             melhor = Some((mt, p));
         }
     }
@@ -371,7 +371,7 @@ mod tests {
         {
             use std::io::Write as _;
             let mut f = std::fs::OpenOptions::new().append(true).open(&arq).unwrap();
-            write!(f, "{resto}\n").unwrap();
+            writeln!(f, "{resto}").unwrap();
         }
         varrer_uma_vez(
             &base,

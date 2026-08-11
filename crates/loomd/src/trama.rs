@@ -242,7 +242,7 @@ impl Trama {
         let g = self.inner.lock().unwrap();
         g.events
             .iter()
-            .filter(|e| e.seq > since && lane.map_or(true, |l| e.lane == l))
+            .filter(|e| e.seq > since && lane.is_none_or(|l| e.lane == l))
             .cloned()
             .collect()
     }
@@ -270,7 +270,9 @@ impl Trama {
     }
 
     /// O maior `seq` já emitido. Existe para o teste poder afirmar a monotonicidade sem
-    /// depender de qual evento foi o último.
+    /// depender de qual evento foi o último. Só chamado de `#[cfg(test)]`, então o build normal
+    /// do binário a vê como morta.
+    #[allow(dead_code)]
     pub fn seq(&self) -> u64 {
         self.inner.lock().unwrap().seq
     }

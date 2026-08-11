@@ -33,12 +33,16 @@ pub struct AcpLane {
     proximo_id: Arc<Mutex<u64>>,
     trama: Arc<Trama>,
     modo: String,
-    cwd: String,
 }
 
 /// Parte um bloco cru em mensagens. Linha vazia é ignorada; linha ilegível é DESCARTADA e não
 /// derruba nada — regra já vigente no `codex.rs`, porque o vocabulário cresce e o transporte
 /// pode intercalar ruído. Cegueira total é pior que informação parcial.
+///
+/// A leitura real usa `BufReader::lines` direto (`ler_ate_o_fim`); esta função pura existe para
+/// documentar e testar a regra de descarte sem precisar montar um leitor. Só chamada de
+/// `#[cfg(test)]`, então o build normal do binário a vê como morta.
+#[allow(dead_code)]
 pub fn linhas_ndjson(bruto: &str) -> Vec<serde_json::Value> {
     bruto
         .lines()
@@ -140,7 +144,6 @@ impl AcpLane {
             proximo_id: Arc::new(Mutex::new(10)),
             trama: trama.clone(),
             modo: modo.to_string(),
-            cwd: cwd.to_string(),
         });
         let (b, c) = (bin.to_string(), cwd.to_string());
         let this = me.clone();
@@ -149,10 +152,6 @@ impl AcpLane {
             async move { this.run_once(&b, &c).await }
         });
         me
-    }
-
-    pub async fn session_id(&self) -> Option<String> {
-        self.sessao.lock().await.clone()
     }
 
     /// 🚨 ACHADO 4 (crítico): a versão anterior não devolvia nada — com `stdin == None` (o
@@ -443,7 +442,6 @@ impl AcpLane {
             proximo_id: Arc::new(Mutex::new(10)),
             trama,
             modo: modo.to_string(),
-            cwd: "/tmp".into(),
         })
     }
 

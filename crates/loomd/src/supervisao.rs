@@ -87,10 +87,7 @@ mod tests {
             let n = n2.clone();
             async move {
                 n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "caiu de proposito",
-                ))
+                Err(std::io::Error::other("caiu de proposito"))
             }
         });
 

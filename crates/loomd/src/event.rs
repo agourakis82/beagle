@@ -296,9 +296,7 @@ pub fn from_codex_notification(
             // A ferramenta já entrou na trilha no `started`. Repetir a mesma linha ao terminar só
             // dobra o ruído; só vale registrar de novo se o fim trouxe conteúdo (a saída).
             _ => {
-                if item_text(p.get("item")?).is_none() {
-                    return None;
-                }
+                item_text(p.get("item")?)?;
                 Kind::ToolResult
             }
         },
@@ -453,6 +451,9 @@ pub fn from_transcript_line(lane: &str, l: &serde_json::Value) -> Option<AgentEv
     }
 }
 
+// Só lida por testes (`#[cfg(test)]`), então o build normal do binário a vê como morta —
+// `[[bin]]` não compila `mod tests`, e é lá que ela é usada como fixture de replay.
+#[allow(dead_code)]
 pub const FIXTURE_ACP: &str =
     "../../docs/superpowers/fixtures/2026-08-10-acp-censo-modo-default.jsonl";
 
@@ -781,7 +782,7 @@ mod tests {
     }
 
     #[test]
-    fn a_fala_entra_UMA_vez_e_a_ferramenta_aparece_enquanto_roda() {
+    fn a_fala_entra_uma_vez_e_a_ferramenta_aparece_enquanto_roda() {
         // 🚨 MEDIDO AO VIVO: `item/started` e `item/completed` chegam para o MESMO item. Eu
         // registrava os dois, e a trama saiu com o prompt do operador DUPLICADO (seq 48 e 49) e a
         // resposta do agente duas vezes — a primeira vazia, porque no `started` o texto ainda não

@@ -109,6 +109,34 @@ async fn main() {
         &cwd,
     );
 
+    // Lanes ACP: mesma forma `lane[:cwd]` do codex, variável própria.
+    //   LOOMD_ACP_LANES="claude-4:/workspace/.wt/claude-4"
+    let acp_bin = std::env::var("LOOMD_ACP_BIN").unwrap_or_else(|_| "claude-agent-acp".into());
+    // O modo vem da Task 1 do plano — MEDIDO, não escolhido pela descrição.
+    let acp_modo = std::env::var("LOOMD_ACP_MODO").unwrap_or_else(|_| "default".into());
+    let acp_lanes = parse_lanes(&std::env::var("LOOMD_ACP_LANES").unwrap_or_default(), &cwd);
+
+    // Observação read-only das lanes TUI. Forma `lane:dir-de-projetos`, vírgula entre elas.
+    //   LOOMD_TAILS="claude-1:/workspace/.home/openvscode-server/.agents/claude-1/.claude/projects/-workspace-sounio,…"
+    let tails = parse_lanes(&std::env::var("LOOMD_TAILS").unwrap_or_default(), "");
+
+    // 🚨 A GUARDA DE SOBREPOSIÇÃO, agora cobrindo os TRÊS namespaces. `LOOMD_CODEX_LANES`,
+    // `LOOMD_ACP_LANES` e `LOOMD_TAILS` não eram validados entre si: a mesma lane em dois deles
+    // ou faz um `insert` silencioso sobrescrever um handle vivo (codex+ACP — o processo codex
+    // segue rodando, mas inalcançável por rota, e os dois escrevem na trama sob a MESMA chave),
+    // ou intercala dois observadores `exact` sob uma identidade sem nenhum sintoma visível
+    // (tails+ACP). Uma lane com duas fontes escrevendo sob um nome envenena o diário — e o
+    // diário é o produto. Recusa subir: silencioso no log é o mesmo tipo de defeito que estamos
+    // consertando no resto deste review (fato errado, sem sinal).
+    if let Some(duplicada) = lane_duplicada(&lanes, &acp_lanes, &tails) {
+        eprintln!(
+            "[loomd] FATAL: lane '{duplicada}' aparece em mais de um dos namespaces \
+             LOOMD_CODEX_LANES / LOOMD_ACP_LANES / LOOMD_TAILS — cada lane só pode ter UMA fonte \
+             escrevendo na trama sob o mesmo nome. Corrija a configuração e suba de novo."
+        );
+        std::process::exit(1);
+    }
+
     let trama = Arc::new(Trama::open(&jsonl));
     let mut map = HashMap::new();
     for (l, c) in &lanes {
@@ -128,12 +156,6 @@ async fn main() {
         );
     }
 
-    // Lanes ACP: mesma forma `lane[:cwd]` do codex, variável própria.
-    //   LOOMD_ACP_LANES="claude-4:/workspace/.wt/claude-4"
-    let acp_bin = std::env::var("LOOMD_ACP_BIN").unwrap_or_else(|_| "claude-agent-acp".into());
-    // O modo vem da Task 1 do plano — MEDIDO, não escolhido pela descrição.
-    let acp_modo = std::env::var("LOOMD_ACP_MODO").unwrap_or_else(|_| "default".into());
-    let acp_lanes = parse_lanes(&std::env::var("LOOMD_ACP_LANES").unwrap_or_default(), &cwd);
     for (l, c) in &acp_lanes {
         eprintln!("[loomd] lane ACP {l} em {c} (modo {acp_modo})");
         trama.declarar(l);
@@ -149,16 +171,14 @@ async fn main() {
         );
     }
 
-    // Observação read-only das lanes TUI. Forma `lane:dir-de-projetos`, vírgula entre elas.
-    //   LOOMD_TAILS="claude-1:/workspace/.home/openvscode-server/.agents/claude-1/.claude/projects/-workspace-sounio,…"
-    for (l, d) in parse_lanes(&std::env::var("LOOMD_TAILS").unwrap_or_default(), "") {
+    for (l, d) in &tails {
         if d.is_empty() {
             eprintln!("[loomd] tail {l} SEM diretorio — ignorado");
             continue;
         }
         eprintln!("[loomd] tail {l} em {d}");
-        trama.declarar(&l);
-        transcript::TranscriptTail::spawn(&l, &d, trama.clone());
+        trama.declarar(l);
+        transcript::TranscriptTail::spawn(l, d, trama.clone());
     }
 
     let app_state = App {
@@ -286,6 +306,32 @@ pub fn parse_lanes(spec: &str, padrao: &str) -> Vec<(String, String)> {
         })
         .filter(|(l, _)| !l.is_empty())
         .collect()
+}
+
+/// A mesma lane aparecendo em mais de um dos três namespaces (`codex`, `acp`, `tails`) — em
+/// qualquer combinação, incluindo duas vezes dentro do MESMO namespace. Devolve o primeiro nome
+/// duplicado achado, ou `None` se a configuração é limpa.
+///
+/// Função pura de propósito, para ser testável sem subir o daemon — a mesma disciplina de
+/// `mensagens_de_abertura` (`acp.rs`) e `varrer_uma_vez` (`transcript.rs`).
+pub fn lane_duplicada(
+    codex: &[(String, String)],
+    acp: &[(String, String)],
+    tails: &[(String, String)],
+) -> Option<String> {
+    let mut contagem: HashMap<&str, u32> = HashMap::new();
+    for (l, _) in codex.iter().chain(acp.iter()).chain(tails.iter()) {
+        *contagem.entry(l.as_str()).or_insert(0) += 1;
+    }
+    // Ordena por nome para a mensagem de erro ser determinística — não depende da ordem de
+    // iteração do HashMap.
+    let mut duplicadas: Vec<&str> = contagem
+        .into_iter()
+        .filter(|(_, n)| *n > 1)
+        .map(|(l, _)| l)
+        .collect();
+    duplicadas.sort_unstable();
+    duplicadas.into_iter().next().map(str::to_string)
 }
 
 /// Parar o turno em curso. 409 quando não há turno — pedir para interromper uma lane parada é
@@ -454,6 +500,46 @@ mod tests {
                 ("a".to_string(), "/p".to_string()),
                 ("b".to_string(), "/x".to_string())
             ]
+        );
+    }
+
+    // ─── A guarda de sobreposição: mesma lane em mais de um namespace ────────────────────────
+
+    fn par(lane: &str) -> (String, String) {
+        (lane.to_string(), "/algum/lugar".to_string())
+    }
+
+    #[test]
+    fn configuracao_limpa_nao_acha_duplicata() {
+        let codex = vec![par("codex-4")];
+        let acp = vec![par("claude-4")];
+        let tails = vec![par("claude-1")];
+        assert_eq!(super::lane_duplicada(&codex, &acp, &tails), None);
+    }
+
+    #[test]
+    fn mesma_lane_em_codex_e_acp_e_flagrada() {
+        // O cenário do achado: o insert do ACP (roda depois) sobrescreveria em silêncio o
+        // handle do codex, que continuaria vivo mas inalcançável por rota.
+        let codex = vec![par("agente-x")];
+        let acp = vec![par("agente-x")];
+        let tails = vec![];
+        assert_eq!(
+            super::lane_duplicada(&codex, &acp, &tails),
+            Some("agente-x".to_string())
+        );
+    }
+
+    #[test]
+    fn mesma_lane_em_tails_e_acp_e_flagrada() {
+        // O outro cenário: nenhum handle é sobrescrito, mas dois observadores `exact`
+        // intercalam sob a mesma identidade — sem nem o sintoma de rota morta.
+        let codex = vec![];
+        let acp = vec![par("claude-1")];
+        let tails = vec![par("claude-1")];
+        assert_eq!(
+            super::lane_duplicada(&codex, &acp, &tails),
+            Some("claude-1".to_string())
         );
     }
 }
