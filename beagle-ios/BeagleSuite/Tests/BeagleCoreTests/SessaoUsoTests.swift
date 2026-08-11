@@ -174,4 +174,46 @@ final class SessaoUsoTests: XCTestCase {
         XCTAssertNil(SessionStore.semCaixa(.enfileira), "há caixa; semCaixa não se aplica")
     }
 
+    // MARK: - O rodapé do turno (Task 5)
+
+    /// 🚨 Um "US$ 0,0000" no rodapé de todo turno é ruído que treina o olho a ignorar a linha
+    /// inteira — e aí o custo que importa também deixa de ser visto.
+    func testRodapeComCustoMostraOUSD() {
+        let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728)
+        let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 12, uso: uso))
+        XCTAssertTrue(texto.contains("US$"), "custo > 0 tem de aparecer")
+        XCTAssertTrue(texto.contains("0.3728"))
+    }
+
+    func testRodapeComCustoZeroNaoMostraUSD() {
+        let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0)
+        let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 12, uso: uso))
+        XCTAssertFalse(texto.contains("US$"),
+                        "custo zero é ruído que treina o olho a ignorar a linha inteira")
+    }
+
+    func testRodapeSemUsoMostraSoADuracao() {
+        let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 12, uso: nil))
+        XCTAssertFalse(texto.contains("contexto"))
+        XCTAssertFalse(texto.contains("US$"))
+    }
+
+    func testRodapeSemDuracaoEhNil() {
+        let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728)
+        XCTAssertNil(SessionStore.rodapeDoTurno(duracao: nil, uso: uso),
+                      "turno em curso não tem rodapé — nada foi concluído ainda")
+    }
+
+    /// O teto varia por agente — 1.000.000 no Claude, 258.400 no Codex via ACP. Dois `uso` com o
+    /// mesmo `contextoUsado` e tetos diferentes têm de dar porcentagens diferentes no rodapé.
+    func testRodapeUsaOTetoDoEventoNaoUmaConstante() {
+        let claude = UsoDoTurno(contextoUsado: 25_840, contextoTeto: 1_000_000, usd: 0.01)
+        let codex = UsoDoTurno(contextoUsado: 25_840, contextoTeto: 258_400, usd: 0.01)
+        let textoClaude = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: claude))
+        let textoCodex = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: codex))
+        XCTAssertTrue(textoClaude.contains("contexto 2%"), textoClaude)
+        XCTAssertTrue(textoCodex.contains("contexto 10%"), textoCodex)
+        XCTAssertNotEqual(textoClaude, textoCodex, "tetos diferentes têm de render porcentagens diferentes")
+    }
+
 }

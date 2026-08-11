@@ -364,6 +364,28 @@ public final class SessionStore {
         }
     }
 
+    // MARK: - O rodapé do turno
+
+    /// O rodapé do turno, em texto. `nil` = sem rodapé.
+    /// 🚨 Custo zero NÃO entra: "US$ 0,0000" em todo turno treina o olho a ignorar a linha, e aí
+    /// o número que importa também deixa de ser lido.
+    public static func rodapeDoTurno(duracao: TimeInterval?, uso: UsoDoTurno?) -> String? {
+        guard let d = duracao else { return nil }
+        var partes = [rodapeDur(d)]
+        if let u = uso {
+            partes.append("contexto \(Int(u.proporcao * 100))%")
+            if u.usd > 0 { partes.append(String(format: "US$ %.4f", u.usd)) }
+        }
+        return partes.joined(separator: " · ")
+    }
+
+    private static func rodapeDur(_ s: TimeInterval) -> String {
+        let t = Int(s.rounded())
+        if t < 60 { return "\(t)s" }
+        if t < 3600 { return "\(t / 60)m \(t % 60)s" }
+        return "\(t / 3600)h \((t % 3600) / 60)m"
+    }
+
     // MARK: - Escrever
 
     /// Manda um pedido. Falha VISÍVEL: um prompt que não chegou não pode parecer que chegou.

@@ -378,8 +378,10 @@ private struct TurnoView: View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             cabecalho
             ForEach(turno.passos.filter(\.desenhavel)) { passo in
-                PassoView(passo: passo, enviando: enviando, onAprovar: onAprovar)
+                PassoView(passo: passo, pedePermissao: turno.pedePermissao,
+                          enviando: enviando, onAprovar: onAprovar)
             }
+            rodape
         }
     }
 
@@ -403,13 +405,23 @@ private struct TurnoView: View {
                 Text("em curso")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(BeagleTheme.accent)
-            } else if let d = turno.duracao(concluido: true), d >= 1 {
-                Text(Self.dur(d))
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(BeagleTheme.textTertiary)
             }
         }
         .padding(.top, BeagleSpacing.xs)
+    }
+
+    /// Duração · contexto · custo. O custo vem de `Turno.uso` — a MESMA fonte que o chip da
+    /// Frota soma (Task 6). Dois cálculos independentes divergem, e aí o operador não sabe em
+    /// qual acreditar — por isso a formatação mora em `SessionStore.rodapeDoTurno`, não aqui.
+    @ViewBuilder
+    private var rodape: some View {
+        if let texto = SessionStore.rodapeDoTurno(duracao: turno.duracao(concluido: !emCurso),
+                                                    uso: turno.uso) {
+            Text(texto)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.45))
+                .padding(.leading, 2)
+        }
     }
 
     /// O que aconteceu dentro, em uma linha. Serve para decidir se vale abrir o turno com o olho.
@@ -436,18 +448,14 @@ private struct TurnoView: View {
         }
     }
 
-    private static func dur(_ s: TimeInterval) -> String {
-        let t = Int(s.rounded())
-        if t < 60 { return "\(t)s" }
-        if t < 3600 { return "\(t / 60)m \(t % 60)s" }
-        return "\(t / 3600)h \((t % 3600) / 60)m"
-    }
 }
 
 // MARK: - Um passo na trilha
 
 private struct PassoView: View {
     let passo: SessionStep
+    /// Do TURNO, não do passo — é o turno que pede permissão, e o diff é onde a afordância mora.
+    let pedePermissao: Bool
     let enviando: Bool
     let onAprovar: (Bool) -> Void
 
@@ -472,21 +480,23 @@ private struct PassoView: View {
             }
 
         case .tool(_, let nome, let detalhe, _):
-            // Uma linha. Ferramenta é rastro para varrer, não texto para ler — e são muitas.
+            // Ferramenta é rastro para varrer, não texto para ler — e são muitas. Recolhida por
+            // padrão (mesmo padrão de `DisclosureGroup` do agrupamento "anunciadas e nunca
+            // observadas" na Frota); o cabeçalho já basta para varrer, o detalhe completo só
+            // aparece a quem abre.
             Trilho(marcador: "⚙", cor: BeagleTheme.textTertiary) {
-                HStack(spacing: BeagleSpacing.xs) {
-                    Text(nome)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(BeagleTheme.textSecondary)
-                    Text(detalhe)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(BeagleTheme.textTertiary)
-                        .lineLimit(1).truncationMode(.middle)
-                }
+                FerramentaView(nome: nome, detalhe: detalhe)
             }
 
         case .diff(_, let patch, _):
-            Trilho(marcador: "◆", cor: BeagleTheme.truthObserved) { DiffView(patch: patch) }
+            // Afordância AO LADO, não um segundo caminho de aprovação: os botões chamam o mesmo
+            // `onAprovar` que `PedidoView` usa — `SessionStore.approve` responde ao pedido
+            // pendente da lane, não a um diff específico, então dois botões que chamassem rotas
+            // diferentes divergiriam sobre qual pedido está sendo respondido.
+            Trilho(marcador: "◆", cor: BeagleTheme.truthObserved) {
+                DiffView(patch: patch, pedePermissao: pedePermissao,
+                         enviando: enviando, onAprovar: onAprovar)
+            }
 
         case .approval(_, let kind, let detalhe, _):
             Trilho(marcador: "◉", cor: BeagleTheme.accent) {
@@ -506,6 +516,36 @@ private struct PassoView: View {
             // Custo não é fala: não é passo desenhado na linha da conversa, vira rodapé do turno.
             EmptyView()
         }
+    }
+}
+
+/// A ferramenta, recolhida por padrão. O cabeçalho (nome + resumo em uma linha) já basta para
+/// varrer a trilha; o detalhe completo — que pode ser longo, e truncado a uma linha perde
+/// informação — só aparece a quem abre.
+private struct FerramentaView: View {
+    let nome: String
+    let detalhe: String
+
+    var body: some View {
+        DisclosureGroup {
+            Text(detalhe)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+        } label: {
+            HStack(spacing: BeagleSpacing.xs) {
+                Text(nome)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                Text(detalhe)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+        }
+        .tint(BeagleTheme.textTertiary)
     }
 }
 
@@ -534,6 +574,12 @@ private struct Trilho<Conteudo: View>: View {
 /// linhas que se entende inteiro vale mais que uma dependência para isto.
 private struct DiffView: View {
     let patch: String
+    /// Do TURNO — verdadeiro quando ESTE turno tem um pedido de aprovação pendente. Não é
+    /// garantia de que este diff específico é o pedido (um turno raramente tem mais de um), mas
+    /// afirmar mais do que o turno sabe seria inventar granularidade que o servidor não dá.
+    let pedePermissao: Bool
+    let enviando: Bool
+    let onAprovar: (Bool) -> Void
     /// Acima disto o diff nasce fechado.
     ///
     /// 🚨 O motivo é de leitura, não de performance: um diff de 200 linhas empurra o pedido de
@@ -579,6 +625,13 @@ private struct DiffView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(BeagleTheme.accent)
                 }
+                // A afordância AO LADO do diff que ela decide — reusa o mesmo `onAprovar` do
+                // `PedidoView`. Só aparece quando o TURNO pede permissão; um diff sem pedido
+                // pendente é só leitura, e um botão que aprova nada é um botão que engana.
+                if pedePermissao {
+                    Spacer(minLength: BeagleSpacing.sm)
+                    afordancia
+                }
             }
 
             // 🚨 Sem `ScrollView` horizontal aqui, e a razão foi medida no primeiro retrato:
@@ -606,6 +659,31 @@ private struct DiffView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Aprovar/recusar ao lado do diff. Mesmos rótulos e o mesmo `onAprovar` de `PedidoView` —
+    /// aqui só menores, porque o cabeçalho do diff não é um painel.
+    private var afordancia: some View {
+        HStack(spacing: 6) {
+            Button { onAprovar(true) } label: {
+                Text("Aplicar").font(.system(size: 10, weight: .semibold))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(BeagleTheme.surface0)
+            .background(Capsule().fill(BeagleTheme.accent))
+
+            Button { onAprovar(false) } label: {
+                Text("Recusar").font(.system(size: 10))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(BeagleTheme.textSecondary)
+            .background(Capsule().stroke(BeagleTheme.hairline))
+
+            if enviando { ProgressView().controlSize(.mini) }
+        }
+        .disabled(enviando)
     }
 
     /// O cabeçalho `diff --git` / `index` / `---` / `+++` não é conteúdo: o nome do arquivo já
