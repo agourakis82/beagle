@@ -86,6 +86,34 @@ pub fn mensagens_de_abertura(
     v
 }
 
+/// Que tipo de mensagem JSON-RPC é esta?
+///
+/// 🚨 `method` PRIMEIRO. Ids de quem chama e de quem responde são espaços SEPARADOS: o adaptador
+/// numera os pedidos dele a partir de 0, então o `id` dele colide com os meus (`ID_SESSAO = 2`).
+/// Testar id antes de method fazia o 3º pedido dele (`session/request_permission`, id 2) ser
+/// tratado como resposta de sessão e ser ENGOLIDO — o turno pendurava para sempre. Reproduzido
+/// duas vezes ao vivo. A regra do protocolo: mensagem COM `method` é pedido ou notificação; SEM
+/// `method` e com `id` é resposta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mensagem {
+    /// Tem `method` e `id`: espera resposta minha.
+    Pedido,
+    /// Sem `method`: é `result`/`error` de um pedido MEU.
+    Resposta,
+    /// Tem `method`, sem `id`: não espera resposta.
+    Notificacao,
+}
+
+pub fn classificar(m: &serde_json::Value) -> Mensagem {
+    let tem_method = m.get("method").is_some();
+    let tem_id = m.get("id").is_some();
+    match (tem_method, tem_id) {
+        (true, true) => Mensagem::Pedido,
+        (true, false) => Mensagem::Notificacao,
+        (false, _) => Mensagem::Resposta,
+    }
+}
+
 /// A resposta de `session/new`/`session/load` deve disparar `set_mode`?
 ///
 /// 🚨 SÓ quando a sessão era DESCONHECIDA. No caminho de sessão conhecida o `set_mode` já foi
@@ -207,9 +235,14 @@ impl AcpLane {
     }
 
     async fn on_message(&self, m: serde_json::Value) {
-        // Resposta ao `session/new` / `session/load`: guarda a sessão e FIXA O MODO — mas só
-        // quando a sessão era desconhecida. Ver `deve_fixar_modo_na_resposta`.
-        if m.get("id").and_then(|x| x.as_u64()) == Some(ID_SESSAO) {
+        // 🚨 `classificar` primeiro: sem isto, o 3º `session/request_permission` do adaptador
+        // (id 2, espaço dele) colide com `ID_SESSAO` (id 2, meu espaço) e é engolido aqui como
+        // se fosse resposta de sessão. Só uma mensagem SEM `method` pode ser resposta minha.
+        if classificar(&m) == Mensagem::Resposta
+            && m.get("id").and_then(|x| x.as_u64()) == Some(ID_SESSAO)
+        {
+            // Resposta ao `session/new` / `session/load`: guarda a sessão e FIXA O MODO — mas
+            // só quando a sessão era desconhecida. Ver `deve_fixar_modo_na_resposta`.
             if let Some(sid) = m.pointer("/result/sessionId").and_then(|x| x.as_str()) {
                 let previa = self.sessao.lock().await.clone();
                 *self.sessao.lock().await = Some(sid.to_string());
@@ -226,7 +259,7 @@ impl AcpLane {
             return;
         }
         let metodo = m.get("method").and_then(|x| x.as_str()).unwrap_or("");
-        if m.get("id").is_some() && metodo == "session/request_permission" {
+        if classificar(&m) == Mensagem::Pedido && metodo == "session/request_permission" {
             let rpc_id = m["id"].clone();
             // `rpc_id.to_string()` num id JSON *string* devolve `"\"abc\""` — as aspas
             // vazariam para a tela. `as_str()` despe a sintaxe; ids numéricos (sem `as_str`)
@@ -581,6 +614,70 @@ mod tests {
         assert!(
             rx.try_recv().is_ok(),
             "quem esperava a decisao tem de ser liberado mesmo no caminho de erro"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Defeito 1: colisão de id JSON-RPC engolindo pedido de permissão ────────────────────
+
+    #[test]
+    fn classificar_confere_method_antes_de_id() {
+        // Pedido: tem `method` E `id` — o adaptador manda isto para `session/request_permission`.
+        assert_eq!(
+            classificar(&serde_json::json!({
+                "id": 2, "method": "session/request_permission", "params": {}
+            })),
+            Mensagem::Pedido
+        );
+        // Resposta: SEM `method`, com `id` — é o `result` de um pedido MEU.
+        assert_eq!(
+            classificar(&serde_json::json!({"id": 2, "result": {"sessionId": "s"}})),
+            Mensagem::Resposta
+        );
+        // Notificação: tem `method`, sem `id`.
+        assert_eq!(
+            classificar(&serde_json::json!({"method": "session/update", "params": {}})),
+            Mensagem::Notificacao
+        );
+    }
+
+    /// 🚨 O CRITICAL: `ID_SESSAO = 2` é do MEU espaço de ids; o adaptador numera os pedidos DELE
+    /// a partir de 0, independente. No 3º `session/request_permission` (id 2 no espaço dele),
+    /// testar id antes de method engolia a mensagem como se fosse resposta de `session/new` — o
+    /// pedido nunca era publicado, ninguém respondia, o turno pendurava para sempre.
+    #[tokio::test]
+    async fn pedido_de_permissao_com_id_colidindo_nao_e_engolido() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-colisao-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        // Mesmo id que `ID_SESSAO`, mas é um PEDIDO do adaptador — tem `method`.
+        let msg = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": ID_SESSAO,
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": "sess-1",
+                "toolCall": {"toolCallId": "toolu_1", "kind": "execute"},
+                "options": [{"optionId": "allow", "kind": "allow_once"}]
+            }
+        });
+        lane.on_message(msg).await;
+
+        assert!(
+            lane.pending.lock().await.contains_key("2"),
+            "o pedido tem que ficar pendente — engolido silenciosamente é o defeito"
+        );
+        let pendentes: Vec<_> = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::AwaitingApproval)
+            .collect();
+        assert_eq!(
+            pendentes.len(),
+            1,
+            "a trama tem de publicar o pedido, nao descarta-lo"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
