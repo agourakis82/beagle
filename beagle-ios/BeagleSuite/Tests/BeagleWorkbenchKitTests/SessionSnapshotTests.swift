@@ -107,6 +107,22 @@ final class SessionSnapshotTests: XCTestCase {
         try render(retrato(s), width: 900, name: "11-sessao-pedido")
     }
 
+    /// A lane ACP: sem `diff_proposed`, o patch chega DENTRO do `awaiting_approval` (medido em
+    /// `loomd/src/event.rs:486-500`). Este retrato existe para provar visualmente que o card
+    /// agora mostra o diff embutido — antes deste conserto, `claude-4` mostrava só o título e o
+    /// operador aprovava uma mudança que nunca viu.
+    @MainActor
+    func testRetratoComPedidoACPQueEmbutaODiff() throws {
+        let s = SessionStore.fixture(lane: "claude-4", steps: [
+            .prompt(id: 1, text: "Escreva um arquivo alvo.txt com exatamente a linha `oi`.", at: agora(40)),
+            .message(id: 2, text: "Vou criar o arquivo na raiz do workspace.", at: agora(35)),
+            // Sem `.diff` avulso — a lane ACP não emite `diff_proposed`.
+            .approval(id: 3, kind: .patch, detail: "alvo.txt (novo arquivo, 1 linha)",
+                      diff: Self.diffReal, at: agora(28)),
+        ])
+        try render(retrato(s), width: 900, name: "18-sessao-pedido-acp-diff-embutido")
+    }
+
     @MainActor
     func testRetratoComComandoQueNaoSeDesfaz() throws {
         // A distinção que muda o risco. O rótulo tem que ser diferente do patch, e visivelmente.

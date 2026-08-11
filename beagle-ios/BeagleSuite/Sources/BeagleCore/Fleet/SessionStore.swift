@@ -31,7 +31,14 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
     /// Mudança proposta, em unified diff.
     case diff(id: Int, patch: String, at: Date)
     /// O agente parou e está esperando. `kind` decide o rótulo: patch se desfaz por git, comando não.
-    case approval(id: Int, kind: ApprovalKind, detail: String, at: Date)
+    ///
+    /// 🚨 `diff` existe porque a lane ACP NÃO emite `diff_proposed` — medido em
+    /// `loomd/src/event.rs:486-500`: no caminho ACP o patch chega DENTRO do próprio evento
+    /// `awaiting_approval` (`c.get("type") == "diff"`), nunca como um passo `.diff` avulso.
+    /// `Kind::DiffProposed` só existe no codex. Sem este campo, a lane que esta fatia inteira
+    /// existe para servir aprova uma mudança que nunca viu. Valor padrão `nil` para não quebrar
+    /// call-sites e testes existentes.
+    case approval(id: Int, kind: ApprovalKind, detail: String, diff: String? = nil, at: Date)
     /// Algo quebrou. Erro é conteúdo de primeira classe: escondê-lo faz a tela mentir por omissão.
     case failure(id: Int, text: String, at: Date)
     /// Custo e janela de contexto. **Não é passo desenhado na conversa** — custo não é fala, e
@@ -55,7 +62,7 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
     public var id: Int {
         switch self {
         case .prompt(let i, _, _), .message(let i, _, _), .tool(let i, _, _, _),
-             .diff(let i, _, _), .approval(let i, _, _, _), .failure(let i, _, _):
+             .diff(let i, _, _), .approval(let i, _, _, _, _), .failure(let i, _, _):
             return i
         case .uso(let i, _, _, _, _):
             return i
@@ -66,7 +73,7 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
         case .prompt(_, _, let t), .message(_, _, let t), .diff(_, _, let t),
              .failure(_, _, let t):
             return t
-        case .tool(_, _, _, let t), .approval(_, _, _, let t):
+        case .tool(_, _, _, let t), .approval(_, _, _, _, let t):
             return t
         case .uso(_, _, _, _, let t):
             return t
@@ -295,7 +302,10 @@ public final class SessionStore {
             guard let d = e.diff, !d.isEmpty else { return nil }
             return .diff(id: e.seq, patch: d, at: e.at)
         case "awaiting_approval":
-            return .approval(id: e.seq, kind: e.approvalKind ?? .other, detail: corpo, at: e.at)
+            // 🚨 A lane ACP embute o diff AQUI — ela não emite `diff_proposed`. Descartar
+            // `e.diff` neste braço era o operador aprovando uma mudança que nunca viu.
+            return .approval(id: e.seq, kind: e.approvalKind ?? .other, detail: corpo,
+                              diff: e.diff, at: e.at)
         case "error":
             return .failure(id: e.seq, text: corpo.isEmpty ? "erro sem descrição" : corpo, at: e.at)
         case "tool_call", "tool_result":
@@ -373,7 +383,9 @@ public final class SessionStore {
         guard let d = duracao else { return nil }
         var partes = [rodapeDur(d)]
         if let u = uso {
-            partes.append("contexto \(Int(u.proporcao * 100))%")
+            // Arredonda, não trunca: 0,6% truncado vira "0%" — o mesmo raciocínio do custo
+            // zero, só que ao contrário (aqui o número existe e o truncamento o apaga).
+            partes.append("contexto \(Int((u.proporcao * 100).rounded()))%")
             if u.usd > 0 { partes.append(String(format: "US$ %.4f", u.usd)) }
         }
         return partes.joined(separator: " · ")
@@ -384,6 +396,25 @@ public final class SessionStore {
         if t < 60 { return "\(t)s" }
         if t < 3600 { return "\(t / 60)m \(t % 60)s" }
         return "\(t / 3600)h \((t % 3600) / 60)m"
+    }
+
+    // MARK: - Um pedido, uma resposta
+
+    /// Quantos LUGARES na trilha ofereceriam Aplicar/Recusar para o pedido pendente deste turno.
+    ///
+    /// 🚨 Achado de review: quando o agente propõe um patch (`.diff`) e depois pede para
+    /// aplicá-lo (`.approval`), os dois passos coexistem no mesmo turno. Se AMBOS os widgets
+    /// desenhassem botão — `DiffView` do `.diff` avulso E o card de `.approval` —, o operador
+    /// veria dois pares de Aplicar/Recusar chamando o MESMO `onAprovar` para o MESMO pedido.
+    /// A decisão: o card de aprovação (`PedidoView`) é o ÚNICO lugar — é ele que carrega o
+    /// pedido (e agora o diff, embutido ou referenciado), e `DiffView` nunca desenha botão, em
+    /// nenhum contexto. Este predicado é o invariante executável dessa decisão: um turno com
+    /// pedido pendente tem de dar EXATAMENTE 1, não importa quantos passos `.diff` existam ao
+    /// lado. Sem isto extraído puro, só um teste de UI (que este projeto não tem) pegaria a
+    /// regressão — os snapshots existentes (`SessionSnapshotTests`) renderizam PNG e não
+    /// afirmam nada sobre quantos botões apareceram.
+    public static func lugaresDeResposta(_ passos: [SessionStep]) -> Int {
+        passos.filter { if case .approval = $0 { return true }; return false }.count
     }
 
     // MARK: - Escrever

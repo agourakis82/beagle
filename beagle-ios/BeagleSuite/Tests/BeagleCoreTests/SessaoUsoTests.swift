@@ -207,13 +207,64 @@ final class SessaoUsoTests: XCTestCase {
     /// O teto varia por agente — 1.000.000 no Claude, 258.400 no Codex via ACP. Dois `uso` com o
     /// mesmo `contextoUsado` e tetos diferentes têm de dar porcentagens diferentes no rodapé.
     func testRodapeUsaOTetoDoEventoNaoUmaConstante() {
-        let claude = UsoDoTurno(contextoUsado: 25_840, contextoTeto: 1_000_000, usd: 0.01)
-        let codex = UsoDoTurno(contextoUsado: 25_840, contextoTeto: 258_400, usd: 0.01)
+        let claude = UsoDoTurno(contextoUsado: 20_000, contextoTeto: 1_000_000, usd: 0.01)
+        let codex = UsoDoTurno(contextoUsado: 20_000, contextoTeto: 258_400, usd: 0.01)
         let textoClaude = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: claude))
         let textoCodex = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: codex))
         XCTAssertTrue(textoClaude.contains("contexto 2%"), textoClaude)
-        XCTAssertTrue(textoCodex.contains("contexto 10%"), textoCodex)
+        XCTAssertTrue(textoCodex.contains("contexto 8%"), textoCodex)
         XCTAssertNotEqual(textoClaude, textoCodex, "tetos diferentes têm de render porcentagens diferentes")
+    }
+
+    // MARK: - Rodapé arredonda, não trunca (Minor da review)
+
+    /// 🚨 `Int(u.proporcao * 100)` TRUNCA — 0,6% de contexto mostrava "contexto 0%". Mesmo
+    /// raciocínio do custo zero: um número que existe e é apagado pelo truncamento é ruído
+    /// silencioso. `.rounded()` resolve.
+    func testRodapeArredondaAPorcentagemDeContextoEmVezDeTruncar() {
+        // 6_000 / 1_000_000 = 0,6% — truncado vira "0%"; arredondado, "1%".
+        let uso = UsoDoTurno(contextoUsado: 6_000, contextoTeto: 1_000_000, usd: 0.01)
+        let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
+        XCTAssertTrue(texto.contains("contexto 1%"), texto)
+    }
+
+    // MARK: - Um pedido, uma resposta (Important da review)
+
+    /// 🚨 Achado de review: `.diff` avulso (codex) e `.approval` (o card) podem coexistir no
+    /// mesmo turno — o agente propõe o patch, depois pede para aplicá-lo. Se os dois widgets
+    /// desenhassem Aplicar/Recusar, seria o MESMO pedido respondido por dois lugares. A decisão:
+    /// o card é o único lugar. Este predicado prende o invariante — a asserção é sempre 1 (nunca
+    /// 2) quando o turno tem um pedido pendente, não importa quantos `.diff` avulsos existam.
+    func testExatamenteUmLugarOfereceRespostaQuandoHaDiffEAprovacaoJuntos() {
+        let t0 = Date()
+        let passos: [SessionStep] = [
+            .prompt(id: 1, text: "muda o arquivo", at: t0),
+            .message(id: 2, text: "vou propor um patch", at: t0),
+            .diff(id: 3, patch: "--- a\n+++ b\n-x\n+y", at: t0),
+            .approval(id: 4, kind: .patch, detail: "aplicar?", at: t0),
+        ]
+        XCTAssertEqual(SessionStore.lugaresDeResposta(passos), 1,
+                       "diff avulso e card no mesmo turno — só o card responde")
+    }
+
+    func testZeroLugaresOferecemRespostaSemPedidoPendente() {
+        let t0 = Date()
+        let passos: [SessionStep] = [.prompt(id: 1, text: "muda", at: t0),
+                                     .diff(id: 2, patch: "--- a\n+++ b", at: t0)]
+        XCTAssertEqual(SessionStore.lugaresDeResposta(passos), 0,
+                       "diff sem pedido pendente é só leitura — nada responde")
+    }
+
+    /// A lane ACP: o diff chega EMBUTIDO no `.approval`, sem `.diff` avulso nenhum. Ainda assim,
+    /// exatamente um lugar responde — o mesmo card, agora mostrando o patch que carrega.
+    func testExatamenteUmLugarQuandoODiffVemEmbutidoNoPedidoACP() {
+        let t0 = Date()
+        let passos: [SessionStep] = [
+            .prompt(id: 1, text: "aplica no ACP", at: t0),
+            .approval(id: 2, kind: .patch, detail: "aplicar?",
+                      diff: "--- a\n+++ b\n-x\n+y", at: t0),
+        ]
+        XCTAssertEqual(SessionStore.lugaresDeResposta(passos), 1)
     }
 
 }

@@ -378,8 +378,7 @@ private struct TurnoView: View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             cabecalho
             ForEach(turno.passos.filter(\.desenhavel)) { passo in
-                PassoView(passo: passo, pedePermissao: turno.pedePermissao,
-                          enviando: enviando, onAprovar: onAprovar)
+                PassoView(passo: passo, enviando: enviando, onAprovar: onAprovar)
             }
             rodape
         }
@@ -454,8 +453,6 @@ private struct TurnoView: View {
 
 private struct PassoView: View {
     let passo: SessionStep
-    /// Do TURNO, não do passo — é o turno que pede permissão, e o diff é onde a afordância mora.
-    let pedePermissao: Bool
     let enviando: Bool
     let onAprovar: (Bool) -> Void
 
@@ -489,18 +486,20 @@ private struct PassoView: View {
             }
 
         case .diff(_, let patch, _):
-            // Afordância AO LADO, não um segundo caminho de aprovação: os botões chamam o mesmo
-            // `onAprovar` que `PedidoView` usa — `SessionStore.approve` responde ao pedido
-            // pendente da lane, não a um diff específico, então dois botões que chamassem rotas
-            // diferentes divergiriam sobre qual pedido está sendo respondido.
-            Trilho(marcador: "◆", cor: BeagleTheme.truthObserved) {
-                DiffView(patch: patch, pedePermissao: pedePermissao,
-                         enviando: enviando, onAprovar: onAprovar)
-            }
+            // 🚨 SÓ mostra o patch. Nunca um botão — se um diff avulso (codex) E um pedido de
+            // aprovação (`.approval`) coexistem no mesmo turno, um segundo par de Aplicar/Recusar
+            // aqui duplicaria a afordância do card abaixo para o MESMO pedido (achado de review).
+            // `SessionStore.lugaresDeResposta` é o invariante que prende essa regra: um turno com
+            // pedido pendente tem de ter EXATAMENTE UM lugar que responde — o card.
+            Trilho(marcador: "◆", cor: BeagleTheme.truthObserved) { DiffView(patch: patch) }
 
-        case .approval(_, let kind, let detalhe, _):
+        case .approval(_, let kind, let detalhe, let diff, _):
+            // O card é o ÚNICO lugar que responde. Quando o evento trouxe diff — sempre o caso
+            // na lane ACP, que não emite `diff_proposed` — ele aparece AQUI, reusando o mesmo
+            // `DiffView` que o passo `.diff` usa. Não um segundo renderizador de patch.
             Trilho(marcador: "◉", cor: BeagleTheme.accent) {
-                PedidoView(kind: kind, detalhe: detalhe, enviando: enviando, onAprovar: onAprovar)
+                PedidoView(kind: kind, detalhe: detalhe, diff: diff,
+                           enviando: enviando, onAprovar: onAprovar)
             }
 
         case .failure(_, let texto, _):
@@ -574,12 +573,12 @@ private struct Trilho<Conteudo: View>: View {
 /// linhas que se entende inteiro vale mais que uma dependência para isto.
 private struct DiffView: View {
     let patch: String
-    /// Do TURNO — verdadeiro quando ESTE turno tem um pedido de aprovação pendente. Não é
-    /// garantia de que este diff específico é o pedido (um turno raramente tem mais de um), mas
-    /// afirmar mais do que o turno sabe seria inventar granularidade que o servidor não dá.
-    let pedePermissao: Bool
-    let enviando: Bool
-    let onAprovar: (Bool) -> Void
+    /// 🚨 SÓ o patch — nunca um botão. `PedidoView` é o único lugar que responde a um pedido de
+    /// aprovação (ver `SessionStore.lugaresDeResposta`); um `DiffView` que também desenhasse
+    /// Aplicar/Recusar duplicaria a afordância quando um `.diff` avulso e um `.approval`
+    /// coexistem no mesmo turno — foi exatamente esse achado de review que tirou os parâmetros
+    /// que este tipo já teve. `PedidoView` reusa este MESMO `DiffView` (sem botão) quando o
+    /// pedido de aprovação traz o diff embutido (a lane ACP nunca emite `.diff` avulso).
     /// Acima disto o diff nasce fechado.
     ///
     /// 🚨 O motivo é de leitura, não de performance: um diff de 200 linhas empurra o pedido de
@@ -625,13 +624,6 @@ private struct DiffView: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(BeagleTheme.accent)
                 }
-                // A afordância AO LADO do diff que ela decide — reusa o mesmo `onAprovar` do
-                // `PedidoView`. Só aparece quando o TURNO pede permissão; um diff sem pedido
-                // pendente é só leitura, e um botão que aprova nada é um botão que engana.
-                if pedePermissao {
-                    Spacer(minLength: BeagleSpacing.sm)
-                    afordancia
-                }
             }
 
             // 🚨 Sem `ScrollView` horizontal aqui, e a razão foi medida no primeiro retrato:
@@ -659,31 +651,6 @@ private struct DiffView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// Aprovar/recusar ao lado do diff. Mesmos rótulos e o mesmo `onAprovar` de `PedidoView` —
-    /// aqui só menores, porque o cabeçalho do diff não é um painel.
-    private var afordancia: some View {
-        HStack(spacing: 6) {
-            Button { onAprovar(true) } label: {
-                Text("Aplicar").font(.system(size: 10, weight: .semibold))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(BeagleTheme.surface0)
-            .background(Capsule().fill(BeagleTheme.accent))
-
-            Button { onAprovar(false) } label: {
-                Text("Recusar").font(.system(size: 10))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(BeagleTheme.textSecondary)
-            .background(Capsule().stroke(BeagleTheme.hairline))
-
-            if enviando { ProgressView().controlSize(.mini) }
-        }
-        .disabled(enviando)
     }
 
     /// O cabeçalho `diff --git` / `index` / `---` / `+++` não é conteúdo: o nome do arquivo já
@@ -716,6 +683,9 @@ private struct DiffView: View {
 private struct PedidoView: View {
     let kind: SessionStep.ApprovalKind
     let detalhe: String
+    /// 🚨 A lane ACP embute o patch NO PRÓPRIO pedido — ela não emite `.diff` avulso (medido em
+    /// `loomd/src/event.rs:486-500`). Sem isto, o operador aprova uma mudança que nunca viu.
+    let diff: String?
     let enviando: Bool
     let onAprovar: (Bool) -> Void
 
@@ -742,6 +712,9 @@ private struct PedidoView: View {
                     .padding(BeagleSpacing.xs)
                     .background(RoundedRectangle(cornerRadius: BeagleRadius.sm).fill(BeagleTheme.surface2))
             }
+            // O MESMO DiffView do passo `.diff` avulso — sem botão, e sem um segundo
+            // renderizador de patch. O card, aqui embaixo, é quem responde.
+            if let diff, !diff.isEmpty { DiffView(patch: diff) }
             HStack(spacing: BeagleSpacing.sm) {
                 Button { onAprovar(true) } label: {
                     Text(kind.reversible ? "Aplicar" : "Rodar")

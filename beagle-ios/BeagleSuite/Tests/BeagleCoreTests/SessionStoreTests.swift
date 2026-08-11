@@ -80,11 +80,40 @@ final class SessionStoreTests: XCTestCase {
         // Um evento antigo, relido de um diário escrito antes de `approval_kind` existir, não pode
         // virar `patch` por otimismo — patch diz "reversível por git", e isso decide se ele lê o
         // comando antes de aprovar.
-        guard case .approval(_, let k, _, _)? = SessionStore.passo(de: ev(1, "awaiting_approval")) else {
+        guard case .approval(_, let k, _, _, _)? = SessionStore.passo(de: ev(1, "awaiting_approval")) else {
             return XCTFail("aprovação deveria virar passo")
         }
         XCTAssertEqual(k, .other)
         XCTAssertFalse(k.reversible, "sem saber o tipo, não prometa reversibilidade")
+    }
+
+    /// 🚨 A lane ACP NÃO emite `diff_proposed` — medido em `loomd/src/event.rs:486-500`, o patch
+    /// chega DENTRO do próprio evento `awaiting_approval`. Se este braço descartar `e.diff`, o
+    /// operador aprova uma mudança que nunca viu. Este é o achado mais sério da rodada de review:
+    /// a Step 3 anterior (afordância no `DiffView`) nunca disparava na lane ACP, porque `DiffView`
+    /// só existe para passos `.diff`, que a lane ACP não produz.
+    @MainActor
+    func testAwaitingApprovalCarregaODiffQuandoOEventoTraz() throws {
+        let e = ev(1, "awaiting_approval", text: "aplicar mudança em alvo.txt",
+                   diff: "--- a/alvo.txt\n+++ b/alvo.txt\n-velho\n+novo", approval: .patch)
+        guard case .approval(_, let k, let detalhe, let diff, _)? = SessionStore.passo(de: e) else {
+            return XCTFail("aprovação com diff deveria virar passo")
+        }
+        XCTAssertEqual(k, .patch)
+        XCTAssertEqual(detalhe, "aplicar mudança em alvo.txt")
+        XCTAssertEqual(diff, "--- a/alvo.txt\n+++ b/alvo.txt\n-velho\n+novo",
+                       "sem isto, o operador aprova uma mudança que nunca viu")
+    }
+
+    /// Codex continua funcionando sem regressão: `awaiting_approval` sem `diff` no evento (o
+    /// patch já chegou por um `.diff` avulso antes) não inventa um diff que não existe.
+    @MainActor
+    func testAwaitingApprovalSemDiffNoEventoFicaNil() throws {
+        let e = ev(1, "awaiting_approval", text: "aplicar", approval: .patch)
+        guard case .approval(_, _, _, let diff, _)? = SessionStore.passo(de: e) else {
+            return XCTFail("aprovação deveria virar passo")
+        }
+        XCTAssertNil(diff, "sem diff no evento, o passo não inventa um")
     }
 
     // ─── cursor e dedup ──────────────────────────────────────────────────────────────────
