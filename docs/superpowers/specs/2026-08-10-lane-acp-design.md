@@ -304,57 +304,74 @@ tela. Os testes cobrem a tradução e o não-vazamento.
 ## Resultado (Task 8 do plano)
 
 **Provado ao vivo em 11-ago-2026**, `claude-4` dirigida por ACP, contra uma instância de loomd de
-teste (porta 127.0.0.1:4405, trama própria, produção na 4400 intocada) — não o resultado
-templado que o brief antecipava, e por isso registrado com precisão em vez de arredondado para
-"passou".
+teste (porta 127.0.0.1:4405, trama própria, produção na 4400 intocada durante toda a tarefa) — em
+duas passadas. A primeira encontrou dois defeitos reais que nenhuma fixture das Tasks 1-7 pegava.
+A segunda, depois desses dois defeitos serem consertados (`c018fb47`, `e5a5cd44`) com teste e
+mutação vermelha por asserção, voltou à prova ao vivo — porque foi ela que os achou, e suíte verde
+não prova que a fala aparece num turno de verdade — e fechou os dois.
 
-**O que provou:**
+### O que está provado, final
 
 - **Handshake.** `initialize` → `session/new` → `session/set_mode` como última chamada do
-  handshake (mutação §1 do §5), confirmado ao vivo duas vezes.
+  handshake (mutação §1 do §5), confirmado ao vivo três vezes ao longo das duas passadas.
 - **Turno.** Um prompt de leitura real produziu `session_started`, `user_prompt`, `tool_call`,
   `tool_result` e `usage` (com custo em USD), todos `confidence: exact`.
-- **Aprovação, incluindo o achado que motivou escolher ACP.** Um prompt de escrita de arquivo
-  gerou `awaiting_approval` com `approval_id`, `approval_kind: "patch"` **e `diff` pronto**
-  (`--- /workspace/.wt/claude-4/NOTA_LANE.md ... +Esta lane é dirigida por protocolo ACP.`) —
-  campo tipado, não garimpado como no `codex.rs`. `POST /v2/lanes/claude-4/approve` respondeu
-  `ok`, e o arquivo apareceu no disco com o conteúdo exato do `diff`. **O §2 do spec está
-  provado ponta a ponta.**
+- **`agent_message` com texto real, íntegro, não vazio.** Depois do fix `e5a5cd44`, o mesmo
+  prompt (*"Liste os arquivos de stdlib/epistemic/ e diga em uma frase o que cada um faz."*)
+  produziu **dois** `agent_message` no mesmo turno: um **antes** do primeiro `tool_call`
+  (`"I'll look at the directory."`, 27 caracteres, seq 3302, antes do seq 3303) e um no fechamento
+  do turno (6676 caracteres, a tabela completa dos 59 arquivos de `stdlib/epistemic/`, seq 3316).
+  Numa sessão seguinte, mais dois turnos produziram mais dois `agent_message` (359 e 241
+  caracteres) — quatro no total, nenhum vazio, todos `confidence: exact`, texto conferido no
+  campo `text` (não só `detail`). A fala antes da ferramenta — exatamente o que `limpar_delta`
+  descartava antes do fix — está registrada.
+- **A colisão de id não volta, testada exatamente no ponto onde quebrava.** Um turno foi forçado
+  a pedir quatro aprovações na mesma sessão (`date`, `whoami`, `pwd`,
+  `echo quatro > .../quatro.txt`, cada uma como chamada de ferramenta separada). O 3º pedido — id
+  `2` do adaptador, o mesmo número reservado a `ID_SESSAO` — apareceu na trama como
+  `awaiting_approval` com `approval_id: "2"` e o comando real (`echo quatro > ...`), foi
+  respondido por `POST /v2/lanes/claude-4/approve {"approval_id":"2","allow":true}` → `ok`, e
+  `quatro.txt` apareceu no disco. Nada travou. Antes do fix, esse exato cenário (3ª aprovação da
+  sessão) engolia o pedido e pendurava o turno para sempre — reproduzido nas duas passadas para
+  comparação direta.
+- **Aprovação com `diff` (§2 do spec).** Provado na primeira passada e reconfirmado: um prompt de
+  escrita gerou `awaiting_approval` com `approval_kind: "patch"` e `diff` pronto em campo tipado
+  (`--- NOTA_LANE.md ... +Esta lane é dirigida por protocolo ACP.`); `POST .../approve` respondeu
+  `ok`; o arquivo apareceu com o conteúdo exato do diff.
 - **Os 3 tails.** `claude-1` (1137 eventos), `claude-2` (1648) e `claude-3` (513), todos
   `confidence: exact`, lidos só de `LOOMD_TAILS` — zero linha de configuração nas lanes.
+- **Binário verificado por valor, não por confiança no `cargo build`.** `sha256sum` do binário
+  antes (`38c5ceba...`) e depois (`a347397a...`) do rebuild no pod confirmou que o binário rodando
+  na porta 4405 era de fato o novo, com `classificar()` e `descarregar_fala()` presentes no fonte
+  sincronizado (checksums do fonte no t560 e no pod idênticos, byte a byte).
 
-**O que não provou — e por quê, com evidência, não por suposição:**
+### Os dois defeitos — achados pela prova ao vivo, não por review
 
-1. **`agent_message` nunca aparece num turno ACP ao vivo.** O adaptador real só emite
-   `agent_message_chunk` (54 num turno de exemplo) — nunca a variante completa não-fragmentada
-   que `event.rs` sabe traduzir (`from_acp_update`, variante `"agentMessage"`). Os deltas
-   coalescem em RAM via `Trama::acumular_delta` por desenho — ver comentário em `acp.rs:296` — e
-   `on_message` não tem nenhum caminho que promova o delta acumulado a um evento `AgentMessage`
-   durável quando o `id` da chamada de `session/prompt` retorna com `stopReason: "end_turn"`.
-   Resultado: a fala completa do agente é observável em tempo real via debug log, mas nunca vira
-   linha na trama. O critério do brief pedia os 5 `kind`; 4 apareceram, `agent_message`
-   estruturalmente não aparece com o adaptador real — é lacuna de implementação, não de
-   handshake.
-2. **Bug de colisão de id JSON-RPC que engole a 3ª aprovação de uma sessão e trava o turno.**
-   `acp.rs` reserva `ID_SESSAO = 2` para a própria chamada `session/new`/`session/load`. O
-   adaptador numera **suas** requisições a nós (`session/request_permission`) numa sequência
-   própria, começando em 0, por sessão — independente da nossa. Na 3ª aprovação de uma mesma
-   sessão (id do adaptador == 2), `on_message` casa `m.get("id") == Some(ID_SESSAO)` primeiro,
-   entra no ramo de resposta de `session/new`, não acha `/result/sessionId` (a mensagem é um
-   *pedido*, não uma resposta — tem `method`+`params`, não `result`), e retorna sem nunca chegar
-   ao tratamento de `session/request_permission` alguns blocos abaixo. O pedido de aprovação é
-   silenciosamente descartado, nenhum `awaiting_approval` é gravado, e o adaptador fica esperando
-   para sempre uma resposta ao seu id 2 que o loomd nunca vai mandar — o turno trava
-   permanentemente. Reproduzido ao vivo: a 1ª e a 2ª aprovações de uma sessão (`Bash`, ids 0 e 1
-   do adaptador) funcionaram; a 3ª (`Write`, id 2 do adaptador) sumiu e travou o turno até eu
-   matar e resubir o processo. A prova do §2 acima só saiu limpa porque a sessão foi reiniciada e
-   o `Write` foi o **primeiro** prompt — sua aprovação caiu em id 0 do adaptador, sem colisão.
-   Correção sugerida (não aplicada aqui — fora do escopo de "provar ao vivo", e outra sessão
-   possui o commit deste crate): distinguir por direção, não por número — só tratar como resposta
-   a `ID_SESSAO` quando a mensagem não tiver `method` (isto é, for de fato uma resposta), em vez
-   de casar por igualdade numérica de `id`.
+Nenhum dos dois apareceu nos testes das Tasks 1-7. As fixtures usadas nelas vieram de um turno
+curto e não reproduziam a forma real do tráfego do adaptador Node 22 vivo — nem o fato de que o
+adaptador numera seus próprios `session/request_permission` numa sequência independente da nossa
+(colisão só aparece na 3ª aprovação de uma sessão), nem o fato de que ele só emite
+`agent_message_chunk`, nunca a variante completa. Um teste unitário com fixture sintética não
+tinha como pegar nenhum dos dois — só um turno de verdade, contra o adaptador de verdade, achou.
 
-Nenhum dos dois achados foi coberto pelas mutações §5 nem pelos testes das Tasks 1-7 — os
-fixtures usados nelas não reproduziam a forma real do tráfego do adaptador Node 22 vivo. Declarado
-aqui, não escondido: **"passou nos testes" e "funciona na lane" continuam sendo afirmações
-diferentes.**
+1. **Colisão de id JSON-RPC (`c018fb47`).** `acp.rs` reservava `ID_SESSAO = 2` para a resposta da
+   própria chamada `session/new`/`session/load`, e `on_message` casava por `id == 2` antes de
+   olhar se a mensagem tinha `method` (pedido) ou não (resposta). Na 3ª aprovação de uma sessão
+   — id do adaptador == 2 — a mensagem caía no ramo errado e era descartada em silêncio; o
+   adaptador ficava esperando para sempre por uma resposta que nunca viria, e o turno travava
+   permanentemente. Reproduzido ao vivo duas vezes na primeira passada. Corrigido extraindo a
+   decisão para `classificar()`, função pura que decide por `method` antes de `id` — a regra do
+   JSON-RPC (mensagem com `method` é sempre pedido, nunca resposta).
+2. **Fala descartada (`e5a5cd44`).** O adaptador real só emite `agent_message_chunk`; a variante
+   completa que `event.rs` sabia traduzir nunca chega. O desenho anterior coalescia os chunks em
+   RAM esperando por um evento completo que não existe, e pior: `limpar_delta` era chamado a cada
+   `tool_call`, descartando qualquer fala que tivesse vindo antes da ferramenta. Resultado: a
+   trama registrava `tool_call`, `tool_result`, `usage` — nunca o que o agente disse. Corrigido
+   com `Trama::tomar_delta` (tira-e-limpa numa operação) e `descarregar_fala()`, chamada em dois
+   pontos: quando um `tool_call` chega (a fala anterior é enunciado completo) e no fim do turno
+   (a resposta de `session/prompt`, que não tem outro gatilho).
+
+**O dado mais valioso desta fatia não é que a lane funciona — é que "passou nos 68 testes" e
+"funciona contra o adaptador de verdade" continuaram sendo, por duas vezes seguidas, afirmações
+diferentes. As duas vezes que divergiram, foi a prova ao vivo que pegou, não o review nem a
+suíte.**
