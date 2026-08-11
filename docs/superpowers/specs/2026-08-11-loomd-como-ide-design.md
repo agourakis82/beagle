@@ -39,6 +39,38 @@ autentica no cabeçalho `x-claude-code-ide-authorization`. O servidor oferece oi
 
 **Qualquer coisa que escreva esse lock e sirva esses métodos é uma IDE aos olhos do agente.**
 
+### 🎯 O núcleo essencial, medido comparando duas implementações independentes
+
+O operador **usa** o plugin oficial do Claude Code para JetBrains (`claude-code-jetbrains-plugin
+0.1.14-beta`, em CLion 2025.3). Comparar as duas implementações do mesmo protocolo separa o que é
+**exigido** do que é acidente de quem tinha um editor rico à mão:
+
+| | VS Code `2.1.225` (7,4 MB) | JetBrains `0.1.14-beta` (282 KB) |
+|---|---|---|
+| `.claude/ide` + `authToken` | sim | **sim** |
+| `openDiff` | sim | **sim** |
+| `getDiagnostics` | sim | **sim** |
+| `getWorkspaceFolders` | sim | **sim** |
+| `openFile` | sim | **sim** |
+| `close_tab` | sim | **sim** |
+| `getCurrentSelection` / `getLatestSelection` | sim | não |
+| `checkDocumentDirty` / `saveDocument` | sim | não |
+| `closeAllDiffTabs` | sim | não |
+| `executeCode` | sim | **não** |
+
+**Cinco métodos bastam.** O `claude` funciona com o plugin do JetBrains — o operador confirmou que
+usou —, e aquele plugin serve apenas o núcleo. Os outros sete são opcionais, e são exatamente
+aqueles que o loomd só poderia responder vazio, por não haver editor nem cursor humano.
+
+Segundo dado embutido na comparação: **servir o protocolo é pequeno**. 282 KB fazem o núcleo; os
+7,4 MB do VS Code são chat, UI e produto.
+
+**Enquadramento e nomes, lidos do bundle:** é **MCP sobre WebSocket** — os métodos são *tools*
+registradas (`.tool("openDiff", "Open a git diff for the file", {old_file_path: …})`), invocadas por
+`tools/call`, com `tools/list` para descoberta. Os argumentos são **`snake_case`**
+(`old_file_path`, `new_file_path`, `new_file_contents`) — deduzir camelCase produziria um servidor
+que não funciona.
+
 Dois fatos medidos que motivam a fatia:
 
 - `$HOME/.claude/ide/56908.lock` existe desde 07-ago e **ninguém escuta naquela porta** — lock
@@ -99,25 +131,33 @@ mais.
 
 ## §2 Os oito métodos
 
-| método | resposta do loomd | por quê |
+**O escopo é o núcleo de cinco.** Não doze com sete respostas vazias.
+
+| método (tool MCP) | argumentos | resposta do loomd |
 |---|---|---|
-| **`getDiagnostics`** | **verdade do compilador**: `souc` + gates | §3, é o coração |
-| **`openDiff`** | aceita e publica `DiffProposed` na trama | o diff da lane TUI aparece no Mission Control |
-| `getOpenEditors` | a worktree da lane e os arquivos tocados no turno | contexto que hoje o agente não tem |
-| `getCurrentSelection` | **vazio** | não há cursor humano numa lane de tmux |
-| `openFile` / `saveDocument` | registra a intenção na trama; **não age** | não há editor para abrir |
-| `close_tab` | aceito, registrado, ignorado | — |
-| **`executeCode`** | **não implementado** | §4 |
+| **`getDiagnostics`** | `uri`, `tab_name` | **verdade do compilador**: `souc` + gates — §3, é o coração |
+| **`openDiff`** | `old_file_path`, `new_file_path`, `new_file_contents` | aceita e publica `DiffProposed` na trama |
+| **`getWorkspaceFolders`** | — | a worktree **daquela** lane; é a fonte do confinamento do §4 |
+| **`openFile`** | `path`, `preview` | registra a intenção na trama; **não age** |
+| **`close_tab`** | `tab_name` | aceito, registrado, ignorado |
 
-Três decisões declaradas:
+**Os sete de fora, e o motivo agora é medido, não opinião:** `getCurrentSelection`,
+`getLatestSelection`, `checkDocumentDirty`, `saveDocument`, `closeAllDiffTabs`, `getOpenEditors` e
+`executeCode` **não são servidos pelo plugin oficial do JetBrains** — e o `claude` funciona com ele.
+Logo não são exigidos pelo protocolo. `tools/list` anuncia só o que existe, e o agente se adapta ao
+que foi anunciado.
 
-- **`getCurrentSelection` vazio de propósito.** Inventar seleção é mentir sobre um humano que não
-  está lá. Vazio é a verdade.
-- **`openFile`/`saveDocument` registram sem agir.** A operação de *protocolo* funcionou; a trama
-  registra que o agente **pediu**, nunca que foi feito. "Ok" para ação que não aconteceu é a UI
-  mentirosa que esta linhagem de fatias tem como inimiga declarada.
-- **`executeCode` ausente, não stub.** Servido pelo loomd, executaria **no cluster**. Fatia própria,
+Duas decisões declaradas:
+
+- **`openFile` registra sem agir.** A operação de *protocolo* funcionou; a trama registra que o
+  agente **pediu**, nunca que foi feito. "Ok" para ação que não aconteceu é a UI mentirosa que esta
+  linhagem de fatias tem como inimiga declarada.
+- **`executeCode` ausente, não stub** — e o argumento ficou mais forte que "é perigoso": **nem o
+  plugin oficial do JetBrains o serve**. Servido pelo loomd, executaria no cluster. Fatia própria,
   atrás de aprovação explícita, como patch e comando já ficam.
+
+**Não anunciar é melhor que responder vazio.** Um `getCurrentSelection` que devolve nada faz o
+agente gastar um turno perguntando; um `tools/list` que não o anuncia faz o agente nem tentar.
 
 ## §3 `getDiagnostics` como autoridade
 
@@ -162,7 +202,8 @@ computação especulativa no cluster é fatia futura, sobre este canal.
 distintos, o servidor **sabe qual lane conectou** — sem isso as três seriam indistinguíveis, e não
 haveria como atribuir o `openDiff` à lane certa na trama nem confinar caminho.
 
-**Confinamento de caminho.** Cada lane tem sua worktree (`/workspace/.wt/<lane>`). Requisição sobre
+**Confinamento de caminho**, e a fonte é o próprio protocolo: `getWorkspaceFolders` já diz ao
+agente qual é a árvore dele. Cada lane tem sua worktree (`/workspace/.wt/<lane>`). Requisição sobre
 caminho fora dela é **recusada e registrada na trama** — nunca ignorada em silêncio. Uma lane
 olhando a árvore de outra é o hazard que a Frota existe para avisar; aqui eu o criaria de dentro.
 
