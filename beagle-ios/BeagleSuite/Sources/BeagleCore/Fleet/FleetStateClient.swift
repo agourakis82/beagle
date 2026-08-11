@@ -48,6 +48,12 @@ public final class FleetStateClient {
         return l.roster
     }
 
+    /// O que a lane aceita, segundo o servidor. `nil` quando a lane não está no último quadro —
+    /// e `nil` faz a tela NÃO oferecer gesto, que é o comportamento seguro.
+    public func aceita(de sid: String) -> Aceita? {
+        lanes.first { $0.sid == sid }?.aceita
+    }
+
     /// Trava: a fonte já respondeu nesta sessão. É o que separa QUEDA de AUSÊNCIA, e portanto
     /// o que decide se a faixa aparece — sem ela, um deploy sem loomd nenhum ganharia banner
     /// permanente, que é como um aviso vira papel de parede.

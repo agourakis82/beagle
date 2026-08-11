@@ -324,6 +324,26 @@ public final class SessionStore {
         return (usado, teto, usd)
     }
 
+    // MARK: - O que o servidor deixa fazer
+
+    /// O rótulo do gesto, derivado do que a lane aceita. `nil` = não oferecer botão nenhum.
+    public static func rotuloDeGuiar(_ aceita: Aceita?) -> String? {
+        switch aceita {
+        case .redireciona: return "GUIAR"
+        case .enfileira: return "ENFILEIRAR"
+        case .somenteLeitura, nil: return nil
+        }
+    }
+
+    /// A dica da caixa. `nil` = a caixa não existe (não desabilitada: AUSENTE).
+    public static func dicaDaCaixa(_ aceita: Aceita?) -> String? {
+        switch aceita {
+        case .redireciona: return "guiar o turno em curso…"
+        case .enfileira: return "enfileirar para depois deste…"
+        case .somenteLeitura, nil: return nil
+        }
+    }
+
     // MARK: - Escrever
 
     /// Manda um pedido. Falha VISÍVEL: um prompt que não chegou não pode parecer que chegou.

@@ -143,4 +143,22 @@ final class SessaoUsoTests: XCTestCase {
                         "mas o custo continua alcançável pelo rodapé")
     }
 
+    // MARK: - O botão diz o que VAI acontecer
+
+    /// 🚨 A caixa diz "guiar o turno em curso" e o botão diz GUIAR. Verdade no codex; MENTIRA na
+    /// lane ACP, que enfileira. Mentir no momento da decisão é pior que contar depois — o
+    /// operador já agiu.
+    func testRotuloDizAVerdadeAntesDoClique() {
+        XCTAssertEqual(SessionStore.rotuloDeGuiar(.redireciona), "GUIAR")
+        XCTAssertEqual(SessionStore.rotuloDeGuiar(.enfileira), "ENFILEIRAR")
+        XCTAssertNil(SessionStore.rotuloDeGuiar(.somenteLeitura), "lane de leitura não oferece gesto")
+        XCTAssertNil(SessionStore.rotuloDeGuiar(nil), "sem capacidade declarada, não se oferece nada")
+    }
+
+    func testCaixaDeTextoNaoExisteEmLaneDeLeitura() {
+        XCTAssertNil(SessionStore.dicaDaCaixa(.somenteLeitura))
+        XCTAssertEqual(SessionStore.dicaDaCaixa(.enfileira), "enfileirar para depois deste…")
+        XCTAssertEqual(SessionStore.dicaDaCaixa(.redireciona), "guiar o turno em curso…")
+    }
+
 }

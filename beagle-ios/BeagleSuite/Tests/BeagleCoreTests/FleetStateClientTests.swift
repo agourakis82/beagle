@@ -38,6 +38,44 @@ final class FleetStateClientTests: XCTestCase {
         XCTAssertEqual(lane?.confidence, .exact)
     }
 
+    // MARK: - aceita(de:)
+
+    /// A lane presente devolve o que o último quadro declarou.
+    func testAceitaDeDevolveOValorDaLanePresente() {
+        let c = client(comLaneExata: "loom-1")
+        c.handle("""
+        {"t":"sessions","sessions":[
+          {"sid":"loom-1","title":"loom-1","state":"waiting","detail":"aprovar?",
+           "confidence":"exact","observedAt":1000,"aceita":"redireciona"},
+          {"sid":"claude-1","title":"claude-1","state":"running","detail":"…","observedAt":1000}
+        ]}
+        """)
+        XCTAssertEqual(c.aceita(de: "loom-1"), .redireciona)
+    }
+
+    /// Uma lane que não está no último quadro não pode virar um chute: `nil`, não um valor
+    /// inventado.
+    func testAceitaDeDevolveNilParaLaneAusente() {
+        let c = client(comLaneExata: "loom-1")
+        XCTAssertNil(c.aceita(de: "não-existe"))
+    }
+
+    /// 🚨 Distinção que a mutação (Step 6 do brief) mata se a implementação "simplificar" para a
+    /// primeira lane: uma lane PRESENTE cujo `aceita` é `nil` (o servidor não declarou) também
+    /// devolve `nil` — mas pelo motivo certo (silêncio sobre AQUELA lane), não por confundi-la
+    /// com "não achei" nem com a lane errada.
+    func testAceitaDeDevolveNilParaLanePresenteSemCapacidadeDeclarada() {
+        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        c.handle("""
+        {"t":"sessions","sessions":[
+          {"sid":"loom-1","title":"loom-1","state":"waiting","detail":"aprovar?",
+           "confidence":"exact","observedAt":1000,"aceita":"redireciona"},
+          {"sid":"claude-1","title":"claude-1","state":"running","detail":"…","observedAt":1000}
+        ]}
+        """)
+        XCTAssertNil(c.aceita(de: "claude-1"), "presente, mas sem aceita declarado — nil, não a da primeira lane")
+    }
+
     func testAStatePatchThatDeclaresConfidenceWins() {
         let c = client(comLaneExata: "loom-1")
         c.handle(#"{"t":"state","sid":"loom-1","state":"idle","confidence":"inferred"}"#)

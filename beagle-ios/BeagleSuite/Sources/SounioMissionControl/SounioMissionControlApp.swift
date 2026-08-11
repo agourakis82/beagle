@@ -181,6 +181,11 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
 struct MissionControlWindow: View {
     @State private var section: Section = .frota
     @State private var openLane: String?
+    /// UM cliente para a janela toda. A Frota e a Sessão concordam sobre o que uma lane aceita
+    /// porque leem do MESMO quadro — dois clientes divergiriam no primeiro poll perdido por um
+    /// dos dois, e "GUIAR" mentindo por causa de um `FleetStateClient` que a Sessão não tinha é
+    /// exatamente o defeito que esta fatia existe para matar.
+    @State private var fleet = FleetStateClient()
 
     private static let canvas = Color(red: 0.043, green: 0.055, blue: 0.086)
 
@@ -209,7 +214,7 @@ struct MissionControlWindow: View {
             Group {
                 switch section {
                 case .frota:
-                    FrotaView(onOpenLane: { lane in
+                    FrotaView(fleet: fleet, onOpenLane: { lane in
                         openLane = lane
                         section = .terminals
                     })
@@ -218,7 +223,13 @@ struct MissionControlWindow: View {
                 case .sessao:
                     // A lane de protocolo tem CONVERSA; a de terminal tem scrollback. As duas categorias
                     // convivem de propósito — nenhuma das 11 muda de natureza sem ele mandar.
-                    SessionView(lane: FleetEndpoint.loomdLanes.first ?? "loom-1")
+                    //
+                    // `roster` e `aceita` vêm do MESMO `fleet` da Frota, não de uma constante
+                    // global: quem sabe quais lanes existem e o que cada uma aceita é o servidor,
+                    // via `FleetStateClient`, e a Sessão só mostra o que a cena lhe entrega.
+                    let sessionLane = fleet.loomdRoster.first ?? FleetEndpoint.loomdLanes.first ?? "loom-1"
+                    SessionView(lane: sessionLane, roster: fleet.loomdRoster,
+                                aceita: fleet.aceita(de: sessionLane))
                 case .terminals:
                     FleetTerminalsView(initialAgent: openLane)
                 }

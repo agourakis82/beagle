@@ -34,17 +34,25 @@ public struct SessionView: View {
     /// commit paga.
     private let roster: [String]
 
+    /// O que ESTA lane aceita, segundo o servidor. `nil` = não declarado (lane fora do último
+    /// quadro, ou fonte ainda não respondeu) — e `nil` é o que faz `rotuloDeGuiar`/`dicaDaCaixa`
+    /// não oferecer gesto nenhum. A Sessão não descobre isto sozinha: quem sabe é o
+    /// `FleetStateClient`, e quem alimenta é a cena — mesmo padrão do `roster` acima.
+    private let aceita: Aceita?
+
     public init(store: SessionStore, roster: [String] = FleetEndpoint.loomdLanes,
-                onTrocarLane: ((String) -> Void)? = nil) {
+                aceita: Aceita? = nil, onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: store)
         self.roster = roster
+        self.aceita = aceita
         self.onTrocarLane = onTrocarLane
     }
 
     public init(lane: String, roster: [String] = FleetEndpoint.loomdLanes,
-                onTrocarLane: ((String) -> Void)? = nil) {
+                aceita: Aceita? = nil, onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: SessionStore(lane: lane))
         self.roster = roster
+        self.aceita = aceita
         self.onTrocarLane = onTrocarLane
     }
 
@@ -137,16 +145,20 @@ public struct SessionView: View {
     /// fez, guiar aproveita. Quando as duas servem, a barata tem que ser a mais fácil de achar.
     private var controlesDoTurno: some View {
         HStack(spacing: 6) {
-            Button {
-                guiando = true
-                escrevendo = true
-            } label: {
-                Label("Guiar", systemImage: "arrow.triangle.branch")
-                    .font(.system(size: 11, weight: .medium))
+            // `nil` = a lane não redireciona nem enfileira (somente leitura, ou capacidade não
+            // declarada) — e aí não há gesto de guiar para oferecer, botão nenhum.
+            if let rotulo = SessionStore.rotuloDeGuiar(aceita) {
+                Button {
+                    guiando = true
+                    escrevendo = true
+                } label: {
+                    Label(rotulo, systemImage: "arrow.triangle.branch")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(BeagleTheme.accent)
+                .help("Acrescenta instrução ao turno em curso, sem descartar o que ele já fez")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(BeagleTheme.accent)
-            .help("Acrescenta instrução ao turno em curso, sem descartar o que ele já fez")
 
             Button {
                 Task { await store.turno(interromper: true) }
@@ -240,37 +252,59 @@ public struct SessionView: View {
 
     // MARK: - Compositor
 
+    @ViewBuilder
     private var compositor: some View {
-        HStack(alignment: .bottom, spacing: BeagleSpacing.sm) {
-            TextField(guiando ? "guiar o turno em curso…" : "pedir a \(store.lane)…", text: $rascunho, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...6)
-                .font(.system(.body))
-                .foregroundStyle(BeagleTheme.textPrimary)
-                .focused($escrevendo)
-                .padding(.horizontal, BeagleSpacing.sm)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: BeagleRadius.md).fill(BeagleTheme.surface2)
-                )
-                .onSubmit(enviar)
+        // `nil` = a caixa não existe. Não desabilitada: AUSENTE — controle morto sem explicação é
+        // o defeito que esta casa já pagou para aprender. `claude-1/2/3` são tail: o loomd só LÊ,
+        // e `POST /prompt` devolve 404. A linha abaixo diz onde falar com a lane, em vez disso.
+        if let dica = SessionStore.dicaDaCaixa(aceita) {
+            HStack(alignment: .bottom, spacing: BeagleSpacing.sm) {
+                TextField(guiando ? dica : "pedir a \(store.lane)…", text: $rascunho, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1...6)
+                    .font(.system(.body))
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .focused($escrevendo)
+                    .padding(.horizontal, BeagleSpacing.sm)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: BeagleRadius.md).fill(BeagleTheme.surface2)
+                    )
+                    .onSubmit(enviar)
 
-            Button(action: enviar) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 13, weight: .bold))
-                    .frame(width: 26, height: 26)
+                Button(action: enviar) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(podeEnviar ? BeagleTheme.surface0 : BeagleTheme.textTertiary)
+                .background(
+                    Circle().fill(podeEnviar ? BeagleTheme.accent : BeagleTheme.surface2)
+                )
+                .disabled(!podeEnviar)
+                .keyboardShortcut(.return, modifiers: .command)
+                .help("Enviar (⌘↩)")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(podeEnviar ? BeagleTheme.surface0 : BeagleTheme.textTertiary)
-            .background(
-                Circle().fill(podeEnviar ? BeagleTheme.accent : BeagleTheme.surface2)
-            )
-            .disabled(!podeEnviar)
-            .keyboardShortcut(.return, modifiers: .command)
-            .help("Enviar (⌘↩)")
+            .padding(BeagleSpacing.md)
+            .background(BeagleTheme.surface1)
+        } else {
+            apenasObservada
+                .padding(BeagleSpacing.md)
+                .background(BeagleTheme.surface1)
         }
-        .padding(BeagleSpacing.md)
-        .background(BeagleTheme.surface1)
+    }
+
+    /// Controle morto sem explicação é o defeito que esta casa já pagou para aprender. A lane está
+    /// viva e o loomd a lê; o caminho para dirigi-la existe, só não é aqui.
+    private var apenasObservada: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "eye")
+            Text("observada pelo transcript — fale com ela pelo terminal")
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(.white.opacity(0.55))
+        .padding(.horizontal, 12).padding(.vertical, 10)
     }
 
     private var podeEnviar: Bool {
