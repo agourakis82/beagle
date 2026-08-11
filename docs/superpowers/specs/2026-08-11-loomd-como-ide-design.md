@@ -92,6 +92,53 @@ planta a fundação de uma e abre caminho para as outras:
 O que **não** se constrói: editor de texto, LSP genérico, autocomplete, temas, extensões.
 *"Não compita em teclado; compita em verdade."*
 
+## O segundo público: o Claude Desktop no mesmo Mac
+
+Medido em 11-ago no Mac do operador. O Claude Desktop está instalado e tem **quatro** servidores MCP
+configurados:
+
+```
+beagle            ~/.beagle/mcp-runtime                    ← bridge de memória, stdio local
+darwin-tailscale  darwin-mcp (python)                      ← stdio local
+darwin-llm        npx mcp-remote https://mcp-llm.tail21…   ← REMOTO
+jetbrains         …/CLion…  -classpath …                   ← o Desktop já fala com o CLion por MCP
+Desktop → cockpit  healthz 200 pelo tailnet
+```
+
+Três consequências para esta fatia:
+
+**1. O padrão existe nos dois transportes.** `beagle` é stdio local, `darwin-llm` é remoto via
+`mcp-remote`. Um servidor MCP do loomd pode ser consumido por qualquer um dos dois caminhos, e o
+Desktop **já alcança o cockpit** — nada de rede novo é necessário.
+
+**2. IDE-como-servidor-MCP é o padrão da própria Anthropic, não invenção nossa.** A entrada
+`jetbrains` prova que o Claude Desktop já conversa com o CLion por MCP. Esta fatia usa a mesma forma
+com outro consumidor.
+
+**3. Um servidor, dois públicos, zero código extra de transporte.** As lanes de TUI conectam pelo
+lock em `.agents/<lane>/.claude/ide/`; o Desktop conecta pelo `claude_desktop_config.json`.
+`tools/list` e `tools/call` são iguais para quem quer que pergunte.
+
+**Mas as ferramentas úteis divergem por público, e isso é desenho, não detalhe:**
+
+| para a lane de TUI (um agente trabalhando) | para o Desktop (o operador conversando) |
+|---|---|
+| `getDiagnostics` — a verdade do `souc` | `frota` — quais lanes existem e o que fazem |
+| `openDiff` — mostrar o que propôs | `trama` — o que aconteceu, com proveniência |
+| `getWorkspaceFolders` — de quem é a árvore | `prompt` — mandar tarefa para uma lane |
+| `openFile`, `close_tab` | `aprovar` — responder aprovação pendurada |
+
+A coluna da direita entrega algo que hoje não existe: **conversar com o Desktop sobre a frota e agir
+nela dali** — "o que a claude-2 fez na última hora", "manda a codex-4 rodar o gate" — sem abrir o
+Mission Control.
+
+⚠️ **A coluna da direita é escopo de uma fatia própria**, não desta. Aqui ela entra como **restrição
+de desenho**: o servidor MCP nasce com **dois conjuntos de ferramentas anunciáveis**, e qual conjunto
+um cliente vê é decidido por **como ele autenticou** — token de lane (do lock) vê a coluna da
+esquerda; o Desktop vê a direita. Sem essa separação desde o começo, uma lane de agente ganharia
+`prompt` e `aprovar` sobre as outras lanes — um agente aprovando o próprio pedido, ou dirigindo o
+vizinho.
+
 ## §1 Arquitetura
 
 **Um servidor, um lock por lane.** Módulo novo `src/ide.rs`. Ele **não conhece a tabela de
@@ -206,6 +253,11 @@ haveria como atribuir o `openDiff` à lane certa na trama nem confinar caminho.
 agente qual é a árvore dele. Cada lane tem sua worktree (`/workspace/.wt/<lane>`). Requisição sobre
 caminho fora dela é **recusada e registrada na trama** — nunca ignorada em silêncio. Uma lane
 olhando a árvore de outra é o hazard que a Frota existe para avisar; aqui eu o criaria de dentro.
+
+**Conjunto de ferramentas por identidade.** Um cliente autenticado com token de lane vê **apenas**
+as ferramentas de IDE. As ferramentas de frota (`frota`, `trama`, `prompt`, `aprovar`) não são
+anunciadas para ele — e não anunciar é a defesa, porque o que não aparece em `tools/list` o agente
+não tenta. Uma lane que pudesse chamar `aprovar` aprovaria o próprio pedido pendurado.
 
 O resto copia o que a extensão já faz: escutar **só em `127.0.0.1`**, lock em **0600**, token no
 cabeçalho `x-claude-code-ide-authorization`, e `executeCode` **ausente**.
