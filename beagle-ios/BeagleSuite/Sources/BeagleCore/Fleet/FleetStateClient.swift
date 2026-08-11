@@ -309,7 +309,13 @@ public final class FleetStateClient {
                 // de que a lane passou a ser adivinhada — rebaixá-la apagaria o contraste
                 // no primeiro evento depois do snapshot.
                 confidence: (obj["confidence"] as? String).flatMap(Confidence.init(rawValue:))
-                    ?? old.confidence
+                    ?? old.confidence,
+                // Mesma disciplina de `confidence`: `?? old.aceita`, NÃO `?? nil`. Um frame
+                // `state` que omite `aceita` é silêncio sobre a capacidade, não a revogação
+                // dela — e foi exatamente este ponto que apagou `confidence` em silêncio antes
+                // de o comentário acima existir. `aceita` não repete o erro.
+                aceita: (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))
+                    ?? old.aceita
             )
         default:
             break   // data/scrollback belong to PTYClient; the board ignores terminal bytes.

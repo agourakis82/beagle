@@ -133,6 +133,16 @@ public enum Confidence: String, Sendable, Codable, CaseIterable {
     }
 }
 
+/// O que a lane aceita, dito pelo servidor.
+///
+/// 🚨 NÃO derivar de `sid` nem de `LaneFamily`: `claude-1` (tail) e `claude-4` (ACP) têm o mesmo
+/// prefixo e comportamentos opostos. Capacidade é declarada, nunca inferida.
+public enum Aceita: String, Sendable, Codable, Equatable {
+    case redireciona
+    case enfileira
+    case somenteLeitura = "somente_leitura"
+}
+
 /// One lane as the Frota board sees it — decoded from a Loom `sessions` entry.
 public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     public let sid: String
@@ -157,6 +167,8 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// a responder. É este sinal que desenha o botão numa lane servida pelo loomd, e sem ele o
     /// card exato caía na folha de "Responder", cuja resposta era engolida em silêncio.
     public let pendingApproval: Bool
+    /// O que esta lane aceita. `nil` = o servidor não declarou; a tela então não oferece gesto.
+    public let aceita: Aceita?
 
     public var id: String { sid }
     public var family: LaneFamily { LaneFamily.of(sid) }
@@ -166,6 +178,8 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// (measured 2026-08-09: grok-cli1, grok-cli2, codex-3). Different from "it ran and ended",
     /// and very different from `unknown`; the card must not offer actions on a lane that is
     /// not there. The server states this in `detail`, so the client never has to infer it.
+    // ⚠️ DÍVIDA: capacidade deduzida de prosa. A frase vem do LanePoller do project-cockpit (Node),
+    // não do loomd — consertar exige tocar naquele serviço. Ver o spec desta fatia, §1.
     public var isAbsent: Bool {
         state == .exited && detail.localizedCaseInsensitiveContains("não existe no tmux")
     }
@@ -199,7 +213,8 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         peek: [String] = [], approve: ApproveAffordance = .answerNeeded,
         atShell: Bool = false, observedAt: Date? = nil,
         confidence: Confidence = .inferred,
-        pendingApproval: Bool = false
+        pendingApproval: Bool = false,
+        aceita: Aceita? = nil
     ) {
         self.sid = sid; self.title = title; self.state = state; self.detail = detail
         self.peek = peek; self.approve = approve; self.atShell = atShell
@@ -208,6 +223,7 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         // a procedência não a conhece.
         self.confidence = confidence
         self.pendingApproval = pendingApproval
+        self.aceita = aceita
     }
 
     /// True when the observation is too old to present as current. The card must then show it
@@ -240,6 +256,9 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         // Ausente = não há pendência. Degradar para "tem pedido" desenharia um botão que não
         // tem o que responder — e o servidor recusaria com 409.
         self.pendingApproval = obj["pendingApproval"] != nil && !(obj["pendingApproval"] is NSNull)
+        // Ausente = o servidor não sabe o que esta lane aceita. `nil` aqui, NÃO um chute — a
+        // tela então não oferece gesto nenhum em vez de oferecer um errado.
+        self.aceita = (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))
     }
 }
 
