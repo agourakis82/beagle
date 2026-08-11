@@ -435,6 +435,10 @@ private struct PassoView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: 720, alignment: .leading)
             }
+
+        case .uso:
+            // Custo não é fala: não é passo desenhado na linha da conversa, vira rodapé do turno.
+            EmptyView()
         }
     }
 }

@@ -34,6 +34,9 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
     case approval(id: Int, kind: ApprovalKind, detail: String, at: Date)
     /// Algo quebrou. Erro é conteúdo de primeira classe: escondê-lo faz a tela mentir por omissão.
     case failure(id: Int, text: String, at: Date)
+    /// Custo e janela de contexto. **Não é passo desenhado na conversa** — custo não é fala, e
+    /// desenhá-lo na linha do diálogo poluiria o que o operador lê. Vira rodapé do turno.
+    case uso(id: Int, contextoUsado: Int, contextoTeto: Int, usd: Double, at: Date)
 
     public enum ApprovalKind: String, Sendable, Codable {
         case command, patch, other
@@ -54,6 +57,8 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
         case .prompt(let i, _, _), .message(let i, _, _), .tool(let i, _, _, _),
              .diff(let i, _, _), .approval(let i, _, _, _), .failure(let i, _, _):
             return i
+        case .uso(let i, _, _, _, _):
+            return i
         }
     }
     public var at: Date {
@@ -62,6 +67,8 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
              .failure(_, _, let t):
             return t
         case .tool(_, _, _, let t), .approval(_, _, _, let t):
+            return t
+        case .uso(_, _, _, _, let t):
             return t
         }
     }
@@ -76,6 +83,15 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
 /// diff, prompt, mensagem — e não havia como ver onde um pedido acabava e o próximo começava. Uma
 /// sessão de trabalho de verdade tem dez turnos, e sem fronteira a tela deixa de ser legível
 /// exatamente quando fica útil.
+public struct UsoDoTurno: Sendable, Equatable {
+    public let contextoUsado: Int
+    public let contextoTeto: Int
+    public let usd: Double
+    public var proporcao: Double {
+        contextoTeto > 0 ? Double(contextoUsado) / Double(contextoTeto) : 0
+    }
+}
+
 public struct Turno: Identifiable, Sendable {
     /// O `seq` do primeiro passo — estável e monotônico, então a lista não se reordena sozinha.
     public let id: Int
@@ -95,6 +111,21 @@ public struct Turno: Identifiable, Sendable {
     public var temDiff: Bool { passos.contains { if case .diff = $0 { return true }; return false } }
     public var pedePermissao: Bool {
         passos.contains { if case .approval = $0 { return true }; return false }
+    }
+
+    /// O uso do turno. **O último passo com custo**, não a soma — medido: `cost.amount` vem nulo
+    /// em 15 dos 16 eventos, e somar funciona por acidente até o protocolo preencher os outros.
+    public var uso: UsoDoTurno? {
+        var ultimo: UsoDoTurno?
+        for p in passos {
+            if case .uso(_, let usado, let teto, let usd, _) = p {
+                // contexto é absoluto e monotônico: o último sempre vale.
+                // custo: só sobrescreve quando o evento realmente trouxe número.
+                let usdFinal = usd > 0 ? usd : (ultimo?.usd ?? 0)
+                ultimo = UsoDoTurno(contextoUsado: usado, contextoTeto: teto, usd: usdFinal)
+            }
+        }
+        return ultimo
     }
 
     /// Quebra a trilha em turnos. Um turno começa em cada `prompt` do operador.
@@ -263,12 +294,26 @@ public final class SessionStore {
             return .tool(id: e.seq, name: e.tool ?? "ferramenta", detail: corpo, at: e.at)
         // Ruído de ciclo de vida: existe na trama porque é verdade, e não vira linha na tela
         // porque não é decisão nem conteúdo. Um turno que começa não é notícia.
+        case "usage":
+            guard let u = Self.uso(de: e.detail ?? "") else { return nil }
+            return .uso(id: e.seq, contextoUsado: u.usado, contextoTeto: u.teto, usd: u.usd, at: e.at)
         case "turn_started", "turn_ended", "session_started", "session_ended",
              "idle", "approval_answered", "unknown", "delta":
             return nil
         default:
             return nil
         }
+    }
+
+    /// "contexto 38718/1000000 · USD 0.3728" → os três números.
+    /// Formato escrito pelo loomd em `from_acp_update`; se ele mudar lá, este teste quebra aqui,
+    /// que é o lugar certo para descobrir.
+    static func uso(de detail: String) -> (usado: Int, teto: Int, usd: Double)? {
+        let nums = detail.split(whereSeparator: { !"0123456789.".contains($0) })
+        guard nums.count >= 3,
+              let usado = Int(nums[0]), let teto = Int(nums[1]), let usd = Double(nums[2])
+        else { return nil }
+        return (usado, teto, usd)
     }
 
     // MARK: - Escrever
