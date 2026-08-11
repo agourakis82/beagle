@@ -289,18 +289,50 @@ public struct SessionView: View {
             .padding(BeagleSpacing.md)
             .background(BeagleTheme.surface1)
         } else {
-            apenasObservada
+            semCaixaView
                 .padding(BeagleSpacing.md)
                 .background(BeagleTheme.surface1)
         }
     }
 
+    /// Escolhe entre as duas razões de não haver caixa. `SessionStore.semCaixa` já fez a
+    /// distinção; aqui só se escolhe a subview — nenhuma lógica nova.
+    @ViewBuilder
+    private var semCaixaView: some View {
+        switch SessionStore.semCaixa(aceita) {
+        case .somenteObservada: apenasObservada
+        case .capacidadeDesconhecida: capacidadeDesconhecida
+        case nil:
+            // Não deveria ocorrer: só se chega aqui quando `dicaDaCaixa(aceita)` já é `nil`, e
+            // `semCaixa`/`dicaDaCaixa` cobrem os mesmos quatro casos de `Aceita?` em espelho.
+            EmptyView()
+        }
+    }
+
     /// Controle morto sem explicação é o defeito que esta casa já pagou para aprender. A lane está
     /// viva e o loomd a lê; o caminho para dirigi-la existe, só não é aqui.
+    ///
+    /// Só para `.somenteLeitura` — o servidor DECLAROU que é tail. Ver `capacidadeDesconhecida`
+    /// para o caso em que ninguém disse nada ainda.
     private var apenasObservada: some View {
         HStack(spacing: 8) {
             Image(systemName: "eye")
             Text("observada pelo transcript — fale com ela pelo terminal")
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(.white.opacity(0.55))
+        .padding(.horizontal, 12).padding(.vertical, 10)
+    }
+
+    /// 🚨 `nil` não é `.somenteLeitura`. Não sei ≠ é de leitura. Afirmar "observada pelo
+    /// transcript" sobre uma lane de codex que só não teve o quadro entregue ainda é a mesma
+    /// mentira que esta fatia existe para matar, invertida: negar um gesto que existe. Este texto
+    /// não afirma NADA sobre a natureza da lane — só que o servidor ainda não falou, e que isso é
+    /// transitório.
+    private var capacidadeDesconhecida: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "questionmark.circle")
+            Text("aguardando o servidor declarar o que esta lane aceita…")
         }
         .font(.system(size: 12))
         .foregroundStyle(.white.opacity(0.55))

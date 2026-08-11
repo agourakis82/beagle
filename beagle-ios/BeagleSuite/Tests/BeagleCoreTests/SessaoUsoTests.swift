@@ -161,4 +161,17 @@ final class SessaoUsoTests: XCTestCase {
         XCTAssertEqual(SessionStore.dicaDaCaixa(.redireciona), "guiar o turno em curso…")
     }
 
+    /// 🚨 Achado da segunda rodada de review: `nil` (ainda não sei o que a lane aceita) NÃO pode
+    /// desenhar a mesma coisa que `.somenteLeitura` (o servidor DECLAROU que é tail). Confundir
+    /// os dois é a mesma mentira que esta fatia mata, invertida — nega um gesto que existe numa
+    /// lane de codex cujo quadro só ainda não chegou.
+    func testSemCaixaDistingueNaoSeiDeSomenteLeitura() {
+        XCTAssertEqual(SessionStore.semCaixa(.somenteLeitura), .somenteObservada,
+                        "o servidor declarou leitura — a tela pode afirmar isso")
+        XCTAssertEqual(SessionStore.semCaixa(nil), .capacidadeDesconhecida,
+                        "silêncio não é declaração de leitura")
+        XCTAssertNil(SessionStore.semCaixa(.redireciona), "há caixa; semCaixa não se aplica")
+        XCTAssertNil(SessionStore.semCaixa(.enfileira), "há caixa; semCaixa não se aplica")
+    }
+
 }

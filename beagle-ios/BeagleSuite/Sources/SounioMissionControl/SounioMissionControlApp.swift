@@ -185,7 +185,16 @@ struct MissionControlWindow: View {
     /// porque leem do MESMO quadro — dois clientes divergiriam no primeiro poll perdido por um
     /// dos dois, e "GUIAR" mentindo por causa de um `FleetStateClient` que a Sessão não tinha é
     /// exatamente o defeito que esta fatia existe para matar.
+    ///
+    /// 🚨 E É A JANELA QUE CONECTA, não `FrotaView.onAppear`. `fleet` passou a pertencer à
+    /// janela nesta fatia — dono do objeto conecta. Antes, `.sessao` só LIA `fleet.aceita(de:)`
+    /// sem jamais abrir o socket, e funcionava por acidente: a seção inicial é `.frota`, então
+    /// toda janela nova monta a Frota (que conectava) antes de qualquer navegação. Mudar a seção
+    /// inicial, ou tirar a Frota, deixaria `aceita` `nil` para sempre — em silêncio. `connect()`
+    /// é idempotente (`guard link != .live && link != .connecting`), então não há risco de abrir
+    /// um segundo socket com a Frota também tentando conectar seu próprio `fleet` injetado.
     @State private var fleet = FleetStateClient()
+    @Environment(\.scenePhase) private var scenePhase
 
     private static let canvas = Color(red: 0.043, green: 0.055, blue: 0.086)
 
@@ -249,6 +258,12 @@ struct MissionControlWindow: View {
                 section = s
             }
             #endif
+        }
+        // O `connect()` da janela: roda uma vez ao abrir, ANTES de qualquer navegação — é o que
+        // faz `.sessao` ter `aceita` correto mesmo se for a primeira tela vista.
+        .task { fleet.connect() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { fleet.connect(); fleet.refresh() }
         }
     }
 }

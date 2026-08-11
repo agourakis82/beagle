@@ -344,6 +344,26 @@ public final class SessionStore {
         }
     }
 
+    /// A explicação que substitui a caixa, quando não há caixa. Distingue "o servidor DECLAROU
+    /// leitura" de "ainda não sei" — a tela não pode afirmar a primeira quando é a segunda.
+    ///
+    /// 🚨 `nil` de `Aceita?` não é `.somenteLeitura`. São estados diferentes: um é o servidor
+    /// dizendo "esta lane é tail, /prompt dá 404"; o outro é "o quadro ainda não chegou, o sid
+    /// não bateu, ou o socket caiu" — nada foi dito sobre a NATUREZA da lane. Desenhar a mesma
+    /// frase ("observada pelo transcript — fale com ela pelo terminal") para os dois é a mentira
+    /// que esta fatia existe para matar, invertida: antes prometia um gesto que não existia,
+    /// assim NEGA um gesto que existe (uma lane de codex plenamente dirigível, só sem quadro
+    /// ainda). `nil` de retorno aqui = há caixa; não chame isto sem checar `dicaDaCaixa` antes.
+    public enum SemCaixa: Equatable { case somenteObservada, capacidadeDesconhecida }
+
+    public static func semCaixa(_ aceita: Aceita?) -> SemCaixa? {
+        switch aceita {
+        case .somenteLeitura: return .somenteObservada
+        case nil: return .capacidadeDesconhecida
+        case .redireciona, .enfileira: return nil
+        }
+    }
+
     // MARK: - Escrever
 
     /// Manda um pedido. Falha VISÍVEL: um prompt que não chegou não pode parecer que chegou.

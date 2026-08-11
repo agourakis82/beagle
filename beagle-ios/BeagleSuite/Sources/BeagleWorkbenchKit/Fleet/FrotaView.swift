@@ -47,9 +47,23 @@ public struct FrotaView: View {
     /// teste: enquanto a única forma de ver a Frota era conectar no broker e torcer para um
     /// agente estar parado, cada rodada de design era um palpite.
     public init(fleet: FleetStateClient? = nil, onOpenLane: @escaping (String) -> Void = { _ in }) {
+        injetado = fleet != nil
         _fleet = State(initialValue: fleet ?? FleetStateClient())
         self.onOpenLane = onOpenLane
     }
+
+    /// `fleet` veio de fora (o Mission Control passa o cliente da JANELA) ou a Frota criou o
+    /// próprio? Decide quem tem a responsabilidade de conectar.
+    ///
+    /// 🚨 Achado de review: quando `fleet` é injetado, ele pode pertencer a uma janela com MAIS
+    /// telas que leem dele (a Sessão lê `fleet.aceita(de:)` sem nunca montar a Frota). Conectar
+    /// aqui funcionava só porque a seção inicial é `.frota` — dependência implícita entre um caso
+    /// de `switch` e o efeito colateral de um caso irmão. Dono do objeto conecta: se foi
+    /// injetado, quem conecta é quem injetou. Se a Frota criou o próprio cliente (outros
+    /// call-sites, como o Cockpit em `BeagleCockpitApp.swift`, e os testes de snapshot que só
+    /// leem `.conteudo` e nunca chamam `body`), ninguém mais vai conectá-lo — aqui é o único
+    /// lugar, e por isso o caminho autônomo tem de sobreviver.
+    private let injetado: Bool
 
     // MARK: - Canvas
 
@@ -80,10 +94,16 @@ public struct FrotaView: View {
         ScrollView { conteudo }
         .background(Self.canvas.ignoresSafeArea())
         .navigationTitle("Frota")
-        .onAppear { fleet.connect(); coord.start() }
+        .onAppear {
+            if !injetado { fleet.connect() }
+            coord.start()
+        }
         .onDisappear { coord.stop() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { fleet.connect(); fleet.refresh(); Task { await coord.refresh() } }
+            guard phase == .active else { return }
+            if !injetado { fleet.connect() }
+            fleet.refresh()
+            Task { await coord.refresh() }
         }
         .background(approveShortcut)
         .sheet(item: $answering) { lane in answerSheet(lane) }
