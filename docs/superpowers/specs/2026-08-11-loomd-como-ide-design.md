@@ -25,6 +25,11 @@ openvscode-server do workspace, e ela implementa o lado IDE do protocolo. O cont
 // $HOME/.claude/ide/<porta>.lock   (modo 0600)
 { "pid": 321, "workspaceFolders": [], "ideName": "OpenVSCode Server",
   "transport": "ws", "runningInWindows": false, "authToken": "<36 chars, formato UUID>" }
+
+// o que o loomd escreve, por lane:
+// { "pid": <do loomd>, "workspaceFolders": ["/workspace/.wt/claude-1"],
+//   "ideName": "Sounio Mission Control", "transport": "ws",
+//   "runningInWindows": false, "authToken": "<token DESTA lane>" }
 ```
 
 Quem escreve o lock é **servidor**; o `claude` lê, conecta por WebSocket em `127.0.0.1:<porta>` e
@@ -78,10 +83,19 @@ as duas.
 **`ideName: "Sounio Mission Control"`.** Não me passo por OpenVSCode Server. Quando o agente
 perguntar quem é a IDE (`/ide`), a resposta é honesta — e é o nome que ele mostra.
 
-**Lock órfão é problema do servidor, não do agente.** Ao subir, o loomd apaga locks que ele mesmo
-escreveu (identificados pelo `pid` do arquivo, comparado com processos vivos) e escreve os novos.
-Ao morrer, o lock fica — e é o `pid` que permite ao próximo saber que é lixo. Sem isso acumulam-se
-locks apontando para portas mortas, exatamente como o de 07-ago.
+**`workspaceFolders` leva a worktree da lane**, não vazio. A extensão escreveu `[]` porque não tinha
+pasta aberta; o loomd sabe exatamente qual árvore é de quem, e dizer isso ao agente é informação de
+graça — é o mesmo dado que `getOpenEditors` e o confinamento de caminho usam.
+
+**Lock órfão: o loomd cuida só do que é dele.** Ao subir, ele limpa locks **nos diretórios por lane
+que ele gerencia** (`.agents/<lane>/.claude/ide/`), verificando o `pid` do arquivo contra processos
+vivos. Ao morrer, o lock fica — e é o `pid` que permite ao próximo saber que é lixo.
+
+⚠️ **O lock de 07-ago no HOME compartilhado NÃO é tocado.** Ele foi escrito pela extensão do
+openvscode-server, não pelo loomd. Apagar lock de outro servidor seria arriscar derrubar uma IDE
+viva de alguém — o `pid` morto de hoje pode ser um `pid` vivo amanhã. Aquele lock entra nesta fatia
+como **fixture do teste** de detecção de órfão, e como a evidência de que órfãos acontecem. Nada
+mais.
 
 ## §2 Os oito métodos
 
@@ -162,7 +176,7 @@ Funções puras, onde mora a decisão:
 | função | o que prende |
 |---|---|
 | `conteudo_do_lock(porta, token, lane)` | `ideName: "Sounio Mission Control"`, `transport: "ws"`, `pid` real |
-| `lock_e_orfao(lock, pids_vivos)` | o lock de 07-ago (pid 321 morto) **é** órfão |
+| `lock_e_orfao(lock, pids_vivos)` | o lock de 07-ago (pid 321 morto) **é** órfão; pid vivo **não** é |
 | `promover_severidade(bruto)` | aviso de nome inexistente **vira `Error`** |
 | `caminho_permitido(lane, path)` | caminho fora da worktree é recusado |
 | `diagnostico_de_falha(motivo)` | `souc` inacessível produz diagnóstico, **nunca lista vazia** |
