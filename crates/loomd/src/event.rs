@@ -523,6 +523,38 @@ pub fn acp_option_id(params: &serde_json::Value, allow: bool) -> Option<String> 
     }
 }
 
+/// Uma resposta de erro do JSON-RPC → o evento que o operador vê.
+///
+/// 🚨 Antes disso, `{"id":11,"error":{...}}` não casava com nenhum braço de `on_message` e era
+/// DESCARTADA. Medido em produção: um turno morria por credencial expirada e a trama registrava
+/// só o `user_prompt` como `exact` — o operador achava a lane viva e lenta.
+///
+/// `with_text` carrega a mensagem ÍNTEGRA (nunca truncada) e deriva o resumo do card a partir
+/// dela; o `code` vai junto porque uma mensagem de protocolo truncada é o que faz alguém debugar
+/// a coisa errada.
+pub fn from_acp_error(
+    lane: &str,
+    id: Option<&serde_json::Value>,
+    err: &serde_json::Value,
+) -> AgentEvent {
+    let code = err.get("code").and_then(|x| x.as_i64());
+    let msg = err
+        .get("message")
+        .and_then(|x| x.as_str())
+        .unwrap_or("erro sem mensagem");
+
+    let mut texto = String::new();
+    if let Some(id) = id {
+        texto.push_str(&format!("resposta id {id}: "));
+    }
+    texto.push_str(msg);
+    if let Some(c) = code {
+        texto.push_str(&format!(" (code {c})"));
+    }
+
+    AgentEvent::new(lane, Kind::Error, Confidence::Exact).with_text(texto)
+}
+
 /// Traduz uma `session/update` do ACP.
 ///
 /// `None` significa **reconhecido e deliberadamente não persistido** — nunca "não entendi".
@@ -1042,5 +1074,41 @@ mod tests {
         );
         assert_eq!(acp_option_id(&p, true).as_deref(), Some("allow_always"));
         assert_eq!(acp_option_id(&p, false).as_deref(), Some("reject"));
+    }
+
+    // ─── `from_acp_error` — a resposta de erro que era engolida em silêncio ─────────────────
+
+    /// A mensagem REAL medida em produção, verbatim. Um turno morreu por credencial expirada e
+    /// a trama não registrou nada além do `user_prompt` — o operador achou a lane viva e lenta.
+    #[test]
+    fn erro_real_de_producao_chega_integro_no_text_e_vira_kind_error() {
+        let err = serde_json::json!({
+            "code": -32603,
+            "message": "Internal error: Failed to authenticate: OAuth session expired and could not be refreshed"
+        });
+        let e = from_acp_error("claude-4", Some(&serde_json::json!(11)), &err);
+        assert_eq!(e.kind, Kind::Error);
+        assert_eq!(e.confidence, Confidence::Exact);
+        let texto = e.text.expect("a mensagem tem de estar INTEIRA em text");
+        assert!(
+            texto.contains(
+                "Failed to authenticate: OAuth session expired and could not be refreshed"
+            ),
+            "mensagem truncada e' o que faz alguem debugar a coisa errada: {texto}"
+        );
+        assert!(
+            texto.contains("-32603"),
+            "o code tem de aparecer, nao so a mensagem: {texto}"
+        );
+    }
+
+    #[test]
+    fn erro_sem_id_ainda_assim_carrega_mensagem_e_code() {
+        let err = serde_json::json!({"code": -32000, "message": "algo deu errado"});
+        let e = from_acp_error("claude-4", None, &err);
+        assert_eq!(e.kind, Kind::Error);
+        let texto = e.text.unwrap();
+        assert!(texto.contains("algo deu errado"));
+        assert!(texto.contains("-32000"));
     }
 }

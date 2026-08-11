@@ -33,6 +33,10 @@ pub struct AcpLane {
     proximo_id: Arc<Mutex<u64>>,
     trama: Arc<Trama>,
     modo: String,
+    /// O `cwd` do handshake mais recente. Guardado à parte porque `on_message` precisa dele
+    /// para reabrir sessão (`session/new`) quando `session/load` responde com erro — o caminho
+    /// não tem acesso ao `cwd` que `run_once` recebeu como parâmetro.
+    cwd: Arc<Mutex<String>>,
     /// Base de `LOOMD_ACP_HOME_BASE`. `None` = a lane herda o HOME do daemon (comportamento de
     /// sempre). Guardamos a base crua, não o caminho já resolvido: `home_da_lane` é a única
     /// dona da regra de junção, e é chamada de novo a cada `run_once` para valer também em
@@ -107,8 +111,15 @@ pub fn mensagens_de_abertura(
 pub enum Mensagem {
     /// Tem `method` e `id`: espera resposta minha.
     Pedido,
-    /// Sem `method`: é `result`/`error` de um pedido MEU.
+    /// Sem `method`, com `result`: é o sucesso de um pedido MEU.
     Resposta,
+    /// Sem `method`, com `error`: é a FALHA de um pedido MEU.
+    ///
+    /// 🚨 Antes desta variante, `{"id":11,"error":{...}}` caía no mesmo balde de `Resposta` — sem
+    /// `method` casava, mas nada em `on_message` olhava para `error`, então a mensagem era
+    /// DESCARTADA em silêncio. Distinguir aqui é o que deixa o roteamento em `on_message`
+    /// inambíguo: sucesso e falha não podem ser o mesmo braço do `match`.
+    RespostaErro,
     /// Tem `method`, sem `id`: não espera resposta.
     Notificacao,
 }
@@ -119,6 +130,7 @@ pub fn classificar(m: &serde_json::Value) -> Mensagem {
     match (tem_method, tem_id) {
         (true, true) => Mensagem::Pedido,
         (true, false) => Mensagem::Notificacao,
+        (false, _) if m.get("error").is_some() => Mensagem::RespostaErro,
         (false, _) => Mensagem::Resposta,
     }
 }
@@ -187,6 +199,7 @@ impl AcpLane {
             proximo_id: Arc::new(Mutex::new(10)),
             trama: trama.clone(),
             modo: modo.to_string(),
+            cwd: Arc::new(Mutex::new(cwd.to_string())),
             home_base: home_base.map(str::to_string),
         });
         let (b, c) = (bin.to_string(), cwd.to_string());
@@ -221,6 +234,7 @@ impl AcpLane {
     /// passar pelo ponto único de limpeza, e o `supervisao.rs` só registra `Kind::Error` e
     /// respawna, deixando o mapa `pending` intacto de um ciclo anterior.
     async fn run_once(&self, bin: &str, cwd: &str) -> std::io::Result<()> {
+        *self.cwd.lock().await = cwd.to_string();
         let home = home_da_lane(self.home_base.as_deref(), &self.lane);
 
         // 🚨 A GUARDA: se `LOOMD_ACP_HOME_BASE` está definida mas o diretório da lane não
@@ -306,6 +320,37 @@ impl AcpLane {
     }
 
     async fn on_message(&self, m: serde_json::Value) {
+        // 🚨 O DEFEITO MEDIDO EM PRODUÇÃO: `{"id":11,"error":{...}}` não casava com NENHUM braço
+        // abaixo — sem `method` não é pedido nem notificação, e o braço de `Resposta` só olhava
+        // `result`. A mensagem era descartada em silêncio, e um turno morto por credencial
+        // expirada deixava a trama registrando só o `user_prompt`, como se a lane estivesse viva
+        // e lenta. Roteado ANTES de tudo, e nunca cai no `traduzir` (que só reage a
+        // `session/update`) nem no braço de sucesso.
+        if classificar(&m) == Mensagem::RespostaErro {
+            let id = m.get("id");
+            let err = m.get("error").cloned().unwrap_or(serde_json::Value::Null);
+            let mut e = crate::event::from_acp_error(&self.lane, id, &err);
+            e.session = self.sessao.lock().await.clone();
+            self.trama.append(e);
+
+            // 🚨 `session/load` falhou: a sessão LIDA DA TRAMA não pode continuar valendo. Sem
+            // isto `self.sessao` guarda um id que o adaptador não conhece, e todo `prompt`
+            // seguinte sai endereçado a uma sessão morta — silenciosamente, porque `prompt` só
+            // falha quando não há stdin, nunca quando o `sessionId` é inválido para o adaptador.
+            if id.and_then(|x| x.as_u64()) == Some(ID_SESSAO) {
+                *self.sessao.lock().await = None;
+                let cwd = self.cwd.lock().await.clone();
+                // Best-effort, igual ao resto do handshake: se a escrita falhar aqui, o próximo
+                // ciclo do supervisor (respawn) tenta de novo do zero.
+                let _ = self
+                    .enviar(serde_json::json!({
+                        "jsonrpc":"2.0","id":ID_SESSAO,"method":"session/new",
+                        "params":{"cwd": cwd, "mcpServers": []}
+                    }))
+                    .await;
+            }
+            return;
+        }
         // 🚨 `classificar` primeiro: sem isto, o 3º `session/request_permission` do adaptador
         // (id 2, espaço dele) colide com `ID_SESSAO` (id 2, meu espaço) e é engolido aqui como
         // se fosse resposta de sessão. Só uma mensagem SEM `method` pode ser resposta minha.
@@ -515,6 +560,7 @@ impl AcpLane {
             proximo_id: Arc::new(Mutex::new(10)),
             trama,
             modo: modo.to_string(),
+            cwd: Arc::new(Mutex::new(".".to_string())),
             home_base: home_base.map(str::to_string),
         })
     }
@@ -808,6 +854,28 @@ mod tests {
         assert_eq!(
             classificar(&serde_json::json!({"method": "session/update", "params": {}})),
             Mensagem::Notificacao
+        );
+    }
+
+    /// A resposta de erro do JSON-RPC (`{"id":11,"error":{...}}`) não pode cair no mesmo braço
+    /// que sucesso, nem no de notificação — os três precisam de rótulo PRÓPRIO para
+    /// `on_message` rotear sem ambiguidade.
+    #[test]
+    fn classificar_distingue_resposta_de_erro_de_sucesso_e_de_notificacao() {
+        let erro = serde_json::json!({
+            "jsonrpc": "2.0", "id": 11,
+            "error": {"code": -32603, "message": "Internal error: Failed to authenticate: OAuth session expired and could not be refreshed"}
+        });
+        assert_eq!(classificar(&erro), Mensagem::RespostaErro);
+        assert_ne!(
+            classificar(&erro),
+            Mensagem::Resposta,
+            "erro nao pode ser confundido com sucesso"
+        );
+        assert_ne!(
+            classificar(&erro),
+            Mensagem::Notificacao,
+            "tem id, nao e notificacao"
         );
     }
 
@@ -1117,6 +1185,134 @@ mod tests {
             Some("Vou ler o arquivo"),
             "o pensamento nao pode aparecer colado na frente da fala"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Defeito 6: resposta de erro do JSON-RPC engolida em silêncio ───────────────────────
+
+    /// A EVIDÊNCIA do spec: um turno morreu por credencial expirada e a trama só tinha o
+    /// `user_prompt`. `on_message` tem de rotear a resposta de erro para `Kind::Error`, não
+    /// deixá-la cair no chão porque não casa com `session/update` nem com `ID_SESSAO`.
+    #[tokio::test]
+    async fn resposta_de_erro_do_protocolo_vira_kind_error_na_trama() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-erro-proto-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        // O `id` aqui não é `ID_SESSAO`: é a resposta de um `session/prompt` qualquer, o caso
+        // medido em produção.
+        let erro = serde_json::json!({
+            "jsonrpc": "2.0", "id": 11,
+            "error": {
+                "code": -32603,
+                "message": "Internal error: Failed to authenticate: OAuth session expired and could not be refreshed"
+            }
+        });
+        lane.on_message(erro).await;
+
+        let erros: Vec<_> = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::Error)
+            .collect();
+        assert_eq!(
+            erros.len(),
+            1,
+            "a resposta de erro nao pode ser descartada em silencio"
+        );
+        let texto = erros[0].text.as_deref().unwrap_or("");
+        assert!(
+            texto.contains(
+                "Failed to authenticate: OAuth session expired and could not be refreshed"
+            ),
+            "mensagem tem de chegar integra: {texto}"
+        );
+        assert!(texto.contains("-32603"), "o code tem de aparecer: {texto}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Se a resposta de erro chegar ANTES da resposta de sucesso, ela não pode ser confundida
+    /// com nenhuma das duas: nem vira `SessionStarted`/`AgentMessage`, nem é silenciosamente
+    /// tratada como notificação.
+    #[tokio::test]
+    async fn resposta_de_erro_nao_e_confundida_com_sucesso_nem_notificacao() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-erro-amb-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        let erro = serde_json::json!({
+            "jsonrpc": "2.0", "id": 42,
+            "error": {"code": -32000, "message": "algo deu errado"}
+        });
+        lane.on_message(erro).await;
+
+        let eventos = t.since(0, Some("claude-4"));
+        assert!(
+            !eventos
+                .iter()
+                .any(|e| e.kind == Kind::SessionStarted || e.kind == Kind::AgentMessage),
+            "erro nao pode virar sucesso disfarcado: {:?}",
+            eventos.iter().map(|e| e.kind).collect::<Vec<_>>()
+        );
+        assert_eq!(eventos.iter().filter(|e| e.kind == Kind::Error).count(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// O caminho crítico: `session/load` responde com erro. A sessão antiga NÃO PODE continuar
+    /// valendo — senão todo `prompt` seguinte sai com um id que o adaptador não conhece.
+    /// `self.sessao` tem de ser limpo e uma sessão NOVA reaberta (`session/new`), nunca insistir
+    /// no id morto.
+    #[tokio::test]
+    async fn erro_no_session_load_limpa_a_sessao_e_abre_uma_nova() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-erro-load-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        // Sessão PRÉVIA conhecida — é exatamente o caminho de retomada que `session/load` serve.
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-velha"));
+
+        // Captura o que a lane escreve: `cat` ecoa stdin no stdout.
+        let mut filho = tokio::process::Command::new("cat")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("cat tem de existir para este teste");
+        lane.plugar_stdin_para_teste(filho.stdin.take().unwrap())
+            .await;
+        let mut saida = BufReader::new(filho.stdout.take().unwrap()).lines();
+
+        let erro = serde_json::json!({
+            "jsonrpc": "2.0", "id": ID_SESSAO,
+            "error": {"code": -32603, "message": "Internal error: Failed to authenticate"}
+        });
+        lane.on_message(erro).await;
+
+        assert!(
+            lane.sessao.lock().await.is_none(),
+            "a sessao morta nao pode continuar valendo"
+        );
+
+        let linha = tokio::time::timeout(std::time::Duration::from_secs(2), saida.next_line())
+            .await
+            .expect("nao pode travar esperando a reabertura")
+            .unwrap()
+            .expect("a lane tem de mandar algo apos o erro de session/load");
+        let msg: serde_json::Value = serde_json::from_str(&linha).unwrap();
+        assert_eq!(
+            msg["method"], "session/new",
+            "sem sessao valida, o unico caminho e abrir uma NOVA: {linha}"
+        );
+
+        let erros: Vec<_> = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::Error)
+            .collect();
+        assert_eq!(erros.len(), 1, "o erro tambem tem de ficar registrado");
+
+        let _ = filho.kill().await;
         std::fs::remove_dir_all(&dir).ok();
     }
 
