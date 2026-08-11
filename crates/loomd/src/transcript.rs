@@ -103,17 +103,36 @@ fn varrer_uma_vez(
     *offset = offset_seguro(*offset, tam);
     if tam > *offset {
         if let Ok(bytes) = ler_de(&f, *offset) {
-            *offset = tam;
-            for linha in String::from_utf8_lossy(&bytes).lines() {
-                let Ok(v) = serde_json::from_str::<serde_json::Value>(linha) else {
-                    continue;
-                };
-                if let Some(e) = crate::event::from_transcript_line(lane, &v) {
-                    trama.append(e);
+            // 🚨 ACHADO 2: `offset = tam` supunha que `bytes.len() == tam - offset`, mas `tam`
+            // vem de ANTES da leitura e `ler_de` lê até EOF — se a lane escreveu no intervalo,
+            // `bytes` é maior, e a próxima varredura reprocessaria as linhas extras (duplicata).
+            // E no espelho: uma linha rasgada no fim é descartada pelo `serde` e o offset avançava
+            // por cima dela mesmo assim — perda silenciosa num campo `exact`. Avançar só até o
+            // último `\n` consumido resolve os dois: o fragmento final é retomado na próxima
+            // varredura, seja porque cresceu (duplicata) ou porque ainda está incompleto (perda).
+            let consumido = bytes_completos(&bytes);
+            if consumido > 0 {
+                for linha in String::from_utf8_lossy(&bytes[..consumido]).lines() {
+                    let Ok(v) = serde_json::from_str::<serde_json::Value>(linha) else {
+                        continue;
+                    };
+                    if let Some(e) = crate::event::from_transcript_line(lane, &v) {
+                        trama.append(e);
+                    }
                 }
+                *offset += consumido as u64;
+                salvar_cursor(cursor_path, &f, *offset);
             }
-            salvar_cursor(cursor_path, &f, *offset);
         }
+    }
+}
+
+/// Quantos bytes do início do buffer formam linhas COMPLETAS — até e incluindo o último `\n`.
+/// `0` quando não há nenhuma linha terminada ainda (tudo é fragmento).
+fn bytes_completos(bytes: &[u8]) -> usize {
+    match bytes.iter().rposition(|&b| b == b'\n') {
+        Some(i) => i + 1,
+        None => 0,
     }
 }
 
@@ -255,6 +274,94 @@ mod tests {
             2,
             "o reinicio nao pode republicar o que ja foi visto"
         );
+        std::fs::remove_dir_all(&raiz).ok();
+    }
+
+    // ─── Achado 2: `offset = tam` ignora quantos bytes foram de fato consumidos ──────────────
+
+    #[test]
+    fn linha_rasgada_no_fim_nao_e_perdida_nem_duplicada() {
+        use crate::trama::Trama;
+        use std::sync::Arc;
+
+        let raiz = std::env::temp_dir().join(format!("loomd-tt-rasgo-{}", std::process::id()));
+        let base = raiz.join("projeto");
+        std::fs::create_dir_all(&base).unwrap();
+        let arq = base.join("sessao.jsonl");
+        std::fs::write(&arq, linha_prompt("um")).unwrap();
+
+        let trama_path = raiz.join("loomd").join("trama.jsonl");
+        let trama = Arc::new(Trama::open(&trama_path));
+        let cursor_path = caminho_cursor(trama.path(), "claude-1");
+
+        let mut atual: Option<std::path::PathBuf> = None;
+        let mut offset: u64 = 0;
+        varrer_uma_vez(
+            &base,
+            "claude-1",
+            &trama,
+            &mut atual,
+            &mut offset,
+            &cursor_path,
+        );
+        assert_eq!(
+            trama.since(0, Some("claude-1")).len(),
+            1,
+            "a primeira linha completa foi vista"
+        );
+
+        // A lane escreve a segunda linha INTEIRA, mais uma TERCEIRA linha que fica pela metade —
+        // exatamente o formato de um `write()` de tamanho de página interrompido pelo scan.
+        let linha_completa = linha_prompt("dois");
+        let linha_completa_3 = format!(
+            "{}",
+            serde_json::json!({"type": "last-prompt", "prompt": "tres"})
+        );
+        let (rasgo, resto) = linha_completa_3.split_at(linha_completa_3.len() / 2);
+        {
+            use std::io::Write as _;
+            let mut f = std::fs::OpenOptions::new().append(true).open(&arq).unwrap();
+            write!(f, "{linha_completa}{rasgo}").unwrap(); // sem \n no fim: rasgada de proposito
+        }
+
+        varrer_uma_vez(
+            &base,
+            "claude-1",
+            &trama,
+            &mut atual,
+            &mut offset,
+            &cursor_path,
+        );
+        let vistos = trama.since(0, Some("claude-1"));
+        assert_eq!(
+            vistos.len(),
+            2,
+            "a linha completa ('dois') tem de aparecer, a rasgada ('tres') ainda NAO"
+        );
+
+        // A varredura seguinte completa a linha rasgada.
+        {
+            use std::io::Write as _;
+            let mut f = std::fs::OpenOptions::new().append(true).open(&arq).unwrap();
+            write!(f, "{resto}\n").unwrap();
+        }
+        varrer_uma_vez(
+            &base,
+            "claude-1",
+            &trama,
+            &mut atual,
+            &mut offset,
+            &cursor_path,
+        );
+        let vistos = trama.since(0, Some("claude-1"));
+        assert_eq!(
+            vistos.len(),
+            3,
+            "completada, a linha 'tres' tem de aparecer — e nada foi duplicado"
+        );
+        let textos: Vec<_> = vistos.iter().filter_map(|e| e.text.clone()).collect();
+        assert_eq!(textos, vec!["um", "dois", "tres"]);
+
         std::fs::remove_dir_all(&raiz).ok();
     }
 }
