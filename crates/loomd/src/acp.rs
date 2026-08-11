@@ -397,10 +397,21 @@ impl AcpLane {
             .get("sessionUpdate")
             .and_then(|x| x.as_str())
             .unwrap_or("");
-        if variante == "agent_message_chunk" || variante == "agent_thought_chunk" {
+        if variante == "agent_message_chunk" {
             if let Some(t) = u.pointer("/content/text").and_then(|x| x.as_str()) {
                 self.trama.acumular_delta(&self.lane, t);
             }
+            return Some(());
+        }
+        // 🚨 ACHADO 5: pensamento e fala não podem dividir o mesmo buffer. Nenhuma fixture ao
+        // vivo tinha `agent_thought_chunk` (código latente, tratado mas nunca exercitado), mas
+        // se o thinking for ligado num turno, misturar os dois faria o raciocínio interno entrar
+        // em `text` como se fosse o que o agente de fato disse — e `resumir` poderia citá-lo no
+        // card. ESCOLHA: descartar, não um buffer separado — o `codex.rs` já trata `reasoning`
+        // do mesmo jeito (`from_codex_notification` devolve `None` para o item inteiro), e hoje
+        // não há nenhuma superfície na tela para mostrar "pensamento" separado de "fala"; um
+        // buffer paralelo guardaria um estado que ninguém lê.
+        if variante == "agent_thought_chunk" {
             return Some(());
         }
         // A fala anterior à ferramenta é um enunciado completo: DESCARREGA, nunca descarta —
@@ -987,6 +998,52 @@ mod tests {
                 .any(|e| e.kind == Kind::Error && e.detail.as_deref().unwrap_or("").contains("5")),
             "a falha de entrega tem de aparecer na trama, nao silêncio: {:?}",
             eventos.iter().map(|e| e.kind).collect::<Vec<_>>()
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Achado 5: pensamento nao pode colar na fala ─────────────────────────────────────────
+
+    fn chunk_de_pensamento(texto: &str) -> serde_json::Value {
+        serde_json::json!({
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "agent_thought_chunk",
+                    "content": {"type": "text", "text": texto}
+                }
+            }
+        })
+    }
+
+    /// Nenhuma das fixtures ao vivo tinha `agent_thought_chunk` — é código LATENTE, tratado mas
+    /// nunca exercitado de verdade. Num turno com thinking ligado, o desenho anterior acumulava
+    /// pensamento e fala no MESMO buffer, e `descarregar_fala` publicava tudo junto como
+    /// `Kind::AgentMessage` — o raciocínio interno entraria no card como se fosse o que o agente
+    /// de fato disse.
+    #[tokio::test]
+    async fn pensamento_nunca_entra_no_texto_da_fala() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-pensamento-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        lane.traduzir(&chunk_de_pensamento("Deixa eu pensar nisso"))
+            .await;
+        lane.traduzir(&chunk_de_fala("Vou ler o arquivo")).await;
+        let fim = serde_json::json!({"id": 11, "result": {"stopReason": "end_turn"}});
+        lane.on_message(fim).await;
+
+        let falas: Vec<_> = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::AgentMessage)
+            .collect();
+        assert_eq!(falas.len(), 1, "so a fala vira AgentMessage");
+        assert_eq!(
+            falas[0].text.as_deref(),
+            Some("Vou ler o arquivo"),
+            "o pensamento nao pode aparecer colado na frente da fala"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
