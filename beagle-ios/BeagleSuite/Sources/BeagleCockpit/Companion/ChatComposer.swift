@@ -123,6 +123,28 @@ struct ChatComposer: View {
                     .lineLimit(1...6)
                     .focused($focused)
                     .padding(.vertical, 4)
+                    // BOTAO DE RECOLHER, acima do teclado.
+                    //
+                    // Havia .scrollDismissesKeyboard(.interactively) e mais nada.
+                    // Num chat a lista ja esta no fim: arrastar para baixo ROLA o
+                    // conteudo em vez de fechar. Na pratica nao existia saida — e
+                    // ele nao conseguia LER a conversa, que e metade do uso.
+                    //
+                    // A barra acima do teclado e onde a Apple treinou todo mundo a
+                    // procurar, e funciona com o polegar da mao que segura o telefone.
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button {
+                                focused = false
+                            } label: {
+                                Label("recolher", systemImage: "keyboard.chevron.compact.down")
+                                    .font(BeagleFont.caption.font)
+                            }
+                            .tint(BeagleTheme.truthObserved)
+                            .accessibilityLabel("Recolher o teclado")
+                        }
+                    }
 
                 Group {
                     if isRecording {

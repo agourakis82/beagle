@@ -46,6 +46,12 @@ struct WatchRootView: View {
 
     var body: some View {
         TabView {
+            // PRIMEIRA aba de proposito: levantar o pulso tem que cair em falar
+            // com ele, nao em saude de no de cluster. O relogio passou o plantao
+            // inteiro no pulso dele sabendo falar so de maquina.
+            FalarView()
+                .tabItem { Label("Falar", systemImage: "bubble.left.fill") }
+
             FlowView()
                 .tabItem { Label("Flow", systemImage: "heart.fill") }
 

@@ -290,6 +290,17 @@ final class SpeechRecognizer {
         // Install converter if needed
         let converter = AVAudioConverter(from: hardwareFormat, to: audioFormat)
 
+        // removeTap ANTES de installTap — SEMPRE.
+        //
+        // Instalar um tap num barramento que ja tem um faz o AVAudioEngine lancar
+        // `required condition is false: nullptr == Tap()`: excecao de Objective-C,
+        // SIGABRT, o app FECHA. O do/catch do Swift nao pega.
+        //
+        // Havia quatro installTap e UM removeTap. Basta um caminho nao passar por
+        // ele — turno cancelado, app em segundo plano no meio do gesto, microfone
+        // reaberto logo apos a voz tocar — para o toque seguinte derrubar tudo.
+        // Remover e idempotente: sem tap, e no-op.
+        inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { [weak self] buffer, _ in
             guard self != nil else { return }
 
@@ -397,6 +408,17 @@ final class SpeechRecognizer {
         let hardwareFormat = inputNode.outputFormat(forBus: 0)
         let converter = AVAudioConverter(from: hardwareFormat, to: audioFormat)
 
+        // removeTap ANTES de installTap — SEMPRE.
+        //
+        // Instalar um tap num barramento que ja tem um faz o AVAudioEngine lancar
+        // `required condition is false: nullptr == Tap()`: excecao de Objective-C,
+        // SIGABRT, o app FECHA. O do/catch do Swift nao pega.
+        //
+        // Havia quatro installTap e UM removeTap. Basta um caminho nao passar por
+        // ele — turno cancelado, app em segundo plano no meio do gesto, microfone
+        // reaberto logo apos a voz tocar — para o toque seguinte derrubar tudo.
+        // Remover e idempotente: sem tap, e no-op.
+        inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: hardwareFormat) { buffer, _ in
             if let converter {
                 let frameCount = AVAudioFrameCount(
@@ -528,6 +550,17 @@ final class SpeechRecognizer {
         request: SFSpeechAudioBufferRecognitionRequest
     ) -> SFSpeechRecognitionTask {
         let inputNode = engine.inputNode
+        // removeTap ANTES de installTap — SEMPRE.
+        //
+        // Instalar um tap num barramento que ja tem um faz o AVAudioEngine lancar
+        // `required condition is false: nullptr == Tap()`: excecao de Objective-C,
+        // SIGABRT, o app FECHA. O do/catch do Swift nao pega.
+        //
+        // Havia quatro installTap e UM removeTap. Basta um caminho nao passar por
+        // ele — turno cancelado, app em segundo plano no meio do gesto, microfone
+        // reaberto logo apos a voz tocar — para o toque seguinte derrubar tudo.
+        // Remover e idempotente: sem tap, e no-op.
+        inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputNode.outputFormat(forBus: 0)) { [weak self] buffer, _ in
             request.append(buffer)
             if let samples = SpeechRecognizer.extractSamples(from: buffer) {
@@ -574,6 +607,17 @@ final class SpeechRecognizer {
         let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
         bufferRef.initialize(to: [])
 
+        // removeTap ANTES de installTap — SEMPRE.
+        //
+        // Instalar um tap num barramento que ja tem um faz o AVAudioEngine lancar
+        // `required condition is false: nullptr == Tap()`: excecao de Objective-C,
+        // SIGABRT, o app FECHA. O do/catch do Swift nao pega.
+        //
+        // Havia quatro installTap e UM removeTap. Basta um caminho nao passar por
+        // ele — turno cancelado, app em segundo plano no meio do gesto, microfone
+        // reaberto logo apos a voz tocar — para o toque seguinte derrubar tudo.
+        // Remover e idempotente: sem tap, e no-op.
+        inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { buffer, _ in
             let channelData = buffer.floatChannelData?[0]
             let frameLength = Int(buffer.frameLength)

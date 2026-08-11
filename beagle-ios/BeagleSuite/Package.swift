@@ -39,9 +39,27 @@ let package = Package(
         // Shared core: API client, truth system, models, Tailnet resolver,
         // Observation-framework data stores, on-device LLM engine.
         // No UI. Platform-agnostic (except watchOS excludes MLX).
+        // Ponte Objective-C: converte NSException de audio em NSError.
+        //
+        // O AVAudioEngine sinaliza erro de programacao com NSException, e Swift
+        // NAO captura NSException: do/catch nao ve, try? nao ve. O processo recebe
+        // SIGABRT e o app FECHA — sem chance de degradar.
+        //
+        // Este ramo ja conserta as causas conhecidas (permissao antes de comecar,
+        // isolamento de ator, graph-init). A ponte cobre a classe INTEIRA, inclusive
+        // a proxima causa que ninguem previu — e diz QUAL chamada lancou, em vez de
+        // obrigar a deduzir pelo fluxo.
+        //
+        // Alvo separado porque SPM nao mistura Swift e Objective-C no mesmo alvo.
+        .target(
+            name: "BeagleAudioGuard",
+            path: "Sources/BeagleAudioGuard",
+            publicHeadersPath: "include"
+        ),
         .target(
             name: "BeagleCore",
             dependencies: [
+                "BeagleAudioGuard",
                 .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
                 .product(name: "Hub", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),

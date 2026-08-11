@@ -341,7 +341,11 @@ public struct ChatScreen: View {
                 .animation(.easeOut(duration: 0.25), value: store.messages.count)
             }
             .defaultScrollAnchor(.bottom)   // recent messages hug the composer; void goes up top
-            .scrollDismissesKeyboard(.interactively)
+            // `.immediately` e nao `.interactively`: o modo interativo faz o teclado
+            // seguir o dedo, e num chat a lista ja esta no fim — o gesto vira
+            // rolagem e o teclado nunca sai. Ele relatou que nao conseguia LER a
+            // conversa, que e metade do uso.
+            .scrollDismissesKeyboard(.immediately)
             // Direction-based chrome melt: finger up (offset grows → reading forward) hides the
             // top bar; finger down (offset shrinks → going back) reveals it. Anchor-agnostic.
             .onScrollGeometryChange(for: CGFloat.self) { geo in
