@@ -50,4 +50,25 @@ final class FleetStateClientKeepaliveTests: XCTestCase {
         XCTAssertGreaterThan(a100, 0, "um valor <= 0 seria o cliente dizendo 'desista'")
         XCTAssertGreaterThan(a1000, 0, "um valor <= 0 seria o cliente dizendo 'desista'")
     }
+
+    // MARK: - explicacaoDoLink(_:) — o texto não pode mentir sobre o motor ter parado
+
+    /// 🚨 Achado da terceira rodada de review: a tese desta fatia (não afirmar um estado que não
+    /// é verdade) virada contra ela mesma. `.insistindo` significa "caiu, mas eu mesmo estou
+    /// tentando de novo, sozinho, em segundo plano" — e o texto NÃO pode ler como ".failed"
+    /// ("parei, aja você"), porque o motor nunca parou.
+    func testInsistindoNuncaAfirmaParada() {
+        let texto = FleetStateClient.explicacaoDoLink(.insistindo(motivo: "timeout", tentativas: 12))
+        XCTAssertTrue(texto.contains("reconectando") || texto.contains("sozinho") || texto.contains("caiu"),
+                      "o texto tem de dizer que o cliente está tentando por conta própria: \"\(texto)\"")
+        XCTAssertNotEqual(texto, FleetStateClient.explicacaoDoLink(.failed("timeout")),
+                           "insistindo não pode reaproveitar o texto de parada — motores diferentes, textos diferentes")
+    }
+
+    /// `.failed` continua existindo para o caso que É de verdade permanente (endpoint mal
+    /// configurado) — este teste prende que ELE não regride para o texto de "insistindo".
+    func testFailedContinuaSendoParadaDeVerdade() {
+        let texto = FleetStateClient.explicacaoDoLink(.failed("bad endpoint"))
+        XCTAssertFalse(texto.contains("sozinho"), "endpoint mal configurado não se resolve retentando")
+    }
 }

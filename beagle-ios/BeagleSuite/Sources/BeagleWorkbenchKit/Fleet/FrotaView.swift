@@ -345,7 +345,10 @@ public struct FrotaView: View {
                 .font(.callout).foregroundStyle(.white.opacity(0.85))
             Text(linkExplanation)
                 .font(.footnote).foregroundStyle(.white.opacity(0.6))
-            Button("Tentar de novo") { fleet.connect(); fleet.refresh() }
+            // 🚨 "Tentar de novo" implicava que a reconexão dependia do clique — mentira desde
+            // que o cliente passou a nunca desistir de vez (ver `FleetStateClient.drop`). O botão
+            // fica como ATALHO ("agora", não "de novo"), nunca como a única saída.
+            Button("Tentar agora") { fleet.connect(); fleet.refresh() }
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 4)
         }
@@ -359,13 +362,9 @@ public struct FrotaView: View {
         // A missing token is not a network fault, and saying "reconectando" forever would send
         // him hunting the wrong problem.
         if CockpitToken.resolve() == nil { return CockpitToken.missingReason }
-        switch fleet.link {
-        case .failed(let why): return "O broker não respondeu: \(why). Tailnet ativa? Cockpit no ar?"
-        case .reconnecting: return "Reconectando ao broker…"
-        case .connecting: return "Conectando ao broker…"
-        case .live: return "Conectado, mas o broker ainda não observou nenhuma lane."
-        case .idle: return "Sem conexão com o broker."
-        }
+        // A tradução de `Link` para texto é PURA e mora em `FleetStateClient` — mesmo padrão de
+        // `SessionStore.rotuloDeGuiar`/`semCaixa`, testável sem esta view.
+        return FleetStateClient.explicacaoDoLink(fleet.link)
     }
 
     private var linkFooter: some View {

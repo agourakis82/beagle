@@ -15,7 +15,17 @@ import Observation
 @Observable
 public final class FleetStateClient {
     public enum Link: Sendable, Equatable {
-        case idle, connecting, live, reconnecting, failed(String)
+        case idle, connecting, live, reconnecting
+        /// 🚨 Achado de review: muitas quedas seguidas, mas o cliente NÃO parou — o laço em
+        /// `drop` roda para sempre, com o atraso saturado no teto (`proximoAtrasoMs`). Isto é só
+        /// um AVISO para a UI ("está demorando"), nunca uma afirmação de que o motor desligou.
+        /// Antes, esse aviso reaproveitava `.failed`, e a `FrotaView` desenhava um botão "Tentar
+        /// de novo" como se a reconexão dependesse do operador clicar — exatamente a mentira que
+        /// esta fatia existe para matar, e desta vez sobre o próprio transporte que ela conserta.
+        case insistindo(motivo: String, tentativas: Int)
+        /// Parou de vez. Só por erro de CONFIGURAÇÃO (endpoint inválido) — nada que uma
+        /// retentativa resolveria sozinha, então aqui não há mentira em dizer "parei".
+        case failed(String)
     }
 
     public private(set) var link: Link = .idle
@@ -71,8 +81,8 @@ public final class FleetStateClient {
     private var task: URLSessionWebSocketTask?
     private var loop: Task<Void, Never>?
     private var retries = 0
-    /// NÃO é mais um limite de desistência — ver `drop`. Só decide quando `.failed` aparece na
-    /// UI como aviso; a retentativa em si nunca para.
+    /// NÃO é mais um limite de desistência — ver `drop`. Só decide quando `link` vira
+    /// `.insistindo` (aviso de "está demorando"); a retentativa em si nunca para.
     private let maxRetries = 12
 
     public init(endpoint: FleetEndpoint = FleetEndpoint()) {
@@ -116,6 +126,14 @@ public final class FleetStateClient {
         guard !isFixture else { return }
         guard link != .live && link != .connecting else { return }
         guard let request = endpoint.loomRequest() else { link = .failed("bad endpoint"); return }
+        // 🚨 Achado de review: o guard acima NÃO bloqueia durante `.reconnecting` — de propósito,
+        // é o que deixa um `connect()` externo (troca de aba) religar enquanto o cliente já está
+        // tentando sozinho. Mas isso abre uma corrida: se uma tentativa interna já tem um socket
+        // vivo (ainda não `.live`) quando o externo chega, `task` era apenas SOBRESCRITO — o
+        // socket antigo nunca era cancelado, e ficava solto até o servidor fechá-lo sozinho.
+        // Cancelar aqui é seguro porque o loop antigo se protege contra o erro que isto gera: ver
+        // o guard de identidade em `startLoop`.
+        task?.cancel(with: .goingAway, reason: nil)
         closedByCaller = false
         link = (retries == 0) ? .connecting : .reconnecting
         trace("connect -> \(request.url?.absoluteString ?? "?") token=\(endpoint.token == nil ? "nil" : "sim")")
@@ -268,6 +286,16 @@ public final class FleetStateClient {
                     @unknown default: break
                     }
                 } catch {
+                    // 🚨 Guarda de IDENTIDADE, não de estado: se `self.task` já não é o mesmo
+                    // objeto que `t` (uma tentativa MAIS NOVA de `connect()` já assumiu o lugar),
+                    // este erro é o socket ÓRFÃO sendo cancelado de propósito — não uma queda
+                    // real. Tratá-lo como drop() pisaria no `retries`/`link` da tentativa nova
+                    // que já está em andamento. `===` funciona porque `URLSessionWebSocketTask`
+                    // é classe.
+                    guard self.task === t else {
+                        self.trace("erro em socket já substituído — ignorado")
+                        break
+                    }
                     self.drop(error)
                     break
                 }
@@ -373,7 +401,11 @@ public final class FleetStateClient {
         // SÓ como aviso para a UI — o laço de retentativa abaixo roda de qualquer jeito, sempre,
         // com o atraso saturado no teto. O cliente não tem mais estado de desistência permanente.
         retries += 1
-        link = retries >= maxRetries ? .failed(error.localizedDescription) : .reconnecting
+        // `.insistindo`, não `.failed`: o laço abaixo agenda a próxima tentativa de qualquer
+        // jeito, então "parei" seria mentira depois de `maxRetries` tanto quanto antes.
+        link = retries >= maxRetries
+            ? .insistindo(motivo: error.localizedDescription, tentativas: retries)
+            : .reconnecting
         let delayMs = Self.proximoAtrasoMs(retries: retries)
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(delayMs))
@@ -392,5 +424,29 @@ public final class FleetStateClient {
         // ser o limite — um teto que existia só no comentário. O expoente 6 é o menor que faz
         // `250 * 2^6 = 16_000` estourar o `min` de verdade e saturar em 10_000.
         min(10_000, 250 * (1 << min(max(retries, 1), 6)))
+    }
+
+    /// O texto explicativo para cada estado do link. PURA — extraída para ser testável sem UI,
+    /// no mesmo padrão de `SessionStore.rotuloDeGuiar`/`semCaixa` desta mesma fatia.
+    ///
+    /// 🚨 `.insistindo` NUNCA pode devolver um texto que implique que o cliente parou: ele está
+    /// retentando sozinho, em segundo plano, o tempo todo. Dizer o contrário manda o operador
+    /// embora achando que perdeu a frota — pior notícia que a verdade, que já é boa ("caiu,
+    /// mas eu mesmo estou tentando de novo").
+    public nonisolated static func explicacaoDoLink(_ link: Link) -> String {
+        switch link {
+        case .failed(let why):
+            return "O broker não respondeu: \(why). Tailnet ativa? Cockpit no ar?"
+        case .insistindo(let motivo, let tentativas):
+            return "O broker caiu — reconectando sozinho (tentativa \(tentativas)): \(motivo). Tailnet ativa? Cockpit no ar?"
+        case .reconnecting:
+            return "Reconectando ao broker…"
+        case .connecting:
+            return "Conectando ao broker…"
+        case .live:
+            return "Conectado, mas o broker ainda não observou nenhuma lane."
+        case .idle:
+            return "Sem conexão com o broker."
+        }
     }
 }
