@@ -258,6 +258,16 @@ impl AcpLane {
             }
             return;
         }
+        // 🚨 O ACP só emite `agent_message_chunk`: NUNCA uma variante de mensagem completa.
+        // A resposta de `session/prompt` é quem fecha o turno, e traz `stopReason` — é o único
+        // outro ponto em que a fala acumulada tem de ser descarregada, ou a última resposta do
+        // turno (a que não foi seguida por outra ferramenta) nunca chega na trama.
+        if classificar(&m) == Mensagem::Resposta {
+            if m.pointer("/result/stopReason").is_some() {
+                self.descarregar_fala().await;
+            }
+            return;
+        }
         let metodo = m.get("method").and_then(|x| x.as_str()).unwrap_or("");
         if classificar(&m) == Mensagem::Pedido && metodo == "session/request_permission" {
             let rpc_id = m["id"].clone();
@@ -317,6 +327,25 @@ impl AcpLane {
         .await;
     }
 
+    /// Publica a fala acumulada como um `AgentMessage` inteiro, e limpa o buffer — numa só
+    /// operação (`Trama::tomar_delta`), para nunca ficar no meio do caminho entre "publicado" e
+    /// "descartado". `None` quando o buffer estava vazio: não inventa evento sem texto.
+    ///
+    /// 🚨 MEDIDO ao vivo (Task 8): o adaptador emite SOMENTE `agent_message_chunk` — nunca uma
+    /// variante de mensagem completa. O desenho anterior tratava o chunk como delta esperando um
+    /// evento completo que não existe, e a trama nunca via o que o agente disse. Chamada em DOIS
+    /// pontos: quando um `tool_call` chega (a fala antes da ferramenta é um enunciado completo) e
+    /// quando o turno termina (a resposta de `session/prompt`, que traz `stopReason` — a ÚNICA
+    /// fala que não é seguida de outra ferramenta e por isso não teria outro gatilho).
+    async fn descarregar_fala(&self) {
+        if let Some(t) = self.trama.tomar_delta(&self.lane) {
+            let mut e =
+                AgentEvent::new(&self.lane, Kind::AgentMessage, Confidence::Exact).with_text(t);
+            e.session = self.sessao.lock().await.clone();
+            self.trama.append(e);
+        }
+    }
+
     async fn traduzir(&self, m: &serde_json::Value) -> Option<()> {
         if m.get("method").and_then(|x| x.as_str()) != Some("session/update") {
             return None;
@@ -332,10 +361,10 @@ impl AcpLane {
             }
             return Some(());
         }
-        // Fala completa: o delta acumulado já foi entregue por partes, então limpa antes de
-        // registrar o evento inteiro — senão o próximo turno herda texto do anterior.
+        // A fala anterior à ferramenta é um enunciado completo: DESCARREGA, nunca descarta —
+        // ver `descarregar_fala`.
         if variante == "tool_call" {
-            self.trama.limpar_delta(&self.lane);
+            self.descarregar_fala().await;
         }
         if let Some(mut e) = crate::event::from_acp_update(&self.lane, u) {
             e.session = self.sessao.lock().await.clone();
@@ -679,6 +708,127 @@ mod tests {
             1,
             "a trama tem de publicar o pedido, nao descarta-lo"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Defeito 2: a fala do agente nunca chegava na trama ─────────────────────────────────
+
+    fn chunk_de_fala(texto: &str) -> serde_json::Value {
+        serde_json::json!({
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "agent_message_chunk",
+                    "content": {"type": "text", "text": texto}
+                }
+            }
+        })
+    }
+
+    /// 🚨 MEDIDO AO VIVO (Task 8): o adaptador emite SOMENTE `agent_message_chunk`, nunca uma
+    /// variante de mensagem completa. O desenho anterior chamava `limpar_delta` quando um
+    /// `tool_call` chegava — a fala que veio ANTES da ferramenta era DESCARTADA, não publicada.
+    #[tokio::test]
+    async fn tres_chunks_e_um_tool_call_publicam_uma_fala_e_depois_a_ferramenta() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-fala-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        for pedaco in ["Vou", " ler", " o arquivo"] {
+            lane.traduzir(&chunk_de_fala(pedaco)).await;
+        }
+        let tool_call = serde_json::json!({
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": "t1",
+                    "title": "Read medidas.txt",
+                    "kind": "read"
+                }
+            }
+        });
+        lane.traduzir(&tool_call).await;
+
+        let eventos = t.since(0, Some("claude-4"));
+        let falas: Vec<_> = eventos
+            .iter()
+            .filter(|e| e.kind == Kind::AgentMessage)
+            .collect();
+        assert_eq!(
+            falas.len(),
+            1,
+            "tres chunks tem de virar UMA fala, nao tres nem zero"
+        );
+        assert_eq!(
+            falas[0].text.as_deref(),
+            Some("Vou ler o arquivo"),
+            "os pedacos tem de chegar concatenados NA ORDEM"
+        );
+        let ferramentas: Vec<_> = eventos
+            .iter()
+            .filter(|e| e.kind == Kind::ToolCall)
+            .collect();
+        assert_eq!(ferramentas.len(), 1);
+        assert!(
+            falas[0].seq < ferramentas[0].seq,
+            "a fala tem de aparecer ANTES da ferramenta que a seguiu"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A resposta de `session/prompt` traz `stopReason` — é o unico outro gatilho que existe
+    /// para a fala que TERMINA o turno sem ser seguida de outra ferramenta.
+    #[tokio::test]
+    async fn fim_de_turno_descarrega_a_fala_pendente_e_esvazia_o_buffer() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-fim-fala-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        for pedaco in ["Pronto", ", terminei"] {
+            lane.traduzir(&chunk_de_fala(pedaco)).await;
+        }
+        let fim = serde_json::json!({"id": 11, "result": {"stopReason": "end_turn"}});
+        lane.on_message(fim).await;
+
+        let falas: Vec<_> = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::AgentMessage)
+            .collect();
+        assert_eq!(falas.len(), 1);
+        assert_eq!(falas[0].text.as_deref(), Some("Pronto, terminei"));
+        let st = t
+            .state()
+            .into_iter()
+            .find(|l| l.lane == "claude-4")
+            .unwrap();
+        assert!(
+            st.streaming_text.is_none(),
+            "o buffer tem de esvaziar depois do descarregamento"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Fim de turno sem chunk nenhum não pode inventar um `AgentMessage` vazio.
+    #[tokio::test]
+    async fn fim_de_turno_sem_fala_nao_inventa_agent_message() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-fim-vazio-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        let fim = serde_json::json!({"id": 11, "result": {"stopReason": "end_turn"}});
+        lane.on_message(fim).await;
+
+        let falas = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::AgentMessage)
+            .count();
+        assert_eq!(falas, 0, "sem chunk nao ha fala para descarregar");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

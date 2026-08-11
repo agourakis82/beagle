@@ -179,6 +179,23 @@ impl Trama {
         }
     }
 
+    /// Tira o texto acumulado e limpa o buffer, numa só operação. Devolve `None` se estava vazio.
+    ///
+    /// Existe porque `limpar_delta` DESCARTA — certo quando outro caminho já registrou a
+    /// mensagem completa (o `item/completed` do codex), errado quando NINGUÉM mais vai
+    /// registrá-la (o ACP só emite chunk, nunca uma variante de mensagem completa). Quem chama
+    /// isto é responsável por publicar o texto antes de deixá-lo cair no chão.
+    pub fn tomar_delta(&self, lane: &str) -> Option<String> {
+        let mut g = self.inner.lock().unwrap();
+        let st = g.lanes.get_mut(lane)?;
+        let texto = st.streaming_text.take()?;
+        if texto.is_empty() {
+            None
+        } else {
+            Some(texto)
+        }
+    }
+
     /// DECLARA uma lane que o daemon supervisiona, mesmo antes do primeiro evento.
     ///
     /// 🚨 MEDIDO ao adotar a segunda lane (10-ago-2026): `codex-4` subiu, o processo estava vivo,
