@@ -300,3 +300,61 @@ tela. Os testes cobrem a tradução e o não-vazamento.
 - O loomd como **servidor MCP de IDE** (`~/.claude/ide/<porta>.lock`, `openDiff`, `getDiagnostics`),
   que permitiria mostrar diffs das 3 lanes TUI sem tirar o TUI. É complementar e fica para depois.
 - `fs/read_text_file` / `terminal/*` como capacidades do cliente — medido que não são exercidas.
+
+## Resultado (Task 8 do plano)
+
+**Provado ao vivo em 11-ago-2026**, `claude-4` dirigida por ACP, contra uma instância de loomd de
+teste (porta 127.0.0.1:4405, trama própria, produção na 4400 intocada) — não o resultado
+templado que o brief antecipava, e por isso registrado com precisão em vez de arredondado para
+"passou".
+
+**O que provou:**
+
+- **Handshake.** `initialize` → `session/new` → `session/set_mode` como última chamada do
+  handshake (mutação §1 do §5), confirmado ao vivo duas vezes.
+- **Turno.** Um prompt de leitura real produziu `session_started`, `user_prompt`, `tool_call`,
+  `tool_result` e `usage` (com custo em USD), todos `confidence: exact`.
+- **Aprovação, incluindo o achado que motivou escolher ACP.** Um prompt de escrita de arquivo
+  gerou `awaiting_approval` com `approval_id`, `approval_kind: "patch"` **e `diff` pronto**
+  (`--- /workspace/.wt/claude-4/NOTA_LANE.md ... +Esta lane é dirigida por protocolo ACP.`) —
+  campo tipado, não garimpado como no `codex.rs`. `POST /v2/lanes/claude-4/approve` respondeu
+  `ok`, e o arquivo apareceu no disco com o conteúdo exato do `diff`. **O §2 do spec está
+  provado ponta a ponta.**
+- **Os 3 tails.** `claude-1` (1137 eventos), `claude-2` (1648) e `claude-3` (513), todos
+  `confidence: exact`, lidos só de `LOOMD_TAILS` — zero linha de configuração nas lanes.
+
+**O que não provou — e por quê, com evidência, não por suposição:**
+
+1. **`agent_message` nunca aparece num turno ACP ao vivo.** O adaptador real só emite
+   `agent_message_chunk` (54 num turno de exemplo) — nunca a variante completa não-fragmentada
+   que `event.rs` sabe traduzir (`from_acp_update`, variante `"agentMessage"`). Os deltas
+   coalescem em RAM via `Trama::acumular_delta` por desenho — ver comentário em `acp.rs:296` — e
+   `on_message` não tem nenhum caminho que promova o delta acumulado a um evento `AgentMessage`
+   durável quando o `id` da chamada de `session/prompt` retorna com `stopReason: "end_turn"`.
+   Resultado: a fala completa do agente é observável em tempo real via debug log, mas nunca vira
+   linha na trama. O critério do brief pedia os 5 `kind`; 4 apareceram, `agent_message`
+   estruturalmente não aparece com o adaptador real — é lacuna de implementação, não de
+   handshake.
+2. **Bug de colisão de id JSON-RPC que engole a 3ª aprovação de uma sessão e trava o turno.**
+   `acp.rs` reserva `ID_SESSAO = 2` para a própria chamada `session/new`/`session/load`. O
+   adaptador numera **suas** requisições a nós (`session/request_permission`) numa sequência
+   própria, começando em 0, por sessão — independente da nossa. Na 3ª aprovação de uma mesma
+   sessão (id do adaptador == 2), `on_message` casa `m.get("id") == Some(ID_SESSAO)` primeiro,
+   entra no ramo de resposta de `session/new`, não acha `/result/sessionId` (a mensagem é um
+   *pedido*, não uma resposta — tem `method`+`params`, não `result`), e retorna sem nunca chegar
+   ao tratamento de `session/request_permission` alguns blocos abaixo. O pedido de aprovação é
+   silenciosamente descartado, nenhum `awaiting_approval` é gravado, e o adaptador fica esperando
+   para sempre uma resposta ao seu id 2 que o loomd nunca vai mandar — o turno trava
+   permanentemente. Reproduzido ao vivo: a 1ª e a 2ª aprovações de uma sessão (`Bash`, ids 0 e 1
+   do adaptador) funcionaram; a 3ª (`Write`, id 2 do adaptador) sumiu e travou o turno até eu
+   matar e resubir o processo. A prova do §2 acima só saiu limpa porque a sessão foi reiniciada e
+   o `Write` foi o **primeiro** prompt — sua aprovação caiu em id 0 do adaptador, sem colisão.
+   Correção sugerida (não aplicada aqui — fora do escopo de "provar ao vivo", e outra sessão
+   possui o commit deste crate): distinguir por direção, não por número — só tratar como resposta
+   a `ID_SESSAO` quando a mensagem não tiver `method` (isto é, for de fato uma resposta), em vez
+   de casar por igualdade numérica de `id`.
+
+Nenhum dos dois achados foi coberto pelas mutações §5 nem pelos testes das Tasks 1-7 — os
+fixtures usados nelas não reproduziam a forma real do tráfego do adaptador Node 22 vivo. Declarado
+aqui, não escondido: **"passou nos testes" e "funciona na lane" continuam sendo afirmações
+diferentes.**
