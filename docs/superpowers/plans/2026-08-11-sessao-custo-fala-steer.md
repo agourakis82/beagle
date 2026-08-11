@@ -165,7 +165,16 @@ Em `crates/loomd/src/main.rs`, depois de os três `parse_lanes` existirem e **de
 for (l, c) in &lanes { trama.declarar_com(l, aceita_da_lane(&lanes, &acp_lanes, &tails, l)); … }
 ```
 
-Ajuste `Trama::declarar` para `declarar_com(&self, lane: &str, aceita: Option<Aceita>)`, mantendo `declarar(lane)` como `declarar_com(lane, None)` para não quebrar chamadas existentes.
+Troque `Trama::declarar` por `declarar_com(&self, lane: &str, aceita: Option<Aceita>)` e **apague o
+`declarar` antigo**, ajustando as chamadas de teste que o usam.
+
+🚨 **Não mantenha um invólucro `declarar(lane)`.** Uma versão anterior deste plano pedia isso "para
+não quebrar chamadas existentes" — argumento que **esta própria tarefa invalida**, porque ela migra
+todos os três call-sites de produção para `declarar_com`. O que sobraria é uma API `pub` sem
+chamador, silenciada por `#[allow(dead_code)]`, e — pior — um atalho público para "declarar com
+capacidade `None`", que é exatamente o bug que este tipo existe para impedir. Um futuro chamador que
+usasse `declarar` por achá-lo equivalente reintroduziria a lane-com-capacidade-nula **sem aviso do
+compilador**.
 
 - [ ] **Step 5: Rodar e ver passar**
 
