@@ -71,6 +71,8 @@ public final class FleetStateClient {
     private var task: URLSessionWebSocketTask?
     private var loop: Task<Void, Never>?
     private var retries = 0
+    /// NÃO é mais um limite de desistência — ver `drop`. Só decide quando `.failed` aparece na
+    /// UI como aviso; a retentativa em si nunca para.
     private let maxRetries = 12
 
     public init(endpoint: FleetEndpoint = FleetEndpoint()) {
@@ -360,13 +362,35 @@ public final class FleetStateClient {
         if closedByCaller { trace("socket fechou após disconnect — sem reconexão"); return }
         trace("drop: \(error.localizedDescription)")
         // Deliberately keep `lanes`: stale-but-labelled beats an empty board.
-        guard retries < maxRetries else { link = .failed(error.localizedDescription); return }
+        //
+        // 🚨 Achado de review pós-Task-4: o cliente desistia de vez depois de `maxRetries`, e
+        // ficava parado em `.failed` até algo EXTERNO chamar `connect()` de novo. Antes desta
+        // fatia isso "funcionava" porque `FrotaView.onAppear` religava incondicionalmente — mas
+        // quem fica parado na Sessão, lendo, não tem esse gesto, e é justo essa pessoa a mais
+        // prejudicada por um link morto que ninguém revive sozinho. Mesmo defeito que o
+        // `PTYClient` já teve e já consertou (ver `PTYClient.proximoAtrasoMs` e
+        // `PTYClientKeepaliveTests`): `.failed` continua aparecendo depois de `maxRetries`, mas
+        // SÓ como aviso para a UI — o laço de retentativa abaixo roda de qualquer jeito, sempre,
+        // com o atraso saturado no teto. O cliente não tem mais estado de desistência permanente.
         retries += 1
-        link = .reconnecting
-        let delayMs = min(10_000, 250 * (1 << min(retries, 5)))
+        link = retries >= maxRetries ? .failed(error.localizedDescription) : .reconnecting
+        let delayMs = Self.proximoAtrasoMs(retries: retries)
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(delayMs))
             self?.connect()
         }
+    }
+
+    /// Pura: backoff exponencial com teto de 10s, e SEM limite de `retries` — o laço em `drop`
+    /// continua chamando esta função para sempre; ela só para de crescer o atraso ao bater no
+    /// teto. Mesmo padrão de `PTYClient.proximoAtrasoMs`, que já resolveu este defeito exato
+    /// (lane presa para sempre depois de uma queda) para o socket de terminal; o socket da Frota
+    /// não pode regredir para o bug que aquele conserto existiu para matar.
+    nonisolated static func proximoAtrasoMs(retries: Int) -> Int {
+        // 🚨 A fórmula ORIGINAL (`min(retries, 5)`) nunca alcançava o teto declarado: com o
+        // expoente travado em 5, `250 * 2^5 = 8_000`, sempre abaixo dos 10_000 que o `min` dizia
+        // ser o limite — um teto que existia só no comentário. O expoente 6 é o menor que faz
+        // `250 * 2^6 = 16_000` estourar o `min` de verdade e saturar em 10_000.
+        min(10_000, 250 * (1 << min(max(retries, 1), 6)))
     }
 }

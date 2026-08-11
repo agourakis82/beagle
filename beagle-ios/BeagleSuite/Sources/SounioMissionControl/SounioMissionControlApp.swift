@@ -265,6 +265,16 @@ struct MissionControlWindow: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { fleet.connect(); fleet.refresh() }
         }
+        // 🚨 Achado da review: no macOS `scenePhase` só muda ao trocar de APP (Cmd+Tab,
+        // background/foreground) — nunca ao trocar de ABA na sidebar com a janela ainda ativa.
+        // Antes desta fatia, `FrotaView.onAppear` chamava `connect()` incondicionalmente, então
+        // "voltar para a Frota" era o gesto de fato de "tenta de novo" — e ele sumiu quando o
+        // `connect()` da Frota passou a ser suprimido para o `fleet` injetado (dono agora é a
+        // janela). `connect()` é idempotente, então religar aqui em toda troca de seção é barato
+        // e nunca abre um segundo socket — mas ver `FleetStateClient.drop` para o conserto de
+        // fundo: o cliente agora NUNCA para de tentar sozinho, então este gesto é reforço, não a
+        // única rede de segurança.
+        .onChange(of: section) { _, _ in fleet.connect() }
     }
 }
 #endif
