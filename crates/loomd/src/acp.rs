@@ -155,12 +155,22 @@ impl AcpLane {
         self.sessao.lock().await.clone()
     }
 
-    async fn enviar(&self, v: serde_json::Value) {
+    /// 🚨 ACHADO 4 (crítico): a versão anterior não devolvia nada — com `stdin == None` (o
+    /// daemon acabou de subir, ou está no meio de um backoff de respawn de até 15s) o payload
+    /// caía no chão em silêncio, e todo chamador seguia como se tivesse falado. Propagar aqui é
+    /// o único jeito de `prompt`/`interrupt`/`answer` saberem que não afirmaram um fato falso.
+    async fn enviar(&self, v: serde_json::Value) -> Result<(), String> {
         let mut g = self.stdin.lock().await;
-        if let Some(si) = g.as_mut() {
-            let _ = si.write_all(format!("{v}\n").as_bytes()).await;
-            let _ = si.flush().await;
-        }
+        let Some(si) = g.as_mut() else {
+            return Err("adaptador ACP sem stdin (ainda nao subiu ou ja caiu)".to_string());
+        };
+        si.write_all(format!("{v}\n").as_bytes())
+            .await
+            .map_err(|e| format!("falha ao escrever no adaptador ACP: {e}"))?;
+        si.flush()
+            .await
+            .map_err(|e| format!("falha ao dar flush no adaptador ACP: {e}"))?;
+        Ok(())
     }
 
     /// 🚨 O CRITICAL DA REVISÃO: `spawn()` também pode falhar antes de qualquer leitura. Nesse
@@ -189,7 +199,9 @@ impl AcpLane {
         // mensagens aqui dentro tornaria o `set_mode` inassertável sem subir um Node.
         let sid0 = self.sessao.lock().await.clone();
         for m in mensagens_de_abertura(sid0.as_deref(), &self.modo, cwd) {
-            self.enviar(m).await;
+            // Melhor esforço: o handshake é best-effort igual sempre foi — se o stdin cair no
+            // meio dele, a leitura seguinte falha e o supervisor reconecta.
+            let _ = self.enviar(m).await;
         }
 
         let r = self.ciclo_de_leitura(out).await;
@@ -290,7 +302,15 @@ impl AcpLane {
             // A resposta espera o operador em outra task: bloquear aqui pararia a leitura do
             // stdout, e com ela toda a observação da lane. O turno fica parado — que é o
             // comportamento correto, e a tela mostra "esperando você", não "travado".
+            //
+            // 🚨 ACHADO 4: a trama só é atualizada AQUI, depois da tentativa de escrita de
+            // verdade — nunca em `answer()`, que só resolve o canal e não sabe se a entrega vai
+            // dar certo. Sem stdin (ou com o adaptador já caído), o registro é `Kind::Error`
+            // dizendo que a resposta não pôde ser entregue — nunca "permitida"/"negada" para uma
+            // entrega que não aconteceu.
             let stdin = self.stdin.clone();
+            let trama = self.trama.clone();
+            let (lane, id_evento) = (self.lane.clone(), id.clone());
             tokio::spawn(async move {
                 // `Err` (o `Sender` foi derrubado) e `Ok(None)` (cancelamento explícito) são o
                 // mesmo caso: ninguém vai responder por este pedido.
@@ -303,10 +323,29 @@ impl AcpLane {
                     "result":{"outcome":{"outcome":"selected","optionId":opt}}
                 });
                 let mut g = stdin.lock().await;
-                if let Some(si) = g.as_mut() {
-                    let _ = si.write_all(format!("{resp}\n").as_bytes()).await;
-                    let _ = si.flush().await;
-                }
+                let entregue = match g.as_mut() {
+                    Some(si) => si
+                        .write_all(format!("{resp}\n").as_bytes())
+                        .await
+                        .and(Ok(()))
+                        .and(si.flush().await)
+                        .is_ok(),
+                    None => false,
+                };
+                drop(g);
+                trama.append(if entregue {
+                    AgentEvent::new(&lane, Kind::ApprovalAnswered, Confidence::Exact).detail(
+                        format!(
+                            "aprovacao {id_evento}: {}",
+                            if allow { "permitida" } else { "negada" }
+                        ),
+                    )
+                } else {
+                    AgentEvent::new(&lane, Kind::Error, Confidence::Exact).detail(format!(
+                        "aprovacao {id_evento}: resposta nao pode ser entregue ao adaptador \
+                         (sem stdin ou falha de escrita)"
+                    ))
+                });
             });
             return;
         }
@@ -320,11 +359,14 @@ impl AcpLane {
     /// `canUseTool` fica sombreado. Escrito por dedução, a tela de aprovação ficaria vazia e a
     /// conclusão seria "o ACP não emite permissão".
     async fn fixar_modo(&self, sid: &str) {
-        self.enviar(serde_json::json!({
-            "jsonrpc":"2.0","id":ID_MODO,"method":"session/set_mode",
-            "params":{"sessionId": sid, "modeId": self.modo}
-        }))
-        .await;
+        // Best-effort igual sempre foi: se falhar aqui, o próximo handshake (reconexão) manda de
+        // novo — não há fato novo sendo gravado na trama neste caminho.
+        let _ = self
+            .enviar(serde_json::json!({
+                "jsonrpc":"2.0","id":ID_MODO,"method":"session/set_mode",
+                "params":{"sessionId": sid, "modeId": self.modo}
+            }))
+            .await;
     }
 
     /// Publica a fala acumulada como um `AgentMessage` inteiro, e limpa o buffer — numa só
@@ -394,6 +436,14 @@ impl AcpLane {
         })
     }
 
+    /// Só de teste: pluga um stdin de verdade (de um subprocesso real) numa lane `nua_para_teste`
+    /// — para testes que precisam verificar o que acontece numa ENTREGA bem-sucedida, sem
+    /// precisar subir o adaptador ACP de verdade.
+    #[cfg(test)]
+    pub(crate) async fn plugar_stdin_para_teste(&self, si: tokio::process::ChildStdin) {
+        *self.stdin.lock().await = Some(si);
+    }
+
     /// Toda aprovação pendurada é resolvida como CANCELADA antes do respawn.
     ///
     /// Sem isto, a morte do filho deixa botões na tela que não respondem a ninguém — o único
@@ -430,11 +480,16 @@ impl AcpLane {
             .clone()
             .ok_or("sessao ACP ainda nao aberta")?;
         let id = self.novo_id().await;
+        // 🚨 ACHADO 4: `enviar` agora PROPAGA se não havia stdin — e o `?` aqui garante que a
+        // trama só afirma "o operador falou" (`Kind::UserPrompt`, `Confidence::Exact`) DEPOIS de
+        // a escrita de fato acontecer. Cenário medido: o daemon sobe e o operador manda um
+        // prompt em menos de um segundo, ou durante um respawn (backoff até 15s) — antes desta
+        // correção o diário registrava o prompt como entregue mesmo caindo no chão.
         self.enviar(serde_json::json!({
             "jsonrpc":"2.0","id":id,"method":"session/prompt",
             "params":{"sessionId": sid, "prompt":[{"type":"text","text": text}]}
         }))
-        .await;
+        .await?;
         let mut e =
             AgentEvent::new(&self.lane, Kind::UserPrompt, Confidence::Exact).with_text(text);
         e.session = Some(sid);
@@ -449,10 +504,12 @@ impl AcpLane {
             .await
             .clone()
             .ok_or("sessao ACP ainda nao aberta")?;
+        // Propagado: sem isto a rota `/interrupt` respondia 202 mesmo quando o cancelamento
+        // nunca saiu do daemon — nenhum turno de fato recebia o pedido.
         self.enviar(serde_json::json!({
             "jsonrpc":"2.0","method":"session/cancel","params":{"sessionId": sid}
         }))
-        .await;
+        .await?;
         Ok(())
     }
 
@@ -463,6 +520,12 @@ impl AcpLane {
         self.prompt(text).await
     }
 
+    /// 🚨 ACHADO 4: NÃO grava mais o fato "aprovacao X: permitida/negada" aqui. Antes desta
+    /// correção o evento ia para a trama imediatamente após `tx.send`, mas a ENTREGA de fato ao
+    /// adaptador acontece numa task separada (a que espera `rx` em `on_message`) — se o stdin
+    /// tivesse caído entre o pedido e a resposta, o diário afirmaria uma entrega que nunca
+    /// aconteceu. Agora só o canal é resolvido aqui; quem escreve o fato na trama é a task de
+    /// entrega, depois de tentar de verdade.
     pub async fn answer(&self, approval_id: &str, allow: bool) -> Result<(), String> {
         let tx = self
             .pending
@@ -470,13 +533,8 @@ impl AcpLane {
             .await
             .remove(approval_id)
             .ok_or_else(|| format!("aprovacao {approval_id} nao esta pendente"))?;
-        let _ = tx.send(Some(allow));
-        self.trama.append(
-            AgentEvent::new(&self.lane, Kind::ApprovalAnswered, Confidence::Exact).detail(format!(
-                "aprovacao {approval_id}: {}",
-                if allow { "permitida" } else { "negada" }
-            )),
-        );
+        tx.send(Some(allow))
+            .map_err(|_| format!("aprovacao {approval_id}: ninguem esta esperando a resposta"))?;
         Ok(())
     }
 }
@@ -829,6 +887,107 @@ mod tests {
             .filter(|e| e.kind == Kind::AgentMessage)
             .count();
         assert_eq!(falas, 0, "sem chunk nao ha fala para descarregar");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ─── Achado 4: escrita perdida em silêncio, com rota e trama reportando sucesso ─────────
+
+    /// O cenário concreto do achado: o daemon subiu (ou está em backoff de respawn) e o
+    /// operador manda um prompt ANTES de qualquer processo existir. `nua_para_teste` é
+    /// exatamente isso — `stdin == None`, sem filho nenhum.
+    #[tokio::test]
+    async fn prompt_sem_stdin_propaga_erro_e_nao_afirma_que_o_operador_falou() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-p4-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        let r = lane.prompt("ola, tudo bem?").await;
+
+        assert!(
+            r.is_err(),
+            "sem stdin o prompt tem de FALHAR, nunca fingir que foi entregue"
+        );
+        let falas: Vec<_> = t
+            .since(0, Some("claude-4"))
+            .into_iter()
+            .filter(|e| e.kind == Kind::UserPrompt)
+            .collect();
+        assert!(
+            falas.is_empty(),
+            "a trama nao pode dizer que o operador falou se a escrita nunca aconteceu"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn interrupt_sem_stdin_propaga_erro() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-i4-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        assert!(
+            lane.interrupt().await.is_err(),
+            "sem stdin, 202 seria mentira: nao ha turno nenhum recebendo o cancelamento"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// O correlato para `answer`: o canal aceita a decisão do operador (o `oneshot::send`
+    /// sempre pode suceder), mas a ENTREGA de fato ao adaptador acontece numa task separada,
+    /// depois. Gravar "aprovacao X: permitida" na hora de `answer` é afirmar uma entrega que
+    /// ainda nem foi tentada. A trama só pode dizer o que a task de entrega de fato conseguiu.
+    #[tokio::test]
+    async fn resposta_de_aprovacao_sem_stdin_nao_afirma_entrega_que_nao_aconteceu() {
+        let dir = std::env::temp_dir().join(format!("loomd-acp-a4-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
+        let lane = AcpLane::nua_para_teste("claude-4", t.clone(), "default", Some("sess-1"));
+
+        let pedido = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 5,
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": "sess-1",
+                "toolCall": {"toolCallId": "toolu_1", "kind": "execute"},
+                "options": [{"optionId": "allow", "kind": "allow_once"}]
+            }
+        });
+        lane.on_message(pedido).await;
+
+        let r = lane.answer("5", true).await;
+        assert!(
+            r.is_ok(),
+            "o canal aceitou a decisao — isto so diz que alguem vai TENTAR entregar"
+        );
+
+        // Dá tempo para a task de entrega (que roda sem stdin, e por isso falha) terminar.
+        for _ in 0..40 {
+            if !t.since(0, Some("claude-4")).is_empty()
+                && t.since(0, Some("claude-4"))
+                    .iter()
+                    .any(|e| e.kind == Kind::Error || e.kind == Kind::ApprovalAnswered)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+
+        let eventos = t.since(0, Some("claude-4"));
+        assert!(
+            !eventos.iter().any(|e| e.kind == Kind::ApprovalAnswered),
+            "sem stdin a resposta NUNCA foi entregue ao adaptador — a trama nao pode dizer \
+             'permitida'"
+        );
+        assert!(
+            eventos
+                .iter()
+                .any(|e| e.kind == Kind::Error && e.detail.as_deref().unwrap_or("").contains("5")),
+            "a falha de entrega tem de aparecer na trama, nao silêncio: {:?}",
+            eventos.iter().map(|e| e.kind).collect::<Vec<_>>()
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

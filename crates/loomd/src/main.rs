@@ -391,20 +391,30 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("loomd-steer-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let t = Arc::new(Trama::open(dir.join("trama.jsonl")));
-        // COM sessão: `enfileirar` chega a `Ok(())`, então o despacho tem de devolver
+        let lane = crate::acp::AcpLane::nua_para_teste("claude-4", t, "default", Some("sess-1"));
+        // 🚨 Pós-achado-4: `enviar` propaga a AUSÊNCIA de stdin como erro — correto, mas isso
+        // deixaria de exercitar o que este teste quer provar (a semântica do DESPACHO: ACP
+        // enfileira, nunca redireciona). Por isso pluga um stdin de verdade (subprocesso `cat`)
+        // para a escrita ter sucesso, e a asserção testar o rótulo, não a entrega.
+        let mut filho = tokio::process::Command::new("cat")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("cat tem de existir para este teste");
+        lane.plugar_stdin_para_teste(filho.stdin.take().unwrap())
+            .await;
+
+        let h = super::LaneHandle::Acp(lane);
+        // COM sessão E stdin: `enfileirar` chega a `Ok(())`, então o despacho tem de devolver
         // `Ok(false)` — asserção EXATA. A versão frouxa deste teste (`Err(_) | Ok(false)`)
         // passava com qualquer coisa menos `Ok(true)`, o que é quase não assertar nada.
-        let h = super::LaneHandle::Acp(crate::acp::AcpLane::nua_para_teste(
-            "claude-4",
-            t,
-            "default",
-            Some("sess-1"),
-        ));
         assert_eq!(
             h.steer("oi").await,
             Ok(false),
             "lane ACP ENFILEIRA, nunca redireciona"
         );
+        let _ = filho.kill().await;
         std::fs::remove_dir_all(&dir).ok();
     }
 
