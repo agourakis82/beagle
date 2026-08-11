@@ -247,16 +247,7 @@ impl Trama {
     /// observado ainda". O primeiro evento real substitui — `reduce` não deixa `Unknown` apagar
     /// estado conhecido, e aqui o caminho é o inverso: só cria se não existe.
     ///
-    /// Sem capacidade conhecida — equivalente a `declarar_com(lane, None)`.
-    ///
-    /// `main()` já anota a capacidade em toda chamada real via `declarar_com`; este invólucro
-    /// segue existindo para não quebrar quem ainda chama sem capacidade — hoje, só os testes.
-    #[allow(dead_code)]
-    pub fn declarar(&self, lane: &str) {
-        self.declarar_com(lane, None);
-    }
-
-    /// Como `declarar`, mas anota também o que a lane ACEITA (`Aceita`) — a capacidade é
+    /// Anota também o que a lane ACEITA (`Aceita`) — a capacidade é
     /// registrada junto da declaração, então nunca há janela em que a lane apareça no board sem
     /// a tela saber se um botão nela funciona.
     pub fn declarar_com(&self, lane: &str, aceita: Option<Aceita>) {
@@ -879,7 +870,7 @@ mod tests {
         // oferece nada nela e quem olha conclui que a adoção falhou.
         let t = Trama::open(arquivo_novo("declarar"));
         assert!(t.state().is_empty());
-        t.declarar("codex-4");
+        t.declarar_com("codex-4", None);
         let st = t.state();
         assert_eq!(st.len(), 1);
         assert_eq!(
@@ -899,7 +890,7 @@ mod tests {
         e.approval_id = Some("7".into());
         e.approval_method = Some("item/fileChange/requestApproval".into());
         t.append(e);
-        t.declarar("codex-4");
+        t.declarar_com("codex-4", None);
         let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
         assert_eq!(
             st.kind,
