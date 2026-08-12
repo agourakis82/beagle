@@ -1,0 +1,8 @@
+{
+  "codeConnect": {
+    "include": ["*.figma.ts"],
+    "exclude": ["node_modules/**"],
+    "label": "SwiftUI",
+    "defaultBranch": "reconcile/unify-beagle"
+  }
+}
