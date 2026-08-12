@@ -283,3 +283,68 @@ Verificar exige um turno de dois prompts na `claude-4` — bloqueado pela mesma 
 - Havia **quatro** `loomd` vivos, três deles de teste, supervisionando `claude-4` e `codex-4` — as
   mesmas lanes da produção, na mesma worktree. Candidato concreto às lanes caindo ao longo do dia.
   Agora há um só.
+
+## Adendo — o que a review final de branch encontrou
+
+Sete reviews por tarefa passaram. A review de branch inteira, com as três linguagens à vista, achou um
+**Critical** que nenhuma delas podia ver.
+
+### O `usd` da lane era o custo de UM turno, não da lane
+
+`Kind::Usage` é emitido num **único** lugar do crate — `event.rs:623`, dentro de `from_acp_update` —
+ou seja **só em lanes ACP**. E lanes ACP **não emitem fronteira de turno nenhuma**: o vocabulário
+delas é `user_prompt`, `agent_message`, `tool_call`, `usage`, `error`, `session_started/ended`. Logo
+`turno_usd` nunca era liberado, e `st.usd = st.usd - antigo + custo` **substituía** a contribuição do
+turno em vez de somar.
+
+Três medições independentes:
+
+1. teste com o vocabulário real (3 turnos de 0,10 / 0,25 / 0,30 delimitados por `user_prompt`) deu
+   **0,30** onde a soma por turno é **0,65**;
+2. censo da trama de produção: os `usage` estão **todos** em `claude-4`, que tem **zero**
+   `turn_started`/`turn_ended`/`idle`; `codex-4` e `loom-1` têm as fronteiras e **zero `usage`**. A
+   interseção {emite custo} ∩ {emite fronteira} é **vazia**;
+3. `/v2/state` ao vivo: `claude-4 turns=0`.
+
+**Por que sete reviews passaram:** *todos* os testes de custo em Rust injetavam
+`TurnStarted`/`TurnEnded` numa lane chamada `codex-*` — **uma combinação que a produção nunca
+produz**. A fixture falava um vocabulário que o adaptador não fala. É o caso exato de teste que
+espelha a implementação em vez de prendê-la, e nenhuma quantidade de mutação o pega: a mutação
+confirma que o teste reage ao código, não que o cenário existe.
+
+Conserto: `Kind::UserPrompt` entra na lista de fronteiras. É o delimitador real da ACP **e** é a mesma
+fronteira que o lado Swift já usa (`Turno.agrupar` quebra em `.prompt`) — então fecha o defeito e
+**unifica a unidade "turno" entre as duas linguagens**, que é o invariante que sustenta chip e rodapé
+não discordarem. O contador de `turns` vive num `if` separado e foi verificado por teste dedicado: não
+dobra nas lanes de codex.
+
+### O congelamento do custo durava 20 segundos
+
+A assimetria "capacidade some, custo congela" existia em `_broadcastState` mas **não** em `fuseFleet`.
+O `statePump` transmite o frame cheio a cada 20 s, e ali a chave saía ausente — que o cliente lê como
+zero. Pior: das lanes que o `loomd` serve, só `claude-1/2/3` são semeadas em `WORKSPACE_LANES`, então
+o cache **não protegia lane nenhuma**. Quarta vez que essa costura come um campo.
+
+Provado contra a imagem deployada: com o `loomd` vivo, `aceita` 6/6 e `usd` numérico 6/6; sem
+contraparte, `usd` congela e `aceita` fica ausente.
+
+### Duas ocorrências novas de "arredonda para zero"
+
+O invariante já havia sido consertado três vezes. A review achou a quarta (`{custo:.4}` manda
+`USD 0.0000` para custo abaixo de 0,00005) e a quinta (`contexto 0%` para qualquer coisa abaixo de
+0,5% do teto). A quinta ganhou limiar explícito `"< 1%"`, como o chip ganhou `"< US$ 0,01"`.
+
+### Dívida nova, medida e não consertada
+
+`turns` da lane ACP reporta **0 para sempre**: `claude-4` tem **7 `user_prompt`** no diário e zero
+`turn_started`, e o contador só olha `TurnStarted`. O operador mandou sete pedidos e a tela mostra zero
+turnos — a mesma família, num campo que este spec não declarou como escopo. **Não é regressão** (era
+assim antes da fatia). A regra ingênua não serve: contar em `TurnStarted | UserPrompt` **dobraria** nas
+lanes de codex, que emitem os dois adjacentes. O correto é adaptar ao vocabulário da lane — se ela já
+emitiu `TurnStarted`, conte por ele; senão, por `UserPrompt`.
+
+### O limite honesto de tudo isto
+
+**O custo nunca foi exercido com valor diferente de zero.** Os únicos três `usage` de produção são
+`contexto 0/1000000 · USD 0.0000`, porque a credencial da `claude-4` expirou. A regra está provada por
+teste nas duas linguagens e o transporte está provado ponta a ponta; o **número real** não.
