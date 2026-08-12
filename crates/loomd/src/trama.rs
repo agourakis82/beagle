@@ -118,6 +118,33 @@ pub struct LaneState {
     /// olhar a tela.
     #[serde(skip)]
     turno_usd: Option<f64>,
+    /// Se esta lane JÁ emitiu `TurnStarted` alguma vez. É o que faz a contagem de `turns`
+    /// **adaptar-se ao vocabulário da lane** em vez de exigir um evento que ela nunca manda.
+    ///
+    /// 🚨 MEDIDO no diário de produção (`/workspace/.loomd/trama.jsonl`, 11-ago-2026):
+    /// `claude-4` (ACP) tinha `user_prompt = 7` e `turn_started = 0`, e o `/v2/state` dizia
+    /// `turns: 0` — o operador mandou sete pedidos e a tela afirmava zero. Contar sempre em
+    /// `TurnStarted | UserPrompt` seria pior: nas lanes de codex os dois chegam ADJACENTES no
+    /// MESMO turno (`turn/started` + `item/completed` de `userMessage`), então todo turno
+    /// contaria dobrado. Daí a regra por lane: se ela já provou que fala `TurnStarted`, conte
+    /// por ele; se nunca emitiu, conte por `UserPrompt`. É honesto porque o adaptador de uma
+    /// lane tem vocabulário FIXO — ele não alterna no meio da sessão.
+    ///
+    /// Fora do JSON: é mecanismo interno da contagem, não um fato que a tela deva afirmar.
+    #[serde(skip)]
+    viu_turn_started: bool,
+    /// O turno em curso já foi contado por um `UserPrompt`, e o `TurnStarted` que vier a seguir
+    /// não pode contá-lo de novo.
+    ///
+    /// 🚨 Esta é a ordem perigosa: numa lane de codex o PRIMEIRO evento do PRIMEIRO turno pode
+    /// ser `UserPrompt`, **antes** de qualquer `TurnStarted`. Naquele instante `viu_turn_started`
+    /// ainda é falso, então a regra acima conta o prompt — e o `TurnStarted` que chega logo
+    /// depois contaria o mesmo turno uma segunda vez. Este marcador faz esse primeiro
+    /// `TurnStarted` apenas CONSUMIR a contagem que o prompt já fez. Dali em frente
+    /// `viu_turn_started` é verdadeiro, nenhum `UserPrompt` conta mais, e o marcador nunca
+    /// volta a ser armado.
+    #[serde(skip)]
+    turno_contado_por_prompt: bool,
 }
 
 fn e_zero(v: &f64) -> bool {
@@ -225,6 +252,8 @@ impl Trama {
                 turns: 0,
                 usd: 0.0,
                 turno_usd: None,
+                viu_turn_started: false,
+                turno_contado_por_prompt: false,
             });
         st.observed_at_ms = agora;
         st.streaming_text
@@ -299,6 +328,8 @@ impl Trama {
                 turns: 0,
                 usd: 0.0,
                 turno_usd: None,
+                viu_turn_started: false,
+                turno_contado_por_prompt: false,
             });
     }
 
@@ -459,6 +490,8 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
         turns: 0,
         usd: 0.0,
         turno_usd: None,
+        viu_turn_started: false,
+        turno_contado_por_prompt: false,
     });
 
     st.observed_at_ms = e.ts_ms;
@@ -469,9 +502,29 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
     if let Some(d) = &e.diff {
         st.last_diff = Some(d.clone());
     }
-    if e.kind == Kind::TurnStarted {
-        st.turns += 1;
-        st.current_turn = e.turn.clone();
+    // A contagem de turnos ADAPTA-SE ao vocabulário da lane — ver `viu_turn_started` e
+    // `turno_contado_por_prompt` na `LaneState` para a medição que obrigou isto e para por que a
+    // regra ingênua (`TurnStarted | UserPrompt`) dobraria nas lanes de codex.
+    match e.kind {
+        Kind::TurnStarted => {
+            st.viu_turn_started = true;
+            if st.turno_contado_por_prompt {
+                // O `UserPrompt` que abriu ESTE turno já o contou (ele chegou antes do primeiro
+                // `TurnStarted` da lane, quando ainda não se sabia que ela fala `TurnStarted`).
+                // Contar aqui de novo daria dois turnos para um.
+                st.turno_contado_por_prompt = false;
+            } else {
+                st.turns += 1;
+            }
+            st.current_turn = e.turn.clone();
+        }
+        // Só conta enquanto a lane nunca provou falar `TurnStarted`. Numa lane ACP isso é para
+        // sempre — é a única fronteira de turno que ela emite.
+        Kind::UserPrompt if !st.viu_turn_started => {
+            st.turns += 1;
+            st.turno_contado_por_prompt = true;
+        }
+        _ => {}
     }
     // Fim de turno, ociosidade ou queda de sessão: não há mais turno com quem falar. Deixar o id
     // para trás faria um "interromper" mirar num turno que já acabou — e o codex recusa com uma
@@ -498,9 +551,9 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
     // Nas lanes de codex é inócuo: `item/completed` de `userMessage` (que vira `UserPrompt`)
     // chega no MESMO turno que já tem `turn/started` (`TurnStarted`), e lanes de codex nunca
     // emitem `Usage` — então soltar `turno_usd` de novo aqui não muda nada para elas. Note que
-    // isto NÃO mexe na contagem de `turns`: `st.turns += 1` só acontece no bloco de
-    // `Kind::TurnStarted` acima, que é um `if` separado — `UserPrompt` não entra nele, então
-    // turno não é contado em dobro.
+    // isto NÃO mexe na contagem de `turns`: quem conta é o `match` acima, com sua própria regra
+    // (adaptada ao vocabulário da lane) — nas lanes de codex o `UserPrompt` não conta turno,
+    // porque elas já provaram falar `TurnStarted`.
     if matches!(
         e.kind,
         Kind::TurnStarted | Kind::TurnEnded | Kind::Idle | Kind::SessionEnded | Kind::UserPrompt
@@ -1221,10 +1274,10 @@ mod tests {
 
     /// A lane de codex não regride: `TurnStarted`/`TurnEnded` E `UserPrompt` presentes (o
     /// vocabulário real do codex, onde `item/completed` de `userMessage` chega no mesmo turno
-    /// que `turn/started`) não pode contar turno nem custo em dobro. `turns` é incrementado só
-    /// no bloco de `Kind::TurnStarted`, que é um `if` totalmente separado da lista de
-    /// fronteiras de `turno_usd` — `UserPrompt` não participa dele, então isto verifica
-    /// exatamente que as duas listas não colidiram.
+    /// que `turn/started`) não pode contar turno nem custo em dobro. `turns` só conta por
+    /// `UserPrompt` em lanes que NUNCA emitiram `TurnStarted`; aqui a lane já provou falar
+    /// `TurnStarted`, então o prompt é ignorado pela contagem — e é isto que impede que a
+    /// adaptação ao vocabulário ACP vire uma dobra nas lanes de codex.
     #[test]
     fn lane_codex_com_turn_started_e_user_prompt_nao_dobra_turno_nem_custo() {
         let t = Trama::open(arquivo_novo("codex-turn-started-e-user-prompt-sem-dobra"));
@@ -1239,6 +1292,74 @@ mod tests {
             "turns não pode contar em dobro por causa do UserPrompt"
         );
         perto(st.usd, 0.42);
+    }
+
+    /// 🚨 O defeito MEDIDO: `claude-4` (ACP) tinha `user_prompt = 7` e `turn_started = 0` no
+    /// diário de produção, e o `/v2/state` respondia `turns: 0`. Sete pedidos do operador, zero
+    /// na tela — o sistema sabia e a tela afirmava zero. Uma lane ACP não emite fronteira de
+    /// turno: seu vocabulário é `user_prompt`, `agent_message`, `tool_call`, `usage`, `error`,
+    /// `session_started/ended`. Contar só `TurnStarted` era esperar por um evento que ela nunca
+    /// manda.
+    #[test]
+    fn lane_acp_sem_turn_started_conta_turno_por_user_prompt() {
+        let t = Trama::open(arquivo_novo("acp-conta-por-user-prompt"));
+        for _ in 0..7 {
+            t.append(ev("claude-4", Kind::UserPrompt));
+            t.append(ev("claude-4", Kind::AgentMessage));
+            t.append(usage("claude-4", 0.01));
+        }
+        let st = t
+            .state()
+            .into_iter()
+            .find(|l| l.lane == "claude-4")
+            .unwrap();
+        assert_eq!(
+            st.turns, 7,
+            "7 user_prompt e 0 turn_started numa lane ACP têm de dar 7 turnos, não 0"
+        );
+    }
+
+    /// A regra ingênua (`TurnStarted | UserPrompt`) dobraria: nas lanes de codex os dois chegam
+    /// ADJACENTES no mesmo turno. Três turnos têm de dar 3, nunca 6.
+    #[test]
+    fn lane_codex_com_tres_turnos_adjacentes_conta_tres_nao_seis() {
+        let t = Trama::open(arquivo_novo("codex-tres-turnos-sem-dobra"));
+        for _ in 0..3 {
+            t.append(ev("codex-4", Kind::TurnStarted));
+            t.append(ev("codex-4", Kind::UserPrompt));
+            t.append(ev("codex-4", Kind::AgentMessage));
+            t.append(ev("codex-4", Kind::TurnEnded));
+        }
+        let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
+        assert_eq!(
+            st.turns, 3,
+            "3 turnos de codex com TurnStarted+UserPrompt adjacentes contam 3, não 6"
+        );
+    }
+
+    /// 🚨 A ORDEM PERIGOSA. Numa lane de codex o primeiro evento do primeiro turno pode ser
+    /// `UserPrompt` — **antes** do primeiro `TurnStarted`. Naquele instante a lane ainda não
+    /// provou falar `TurnStarted`, então o prompt conta; sem uma guarda, o `TurnStarted` que
+    /// vem logo depois contaria o MESMO turno outra vez, e a lane inteira ficaria com um turno
+    /// a mais para sempre. Dois turnos aqui têm de dar 2, nunca 3.
+    #[test]
+    fn user_prompt_antes_do_primeiro_turn_started_nao_dobra_o_turno() {
+        let t = Trama::open(arquivo_novo("prompt-antes-do-turn-started"));
+        // Turno 1: o prompt chega ANTES da fronteira.
+        t.append(ev("codex-4", Kind::UserPrompt));
+        t.append(ev("codex-4", Kind::TurnStarted));
+        t.append(ev("codex-4", Kind::AgentMessage));
+        t.append(ev("codex-4", Kind::TurnEnded));
+        // Turno 2: mesma ordem, agora que a lane já provou falar `TurnStarted`.
+        t.append(ev("codex-4", Kind::UserPrompt));
+        t.append(ev("codex-4", Kind::TurnStarted));
+        t.append(ev("codex-4", Kind::TurnEnded));
+
+        let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
+        assert_eq!(
+            st.turns, 2,
+            "UserPrompt antes do primeiro TurnStarted não pode contar o turno duas vezes"
+        );
     }
 
     #[test]
