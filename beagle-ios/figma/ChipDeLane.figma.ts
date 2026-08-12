@@ -2,8 +2,9 @@
 // source=beagle-ios/BeagleSuite/Sources/BeagleWorkbenchKit/Fleet/FrotaView.swift
 // component=LaneCard
 //
-// O card da Frota. Diz três coisas ao mesmo tempo: quem é a lane, em que estado está, e DE ONDE
-// esse veredito veio. O custo entra ao lado do estado — a mesma fonte que o rodapé da Sessão lê.
+// O card da Frota, INTEIRO: cabeçalho + linha de evidência. O cabeçalho diz quem é a lane, em
+// que estado está, quanto custou e DE ONDE veio o veredito. A evidência diz o que ela DISSE.
+// O custo entra ao lado do estado — a mesma fonte que o rodapé da Sessão lê.
 
 import figma from 'figma'
 const instance = figma.selectedInstance
@@ -38,6 +39,18 @@ const state = {
   ausente: '.exited',
 }[caso]
 
+// O registro da linha de evidência NÃO é livre: é o que aquela lane de fato produz. `Titulo` só
+// existe em lane de TRANSCRIÇÃO (claude-*), a única que emite `ai-title`; `Leitura` só em lane
+// raspada da tela; e uma lane ausente não disse nada — o app já omite a linha com `detail` vazio.
+// Ver o componente `Linha de Evidência` (LinhaDeEvidencia.figma.ts).
+const registro = {
+  semCusto: 'Titulo   — claude-2, lane de transcrição',
+  abaixoDeUmCentavo: 'Fala     — claude-4, ACP',
+  comCusto: 'Fala     — codex-4, ACP',
+  lidoDaTela: 'Leitura  — kimi-cli1, LanePoller',
+  ausente: '(nenhum) — grok-cli2 ausente não fala',
+}[caso]
+
 export default {
   example: figma.code`// Caso=${caso}
 LaneCard(
@@ -56,6 +69,8 @@ LaneCard(
 //   SessionStore.custoDoChip(${usd})            // nil | "< US$ 0,01" | "US$ %.2f"
 //   SessionStore.custoParaAcessibilidade(${usd}) // o trecho que VoiceOver precisa ouvir
 
+// Linha de evidência deste caso: ${registro}
+//
 // 🚨 custoDoChip NÃO usa o %.4f do rodapé, de propósito: o rodapé mede UM turno (a quarta casa
 //    É o dado); o chip mede o acumulado da lane. A coerência é de PRINCÍPIO — zero não aparece,
 //    nada arredonda para zero — não de string de formato.

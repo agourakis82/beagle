@@ -25,6 +25,7 @@ upgrade.
 | Compositor da Sessão → `SessionView` | `6:28` | ✅ 5 variantes | ✅ snippet por variante |
 | Chip de Lane → `LaneCard` | `10:44` | ✅ 5 variantes | ✅ |
 | Rodapé do Turno → `SessionStore.rodapeDoTurno` | `11:23` | ✅ 5 variantes | ✅ |
+| Linha de Evidência → `LaneCard.evidence` | `26:8` | ✅ 3 variantes | ✅ |
 
 No Dev Mode, cada variante mostra o `SessionView(...)` real com o `aceita` daquele estado —
 `.redireciona`, `.enfileira`, `.somenteLeitura`, `nil` com link vivo, `nil` com
@@ -59,6 +60,55 @@ Três coisas que só se descobrem lendo o pacote, não a documentação:
 O token é um Personal Access Token (escopos Code Connect + File content), gravado em
 `~/.config/figma/token` com permissão `600` no t560. Para revogar: Figma → Settings → Security →
 Personal access tokens.
+
+## O Chip virou o card inteiro — e a evidência ganhou registro (12-ago-2026)
+
+O Chip de Lane modelava só o **cabeçalho** (a própria descrição dizia `LaneCard.header`). A metade
+que faltava é a que carrega o problema: a **linha de evidência**, onde hoje três coisas diferentes
+recebem o mesmo tratamento.
+
+O código já sabe disso e não cumpre. Logo acima da linha há o comentário
+*"Serif, because it is something being SAID to the operator, not a machine reading"* — e a condição
+abaixo dele só honra isso quando a lane espera:
+
+```swift
+.font(.system(.subheadline, design: lane.state == .waiting ? .serif : .monospaced))
+```
+
+Em todo outro estado a fala do agente sai **monoespaçada** a 60%, uma linha — vestida de dado, num
+sistema que reserva monoespaçada a número, medida e identificador. E com o conserto do `aiTitle` no
+`loomd` (t560 `5099c6b9`), um **terceiro** tipo passou a cair no mesmo slot: um título.
+
+O componente novo, **Linha de Evidência** (`26:8`), separa os três por ORIGEM, não por estado:
+
+| registro | vem de | voz |
+|---|---|---|
+| `Titulo` | `Kind::SessionStarted` ← `ai-title` do transcript | face de UI, 1 linha — é um NOME |
+| `Fala` | `Kind::AgentMessage` (ACP ou transcript) | serifada, até 3 linhas — é algo DITO |
+| `Leitura` | LanePoller, `capture-pane` + regex | monoespaçada, terciária, 1 linha truncada |
+
+No Chip, o registro de cada caso é **o que aquela lane de fato produz**, nunca o mais bonito:
+`Titulo` só em lane de transcrição (única que emite `ai-title`), `Leitura` só em lane raspada da
+tela, e a lane ausente não recebe linha nenhuma — o app já a omite com `detail` vazio.
+
+🚨 **Este desenho é especificação, não retrato.** O Swift ainda não faz isso. A divergência está
+declarada na descrição do componente e no snippet de cada variante (campos `hoje:` e `proposto:`),
+justamente para não repetir o erro que o dinheiro cometeu: desenho e código discordando em silêncio.
+
+### Terceira substituição de fonte, declarada
+
+`New York` — a serifada que `.system(design: .serif)` de fato rende — **não existe neste Figma**. A
+rampa de fala usa **IBM Plex Serif**: das candidatas medidas, é a que segura o traço sobre fundo
+escuro aos 15px, onde as humanistas (Crimson) afinam, e foi desenhada para conviver com uma
+grotesca neutra. Mesma política do `SF Mono → JetBrains Mono`.
+
+### Duas armadilhas novas do Plugin API
+
+| sintoma | causa |
+|---|---|
+| `maxLines` volta a 1 sozinho | `textTruncation` **redefine** `maxLines` — truncamento PRIMEIRO, limite depois |
+| variante com altura 1, filhos empilhados | `resize()` reverte o eixo para `FIXED` — soltar com `layoutSizingVertical = 'HUG'` DEPOIS |
+| `Invalid selector: unexpected character (0xc3)` | `node.query()` não aceita acento no valor do atributo (`[name=cabeçalho]`) — usar `children.find` |
 
 ## Separador decimal do dinheiro — consertado (12-ago-2026)
 
