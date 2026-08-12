@@ -301,12 +301,33 @@ public actor PhysiomeUploader {
         }
 
         // Step 3: Encode the ingest payload.
+        //
+        // INSTRUMENTADO (12-ago-2026) para decidir se vale trocar JSON por Arrow no
+        // transporte. Medido em lote de 5.000 amostras, que é o uploadChunkSize:
+        //   JSON hoje ................ 172,8 B/linha
+        //   JSON + gzip ..............  36,1 B/linha   (4,8x)
+        //   colunar estilo Arrow .....  23,0 B/linha   (7,5x)
+        //   piso teórico (só o uuid) .  16,0 B/linha
+        // O uuid é aleatório e não comprime — ele é 70% do payload em qualquer
+        // formato. O que falta saber é o CUSTO DE CPU, e é isso que este carimbo
+        // mede. O tempo vai no header para o servidor registrar junto com o dele:
+        // é o único ponto onde as duas pontas aparecem na mesma linha de log.
         let payload: Data
+        let encodeMs: Double
         do {
+            let t0 = DispatchTime.now().uptimeNanoseconds
             payload = try JSONEncoder().encode(batch)
+            encodeMs = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
         } catch {
             throw PhysiomeUploaderError.uploadFailed("encode: \(error.localizedDescription)")
         }
+        let linhas = batch.healthSamples.count + batch.sleepSamples.count
+                   + batch.workoutSamples.count + batch.weatherObs.count
+        let carimbo = String(
+            format: "encode_ms=%.2f;bytes=%d;linhas=%d;bytes_por_linha=%.1f",
+            encodeMs, payload.count, linhas,
+            linhas > 0 ? Double(payload.count) / Double(linhas) : 0
+        )
 
         // Step 4: POST directly to physiome-ingest, trying each base URL in order.
         // The gateway at beagle.chiuratto.ai validates the operator token and forwards
@@ -320,6 +341,7 @@ public actor PhysiomeUploader {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
             request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.setValue(carimbo, forHTTPHeaderField: "X-Beagle-Client-Timing")
             request.timeoutInterval = 60
             request.httpBody = payload
             do {
