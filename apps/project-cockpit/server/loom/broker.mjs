@@ -15,6 +15,10 @@ export class Broker {
     this._clients = new Set();           // sockets
     this._subs = new Map();              // socket -> Set(sid)
     this._laneStates = laneStates;       // LanePoller-like: get(sid) -> verdict | null
+    // O último `usd` MEDIDO por sid, sobrevivendo à perda da fonte exata. Ver o comentário em
+    // `_broadcastState`: custo é fato do passado — perder o loomd não desfaz o gasto, então o
+    // ramo `inferred` congela isto em vez de reportar zero.
+    this._lastUsd = new Map();
   }
   addSeed(session) { this._sessions.set(session.sid, session); this._wire(session); }
   // Advertise an existing attachable session; it attaches (materializes) on first subscribe.
@@ -69,7 +73,12 @@ export class Broker {
   /// perdeu a fonte por `loomdTruth()` — nunca promovendo um chute a medição.
   _loomdLanes() {
     const m = this._laneStates?.loomdAll?.();
-    return m instanceof Map ? m : new Map();
+    if (!(m instanceof Map)) return new Map();
+    // Toda vez que vemos um `usd` medido, ele vira o "último conhecido" daquele sid — não só
+    // quando `_broadcastState` roda para ele. É deliberadamente o único lugar que grava
+    // `_lastUsd`: qualquer leitura das lanes do loomd (patch OU snapshot cheio) passa por aqui.
+    for (const [sid, card] of m) if (typeof card.usd === "number") this._lastUsd.set(sid, card.usd);
+    return m;
   }
   _loomdTruth() {
     return this._laneStates?.loomdTruth?.()
@@ -130,25 +139,32 @@ export class Broker {
     const exact = this._loomdLanes().get(sid) || null;
     // O patch de lane única PRECISA carregar `confidence`: um cliente que faz `?? old` num campo
     // ausente congelaria o rótulo antigo, e uma lane que perdeu a fonte exata continuaria
-    // desenhada como medida. `aceita` e `usd` têm o mesmo risco e a mesma cura: os dois ramos
-    // mandam os dois campos SEMPRE, explícitos — nunca omitidos.
+    // desenhada como medida. `aceita` e `usd` têm o mesmo risco de congelamento, mas — achado da
+    // review — a CURA não é a mesma para os dois, porque são afirmações de natureza oposta:
     //
-    // 🚨 O ramo `inferred` manda `aceita: null`, não o último valor visto. `aceita` só existe
-    // porque o loomd DECLAROU a lane num dos três conjuntos (codex/acp/tails) — perder a
-    // contraparte no loomd é perder a única fonte que sabia responder isso, não um sinal de que
-    // a capacidade mudou nem de que continua a mesma. `null` já é o vocabulário do "não sei"
-    // deste campo (é o que `loomdCard` manda para uma lane ainda não declarada) — reaproveitá-lo
-    // aqui é honesto: dizemos "não sabemos mais", em vez de arriscar um botão GUIAR sobrevivendo
-    // numa lane que virou somente-leitura, ou o inverso. `usd` manda 0, pela mesma regra que o
-    // loomd já usa para omitir a chave: 0 é "sem custo conhecido", e sem loomd não há custo
-    // conhecido — não é um chute, é o valor que o próprio contrato usa para dizer isso.
+    // 🚨 `aceita` é afirmação sobre CAPACIDADE ATUAL — pode ter mudado, e perder a fonte é
+    // literalmente não saber mais. O ramo `inferred` manda `null`, não o último valor visto:
+    // `aceita` só existe porque o loomd DECLAROU a lane num dos três conjuntos (codex/acp/tails);
+    // perder a contraparte é perder a única fonte que sabia responder isso. `null` já é o
+    // vocabulário do "não sei" deste campo (é o que `loomdCard` manda para uma lane ainda não
+    // declarada) — reaproveitá-lo aqui empurra a tela para o lado seguro: não oferecer o gesto,
+    // em vez de arriscar um botão GUIAR sobrevivendo numa lane que virou somente-leitura.
+    //
+    // `usd` é FATO DO PASSADO — um gasto acumulado. Perder o loomd não desfaz o que já foi
+    // gasto, então mandar `0` aqui apagaria um fato em vez de admitir ignorância: uma lane com
+    // US$ 12,50 acumulados que perde a fonte exata NÃO ficou de graça, e como o chip esconde
+    // zero, o número sumiria da tela — a UI passaria a afirmar "não custou nada" quando só
+    // perdeu quem confirmava o custo. O ramo `inferred` CONGELA o último `usd` medido
+    // (`_lastUsd`, atualizado toda vez que `_loomdLanes()` vê um valor) e só cai para `0` quando
+    // nunca houve leitura — aí `0` é honesto: nada foi gasto, ou nada foi observado, e o chip não
+    // mostra nada nos dois casos.
     const msg = exact
       ? { t: "state", sid, state: exact.state, detail: exact.detail, confidence: EXACT,
           approveKey: null, atShell: false, observedAt: exact.observedAt,
           aceita: exact.aceita ?? null, usd: Number(exact.usd) || 0 }
       : { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", confidence: INFERRED,
           approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null,
-          aceita: null, usd: 0 };
+          aceita: null, usd: this._lastUsd.get(sid) ?? 0 };
     for (const c of this._clients) this._send(c, msg);
   }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }

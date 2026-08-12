@@ -173,7 +173,7 @@ test("o patch de lane única também carrega `confidence` — senão o rótulo c
   assert.equal(exact.state, "idle", "o veredito do protocolo, não o do stream");
 });
 
-test("o patch de lane única carrega `aceita` e `usd` — exact do loomd, inferred explicitamente `null`/0", () => {
+test("o patch de lane única carrega `aceita` e `usd` — exact do loomd, `aceita` inferred=`null`, `usd` nunca visto=0", () => {
   const loomd = new Map([["codex-1", exactCard("codex-1", { state: "idle", loomdKind: "idle", aceita: "redireciona", usd: 2.25 })]]);
   const broker = new Broker({ sessionFactory: fakeSession, laneStates: fakeLaneStates({ loomd }) });
   broker.addSeed(fakeSession("claude-1", "claude-1"));
@@ -187,11 +187,31 @@ test("o patch de lane única carrega `aceita` e `usd` — exact do loomd, inferr
 
   const inferido = patches.find((m) => m.sid === "claude-1");
   assert.equal(inferido.aceita, null, "sem a fonte exata, dizemos que não sabemos mais — não congelamos um palpite antigo");
-  assert.equal(inferido.usd, 0);
+  assert.equal(inferido.usd, 0, "claude-1 nunca teve um usd medido — 0 aqui é honesto, não um apagão");
 
   const exato = patches.find((m) => m.sid === "codex-1");
   assert.equal(exato.aceita, "redireciona");
   assert.equal(exato.usd, 2.25);
+});
+
+test("🚨 uma lane que perde a fonte exata NÃO tem o `usd` apagado — congela o último valor medido", () => {
+  // Achado da review: `aceita` e `usd` são afirmações de natureza oposta. `aceita` é sobre o
+  // presente (perder a fonte = não saber mais → `null`); `usd` é fato acumulado do passado
+  // (perder a fonte não desfaz o gasto → o último valor medido sobrevive). Mandar `0` aqui
+  // apagaria da tela um custo real só porque o loomd parou de responder por ESTA lane.
+  const loomd = new Map([["codex-1", exactCard("codex-1", { state: "running", loomdKind: "tool_call", usd: 12.5 })]]);
+  const broker = new Broker({ sessionFactory: fakeSession, laneStates: fakeLaneStates({ loomd }) });
+  broker.addSeed(fakeSession("codex-1", "codex-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  sock.recv({ t: "list" });                          // um frame com a lane ainda `exact` — grava _lastUsd
+  loomd.delete("codex-1");                            // o loomd para de servir esta lane
+  sock.recv({ t: "kill", sid: "codex-1" });           // agora cai no ramo `inferred`
+
+  const patch = sock.sent.filter((m) => m.t === "state").find((m) => m.sid === "codex-1");
+  assert.equal(patch.aceita, null, "aceita continua null — a assimetria é o conserto");
+  assert.equal(patch.usd, 12.5, "o gasto já ocorrido não desaparece só porque a fonte exata sumiu");
 });
 
 // ─── Heartbeat: sockets meio-abertos não disparam `close` — o tick tem de reapar sozinho ────
