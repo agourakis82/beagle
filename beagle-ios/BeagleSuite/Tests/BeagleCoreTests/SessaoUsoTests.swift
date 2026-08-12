@@ -57,6 +57,45 @@ final class SessaoUsoTests: XCTestCase {
         XCTAssertEqual(lane?.aceita, .somenteLeitura, "silêncio sobre aceita não é revogação da capacidade")
     }
 
+    /// 🚨 Achado de review: chave AUSENTE e valor ILEGÍVEL não podem cair no mesmo `?? old.aceita`.
+    /// Um valor presente que o vocabulário atual não reconhece (servidor renomeado, binário
+    /// velho) tem de zerar para `nil` — o lado SEGURO, que não oferece gesto nenhum — em vez de
+    /// preservar `GUIAR`/`ENFILEIRAR` numa lane que pode ter acabado de virar somente-leitura.
+    /// `LaneState.init(loom:)` (quadro inteiro) já degrada assim; o patch de lane única tinha de
+    /// concordar com ele, não silenciosamente discordar.
+    func testUmPatchDeStateComAceitaIlegivelZeraParaNilEmVezDePreservar() {
+        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        c.handle("""
+        {"t":"sessions","sessions":[
+          {"sid":"claude-1","title":"claude-1","state":"waiting","detail":"aprovar?",
+           "confidence":"exact","observedAt":1000,"aceita":"redireciona"}
+        ]}
+        """)
+        XCTAssertEqual(c.lanes.first { $0.sid == "claude-1" }?.aceita, .redireciona)
+
+        // "colaborativo" não existe no vocabulário de `Aceita` — o servidor mudou de ideia ou
+        // renomeou, e este binário ainda não sabe ler o valor novo.
+        c.handle(#"{"t":"state","sid":"claude-1","state":"running","detail":"trabalhando","aceita":"colaborativo"}"#)
+        let lane = c.lanes.first { $0.sid == "claude-1" }
+        XCTAssertEqual(lane?.state, .running, "o patch precisa ter sido aplicado de fato")
+        XCTAssertNil(lane?.aceita, "valor ilegível tem de zerar — não sei ler não é o mesmo que não mudou")
+    }
+
+    /// Terceiro caso do trio: um valor VÁLIDO no patch é aplicado normalmente (nem preserva o
+    /// antigo, nem zera).
+    func testUmPatchDeStateComAceitaValidoAplicaOValorNovo() {
+        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        c.handle("""
+        {"t":"sessions","sessions":[
+          {"sid":"claude-1","title":"claude-1","state":"waiting","detail":"aprovar?",
+           "confidence":"exact","observedAt":1000,"aceita":"redireciona"}
+        ]}
+        """)
+        c.handle(#"{"t":"state","sid":"claude-1","state":"waiting","aceita":"somente_leitura"}"#)
+        XCTAssertEqual(c.lanes.first { $0.sid == "claude-1" }?.aceita, .somenteLeitura,
+                        "valor válido novo tem de substituir o antigo")
+    }
+
     // MARK: - Uso do turno (custo e contexto)
 
     /// 🚨 MEDIDO nas fixtures do censo ACP: `cost.amount` vem NULO em 15 dos 16 eventos de um
@@ -198,10 +237,28 @@ final class SessaoUsoTests: XCTestCase {
         XCTAssertFalse(texto.contains("US$"))
     }
 
-    func testRodapeSemDuracaoEhNil() {
+    /// 🚨 Contrato NOVO (Important da review): duração é opcional DENTRO da linha, não um portão
+    /// para a linha inteira. Um turno em curso (duração `nil`) com uso já reportado ainda mostra
+    /// contexto e custo — é exatamente o turno que o operador está olhando agora, e esconder o
+    /// rodapé por falta de duração jogaria fora o único dado que diz QUAL turno está caro
+    /// enquanto ele ainda corre. O Rust já conta o turno aberto sem esperar por um `TurnEnded`
+    /// que pode nunca chegar antes do olho passar pela tela; o rodapé não pode ser mais
+    /// conservador que a fonte. Este teste substitui `testRodapeSemDuracaoEhNil`, que pinava o
+    /// comportamento antigo (linha inteira sumia sem duração).
+    func testRodapeSemDuracaoMasComUsoMostraContextoEUSD() {
         let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728)
-        XCTAssertNil(SessionStore.rodapeDoTurno(duracao: nil, uso: uso),
-                      "turno em curso não tem rodapé — nada foi concluído ainda")
+        let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: nil, uso: uso),
+                                   "sem duração mas com uso, o rodapé não pode sumir — é o " +
+                                   "turno em curso, o único que ainda importa parar ou deixar ir")
+        XCTAssertTrue(texto.contains("contexto"), texto)
+        XCTAssertTrue(texto.contains("US$"), texto)
+        XCTAssertFalse(texto.contains("s ·") || texto.hasPrefix("0s"),
+                        "sem duração, a linha não pode fingir uma — só o que se sabe: \(texto)")
+    }
+
+    /// Nem duração, nem uso: aí sim não há nada para o rodapé dizer.
+    func testRodapeSemDuracaoESemUsoEhNil() {
+        XCTAssertNil(SessionStore.rodapeDoTurno(duracao: nil, uso: nil))
     }
 
     /// O teto varia por agente — 1.000.000 no Claude, 258.400 no Codex via ACP. Dois `uso` com o
@@ -226,6 +283,37 @@ final class SessaoUsoTests: XCTestCase {
         let uso = UsoDoTurno(contextoUsado: 6_000, contextoTeto: 1_000_000, usd: 0.01)
         let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
         XCTAssertTrue(texto.contains("contexto 1%"), texto)
+    }
+
+    // MARK: - O 5º "arredonda para zero": contexto < 1% (Minor da review)
+
+    /// 🚨 Trocar truncamento por `.rounded()` só moveu o limiar de <1% para <0,5% — com um teto
+    /// de 1.000.000 de tokens, qualquer uso abaixo de 5.000 ainda imprimia "contexto 0%". Mesmo
+    /// defeito do "US$ 0,0000"/"US$ 0,00" já consertados duas vezes, na quarta forma.
+    func testRodapeContextoAbaixoDeUmPorCentoNaoMostraZero() {
+        // 2.000 / 1.000.000 = 0,2% — arredondado ainda dá 0. O limiar explícito diz a verdade.
+        let uso = UsoDoTurno(contextoUsado: 2_000, contextoTeto: 1_000_000, usd: 0.01)
+        let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
+        XCTAssertTrue(texto.contains("contexto < 1%"), texto)
+        XCTAssertFalse(texto.contains("contexto 0%"), texto)
+    }
+
+    /// Contexto usado exatamente 0 (praticamente impossível — o próprio pedido já consome
+    /// tokens) é o único caso em que "contexto 0%" é a verdade honesta, não um valor pequeno
+    /// escondido pelo arredondamento — por isso ele NÃO passa pelo limiar de "< 1%".
+    func testRodapeContextoExatamenteZeroMostraZeroSemLimiar() {
+        let uso = UsoDoTurno(contextoUsado: 0, contextoTeto: 1_000_000, usd: 0)
+        let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
+        XCTAssertTrue(texto.contains("contexto 0%"), texto)
+        XCTAssertFalse(texto.contains("< 1%"), texto)
+    }
+
+    /// >= 1% (arredondado) mostra o número normal, sem o limiar — cobertura do terceiro ramo.
+    func testRodapeContextoAcimaDeUmPorCentoMostraNumeroNormal() {
+        let uso = UsoDoTurno(contextoUsado: 20_000, contextoTeto: 1_000_000, usd: 0.01)
+        let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
+        XCTAssertTrue(texto.contains("contexto 2%"), texto)
+        XCTAssertFalse(texto.contains("< 1%"), texto)
     }
 
     // MARK: - Um pedido, uma resposta (Important da review)
@@ -332,5 +420,65 @@ final class SessaoUsoTests: XCTestCase {
         XCTAssertEqual(lane?.state, .running, "o patch precisa ter sido aplicado de fato")
         XCTAssertEqual(lane?.usd ?? -1, 0.42, accuracy: 0.0001,
                         "silêncio sobre usd não é o custo virando zero")
+    }
+
+    // MARK: - Custo no accessibilityLabel (Minor da review)
+
+    /// 🚨 `.accessibilityElement(children: .combine)` seguido de `.accessibilityLabel(...)`
+    /// SUBSTITUI o texto combinado dos filhos — o chip de custo (um desses filhos) nunca chegava
+    /// a VoiceOver. `custoParaAcessibilidade` é o trecho a ANEXAR; vazio quando não há custo.
+    func testCustoParaAcessibilidadeVazioQuandoZero() {
+        XCTAssertEqual(SessionStore.custoParaAcessibilidade(0), "",
+                        "custo zero não deve aparecer nem na fala nem no texto")
+    }
+
+    func testCustoParaAcessibilidadeContemOValorQuandoPositivo() {
+        let trecho = SessionStore.custoParaAcessibilidade(0.42)
+        XCTAssertFalse(trecho.isEmpty, "custo positivo tem de anunciar algo")
+        XCTAssertTrue(trecho.contains("0.42") || trecho.contains("0,42"), trecho)
+    }
+
+    func testCustoParaAcessibilidadeAbaixoDeUmCentavoNaoArredondaParaZero() {
+        // Mesma disciplina do chip visual: 0,0042 não pode virar "0,00" nem aqui.
+        let trecho = SessionStore.custoParaAcessibilidade(0.0042)
+        XCTAssertFalse(trecho.contains("0.00") || trecho.contains("0,00"), trecho)
+        XCTAssertFalse(trecho.isEmpty)
+    }
+
+    // MARK: - Link caído esconde a caixa sem mentir (Important da review)
+
+    /// 🚨 Achado de review: `SessionView` não tinha referência nenhuma ao estado do link do
+    /// `FleetStateClient`. Um socket caído congelava `aceita` em `nil` para sempre, e a tela
+    /// continuava dizendo "aguardando o servidor declarar…" como se fosse questão de segundos —
+    /// mentindo por omissão sobre QUEM está em silêncio (a fonte, não o agente).
+    func testRazaoSemCapacidadeENilOuLinkVivoEhTransitorio() {
+        XCTAssertEqual(SessionStore.razaoSemCapacidadeDeclarada(link: nil), .transitorio,
+                        "sem link nenhum ainda (ex.: retrato/fixture), o texto de sempre está certo")
+        XCTAssertEqual(SessionStore.razaoSemCapacidadeDeclarada(link: .idle), .transitorio,
+                        "arranque, antes de qualquer queda")
+        XCTAssertEqual(SessionStore.razaoSemCapacidadeDeclarada(link: .connecting), .transitorio)
+        XCTAssertEqual(SessionStore.razaoSemCapacidadeDeclarada(link: .live), .transitorio,
+                        "link de pé: se aceita é nil, é o quadro DESTA lane que não chegou")
+    }
+
+    /// O link caído reaproveita `FleetStateClient.explicacaoDoLink` verbatim — a mesma frase que
+    /// a Frota já mostra para "o broker caiu" — em vez de uma segunda string inventada aqui.
+    func testRazaoSemCapacidadeQuandoOLinkCaiuUsaAExplicacaoDaFrota() {
+        XCTAssertEqual(SessionStore.razaoSemCapacidadeDeclarada(link: .failed("boom")),
+                       .linkCaido(FleetStateClient.explicacaoDoLink(.failed("boom"))))
+        XCTAssertEqual(SessionStore.razaoSemCapacidadeDeclarada(link: .reconnecting),
+                       .linkCaido(FleetStateClient.explicacaoDoLink(.reconnecting)))
+
+        guard case .linkCaido(let motivo) = SessionStore.razaoSemCapacidadeDeclarada(
+            link: .insistindo(motivo: "connection refused", tentativas: 13)
+        ) else {
+            return XCTFail(".insistindo tem de virar .linkCaido, nunca .transitorio")
+        }
+        XCTAssertTrue(motivo.contains("connection refused"), motivo)
+        XCTAssertTrue(motivo.contains("13"), motivo)
+        // 🚨 `.insistindo` NUNCA pode ler como "o cliente desistiu" — ele está retentando
+        // sozinho. `explicacaoDoLink` já garante isto; este teste prende que a Sessão herda a
+        // MESMA garantia por reaproveitar a função, não por reimplementar a frase.
+        XCTAssertFalse(motivo.localizedCaseInsensitiveContains("desisti"), motivo)
     }
 }

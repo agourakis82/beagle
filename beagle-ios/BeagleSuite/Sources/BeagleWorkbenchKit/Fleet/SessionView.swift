@@ -40,19 +40,33 @@ public struct SessionView: View {
     /// `FleetStateClient`, e quem alimenta é a cena — mesmo padrão do `roster` acima.
     private let aceita: Aceita?
 
+    /// O link do `FleetStateClient` — a MESMA fonte que alimenta `aceita`, acima. Existe só para
+    /// distinguir, quando `aceita` é `nil`, "o link está de pé e o quadro desta lane ainda não
+    /// chegou" (transitório) de "o link caiu e é por isso que nada chega" (a caixa de texto
+    /// precisa dizer que a FONTE está muda, não que a lane virou incerta). Sem isto a Sessão não
+    /// tinha referência NENHUMA ao estado do transporte — um socket caído congelava `aceita` em
+    /// `nil` para sempre e a tela continuava dizendo "aguardando o servidor declarar…" como se
+    /// fosse questão de segundos. Ver `SessionStore.razaoSemCapacidadeDeclarada`, que é onde a
+    /// distinção vira texto — pura, testável sem esta view.
+    private let linkDaFrota: FleetStateClient.Link?
+
     public init(store: SessionStore, roster: [String] = FleetEndpoint.loomdLanes,
-                aceita: Aceita? = nil, onTrocarLane: ((String) -> Void)? = nil) {
+                aceita: Aceita? = nil, linkDaFrota: FleetStateClient.Link? = nil,
+                onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: store)
         self.roster = roster
         self.aceita = aceita
+        self.linkDaFrota = linkDaFrota
         self.onTrocarLane = onTrocarLane
     }
 
     public init(lane: String, roster: [String] = FleetEndpoint.loomdLanes,
-                aceita: Aceita? = nil, onTrocarLane: ((String) -> Void)? = nil) {
+                aceita: Aceita? = nil, linkDaFrota: FleetStateClient.Link? = nil,
+                onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: SessionStore(lane: lane))
         self.roster = roster
         self.aceita = aceita
+        self.linkDaFrota = linkDaFrota
         self.onTrocarLane = onTrocarLane
     }
 
@@ -301,12 +315,38 @@ public struct SessionView: View {
     private var semCaixaView: some View {
         switch SessionStore.semCaixa(aceita) {
         case .somenteObservada: apenasObservada
-        case .capacidadeDesconhecida: capacidadeDesconhecida
+        case .capacidadeDesconhecida: capacidadeDesconhecidaView
         case nil:
             // Não deveria ocorrer: só se chega aqui quando `dicaDaCaixa(aceita)` já é `nil`, e
             // `semCaixa`/`dicaDaCaixa` cobrem os mesmos quatro casos de `Aceita?` em espelho.
             EmptyView()
         }
+    }
+
+    /// A ponte entre `semCaixa == .capacidadeDesconhecida` e as DUAS razões possíveis: link vivo
+    /// (transitório, o texto de sempre) ou link caído (a fonte está muda — dizer para outra
+    /// coisa). A decisão em si é `SessionStore.razaoSemCapacidadeDeclarada`, pura; aqui só se
+    /// escolhe a subview, igual `semCaixaView` faz para os quatro casos de `Aceita?`.
+    @ViewBuilder
+    private var capacidadeDesconhecidaView: some View {
+        switch SessionStore.razaoSemCapacidadeDeclarada(link: linkDaFrota) {
+        case .transitorio: capacidadeDesconhecida
+        case .linkCaido(let motivo): linkCaido(motivo)
+        }
+    }
+
+    /// O link caiu: a caixa não existe porque a FONTE emudeceu, não porque a lane é incerta ou
+    /// virou somente-leitura. Mesmo ícone de alerta que `estadoDoFio` usa para `store.link
+    /// .failed`, e o MESMO texto que `FleetStateClient.explicacaoDoLink` já dá à Frota — nenhuma
+    /// string nova, para as duas telas nunca poderem divergir sobre o mesmo fato.
+    private func linkCaido(_ motivo: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "wifi.slash")
+            Text(motivo)
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(BeagleTheme.stateError)
+        .padding(.horizontal, 12).padding(.vertical, 10)
     }
 
     /// Controle morto sem explicação é o defeito que esta casa já pagou para aprender. A lane está

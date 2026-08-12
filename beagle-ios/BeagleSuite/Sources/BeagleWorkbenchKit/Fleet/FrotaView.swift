@@ -500,8 +500,13 @@ private struct LaneCard: View {
         // levaria direto a uma tela de erro, então o guarda fica aqui e não no destino.
         .onTapGesture { if lane.hasTerminal { onOpen() } }
         .accessibilityElement(children: .combine)
+        // 🚨 Achado de review: `.accessibilityElement(children: .combine)` seguido de
+        // `.accessibilityLabel(...)` SUBSTITUI o texto combinado dos filhos, não o soma a ele —
+        // e o chip de custo (`header`, abaixo) é um desses filhos. Sem o custo aqui, VoiceOver
+        // nunca ouve o número que esta fatia inteira existe para tornar visível.
         .accessibilityLabel(
-            "\(lane.title), \(lane.presenceLabel), \(lane.confidenceLabel). \(lane.detail)"
+            "\(lane.title), \(lane.presenceLabel), \(lane.confidenceLabel)"
+            + "\(SessionStore.custoParaAcessibilidade(lane.usd)). \(lane.detail)"
         )
     }
 
@@ -811,7 +816,14 @@ private struct LaneRow: View {
         .onHover { hover = $0 }
         .help(lane.hasTerminal ? "Abrir o terminal de \(lane.sid)" : lane.noTerminalReason)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(lane.sid), \(lane.presenceLabel), \(lane.confidenceLabel)")
+        // Mesmo defeito e mesmo conserto do `LaneCard` acima: o `.combine` some sob o
+        // `.accessibilityLabel` explícito, e sem o custo aqui VoiceOver nunca ouve o número
+        // nesta linha densa — mesmo que a linha não o desenhe visualmente, é a única forma de
+        // um leitor de tela saber o custo desta lane sem abrir o card.
+        .accessibilityLabel(
+            "\(lane.sid), \(lane.presenceLabel), \(lane.confidenceLabel)"
+            + SessionStore.custoParaAcessibilidade(lane.usd)
+        )
     }
 
     private var hue: Color {

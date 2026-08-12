@@ -236,9 +236,13 @@ struct MissionControlWindow: View {
                     // `roster` e `aceita` vêm do MESMO `fleet` da Frota, não de uma constante
                     // global: quem sabe quais lanes existem e o que cada uma aceita é o servidor,
                     // via `FleetStateClient`, e a Sessão só mostra o que a cena lhe entrega.
+                    //
+                    // `linkDaFrota` é o mesmo `fleet.link` que a Frota já observa — sem ele, um
+                    // socket caído congelava `aceita` em `nil` para sempre e a Sessão não tinha
+                    // como distinguir "servidor ainda não falou" de "servidor emudeceu".
                     let sessionLane = fleet.loomdRoster.first ?? FleetEndpoint.loomdLanes.first ?? "loom-1"
                     SessionView(lane: sessionLane, roster: fleet.loomdRoster,
-                                aceita: fleet.aceita(de: sessionLane))
+                                aceita: fleet.aceita(de: sessionLane), linkDaFrota: fleet.link)
                 case .terminals:
                     FleetTerminalsView(initialAgent: openLane)
                 }

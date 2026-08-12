@@ -350,13 +350,36 @@ public final class FleetStateClient {
                 // `state` que omite `aceita` é silêncio sobre a capacidade, não a revogação
                 // dela — e foi exatamente este ponto que apagou `confidence` em silêncio antes
                 // de o comentário acima existir. `aceita` não repete o erro.
-                aceita: (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))
-                    ?? old.aceita,
+                //
+                // 🚨 Achado de review: CHAVE AUSENTE e VALOR ILEGÍVEL não podem cair no mesmo
+                // `?? old.aceita`. `(obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))`
+                // devolve `nil` tanto para "a chave não veio" quanto para "a chave veio com um
+                // valor que o vocabulário atual não reconhece" (ex.: o servidor renomeou
+                // `redireciona` e este binário ainda não sabe) — e os dois `nil` acabavam no
+                // MESMO `?? old.aceita`, preservando `GUIAR`/`ENFILEIRAR` numa lane que o
+                // servidor pode ter acabado de tornar somente-leitura. O caminho de quadro
+                // inteiro (`LaneState.init(loom:)`, linha ~275) já degrada valor ilegível para
+                // `nil` — o lado seguro — e este patch de lane única tinha de concordar com ele
+                // em vez de tratar "não sei ler isto" como "não mudou nada".
+                aceita: obj["aceita"] == nil
+                    ? old.aceita
+                    : (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:)),
                 // Mesma disciplina de `confidence`/`aceita`: `?? old.usd`, NÃO `?? 0`. Um frame
                 // `state` que omite `usd` é silêncio sobre o custo, não a afirmação de que ele
-                // zerou — e o servidor OMITE a chave por padrão quando o valor não mudou desde
-                // o último `sessions`, então tratar ausência como zero apagaria o custo já
-                // acumulado a cada patch de lane única.
+                // zerou. 🚨 A razão ORIGINALMENTE escrita aqui — "o servidor omite a chave por
+                // padrão quando o valor não mudou desde o último `sessions`" — é FABRICADA: o
+                // servidor manda `usd` explicitamente em todo patch, hoje. A defesa `?? old.usd`
+                // continua certa (silêncio nunca pode virar zero, e um binário futuro pode voltar
+                // a omitir a chave), só a JUSTIFICATIVA estava errada e enganaria o próximo
+                // leitor a procurar um comportamento do servidor que não existe. A razão real:
+                // é defensivo por cautela, não porque o servidor hoje se comporta assim.
+                //
+                // ⚠️ DÍVIDA: o chip de custo (`FrotaView` — ver o comentário ao lado de
+                // `SessionStore.custoDoChip` na `LaneCard`) NÃO herda `isStale`/`confidence` da
+                // lane. Como o servidor CONGELA o último custo conhecido quando perde a fonte
+                // exata (é o que este `?? old.usd` faz do lado do cliente também), o valor pode
+                // ficar stale POR CONSTRUÇÃO — dos dois lados — sem nenhum indicador visível de
+                // expiração. Não implementado aqui de propósito: este item é só o comentário.
                 usd: (obj["usd"] as? Double) ?? old.usd
             )
         default:

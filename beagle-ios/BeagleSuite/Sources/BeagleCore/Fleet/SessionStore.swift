@@ -374,21 +374,81 @@ public final class SessionStore {
         }
     }
 
+    /// Distingue as duas razões de `capacidadeDesconhecida` (o caso `aceita == nil` de
+    /// `semCaixa`): o link do `FleetStateClient` está de PÉ e o servidor só ainda não falou desta
+    /// lane (transitório — o texto atual "aguardando o servidor declarar…" está certo), OU o
+    /// link CAIU e é por isso que `aceita` nunca chegou (a fonte emudeceu; dizer "aguardando"
+    /// mentiria por omissão sobre QUEM está em silêncio).
+    ///
+    /// 🚨 Achado de review: `SessionView` não tinha referência nenhuma ao estado do link do
+    /// `FleetStateClient`. Se o transporte caísse, `aceita` congelava em `nil` para sempre, a
+    /// tela continuava dizendo "aguardando o servidor declarar…" como se fosse transitório, e o
+    /// operador perdia a ÚNICA caixa de texto que tinha sem nenhum aviso de que a culpa era da
+    /// rede, não do agente. `dicaDaCaixa`/`semCaixa` não bastam para consertar isto: os dois só
+    /// enxergam `aceita`, que é justamente o que fica mudo quando o link cai.
+    ///
+    /// Reaproveita `FleetStateClient.explicacaoDoLink` — a MESMA frase que a `FrotaView` já usa
+    /// para "o broker caiu" (inclusive `.insistindo`, que nunca pode implicar que o cliente
+    /// desistiu: ele está retentando sozinho, em segundo plano). Inventar uma segunda string
+    /// aqui para o mesmo fato seria a duplicação que esta fatia já pagou lição para não repetir.
+    public enum RazaoSemCapacidadeDeclarada: Equatable {
+        /// O link está de pé; o servidor só não declarou nada sobre esta lane ainda.
+        case transitorio
+        /// O link caiu. O texto é o de `FleetStateClient.explicacaoDoLink`, verbatim.
+        case linkCaido(String)
+    }
+
+    public static func razaoSemCapacidadeDeclarada(link: FleetStateClient.Link?) -> RazaoSemCapacidadeDeclarada {
+        guard let link else { return .transitorio }
+        switch link {
+        case .idle, .connecting, .live:
+            // `.idle`/`.connecting` são o arranque, antes de qualquer queda — dizer "o broker
+            // caiu" aí seria alarmar sobre uma queda que nunca aconteceu. `.live` é a fonte de
+            // pé; se `aceita` ainda é `nil` com o link vivo, é porque o quadro desta lane
+            // específica não chegou, não porque o transporte está mudo.
+            return .transitorio
+        case .reconnecting, .insistindo, .failed:
+            return .linkCaido(FleetStateClient.explicacaoDoLink(link))
+        }
+    }
+
     // MARK: - O rodapé do turno
 
-    /// O rodapé do turno, em texto. `nil` = sem rodapé.
+    /// O rodapé do turno, em texto. `nil` = sem rodapé (nem duração, nem uso).
     /// 🚨 Custo zero NÃO entra: "US$ 0,0000" em todo turno treina o olho a ignorar a linha, e aí
     /// o número que importa também deixa de ser lido.
+    ///
+    /// 🚨 Achado de review: a duração é OPCIONAL DENTRO da linha, não um portão para a linha
+    /// inteira. Antes, `guard let d = duracao else { return nil }` apagava contexto E custo
+    /// sempre que o turno ainda estava em curso (`duracao(concluido:)` é `nil` enquanto corre) —
+    /// exatamente o turno que o operador está olhando AGORA, e o único momento em que "quanto
+    /// isto está custando" decide se ele deixa correr ou aperta parar. O lado Rust já conta o
+    /// turno aberto sem esperar por um `TurnEnded` que pode não chegar antes do olho passar pela
+    /// tela; o rodapé não pode ser mais conservador que a fonte que ele lê.
     public static func rodapeDoTurno(duracao: TimeInterval?, uso: UsoDoTurno?) -> String? {
-        guard let d = duracao else { return nil }
-        var partes = [rodapeDur(d)]
+        var partes: [String] = []
+        if let d = duracao { partes.append(rodapeDur(d)) }
         if let u = uso {
-            // Arredonda, não trunca: 0,6% truncado vira "0%" — o mesmo raciocínio do custo
-            // zero, só que ao contrário (aqui o número existe e o truncamento o apaga).
-            partes.append("contexto \(Int((u.proporcao * 100).rounded()))%")
+            partes.append(contextoDoRodape(u.proporcao))
             if u.usd > 0 { partes.append(String(format: "US$ %.4f", u.usd)) }
         }
-        return partes.joined(separator: " · ")
+        return partes.isEmpty ? nil : partes.joined(separator: " · ")
+    }
+
+    /// A porcentagem de contexto usado, para o rodapé. O 5º "arredonda para zero" desta fatia:
+    /// trocar truncamento por `.rounded()` só moveu o limiar de <1% para <0,5% — com um teto de
+    /// 1.000.000 de tokens, qualquer uso abaixo de 5.000 ainda imprimia "contexto 0%". Mesma
+    /// disciplina de `custoDoChip`: um limiar explícito diz a verdade ("gastou contexto, menos
+    /// de 1%") em vez de deixar o arredondamento afirmar zero.
+    ///
+    /// Contexto EXATAMENTE zero (`proporcao == 0`, ou seja `contextoUsado == 0`) é praticamente
+    /// impossível na prática — o próprio pedido do operador já consome tokens antes de qualquer
+    /// resposta — mas quando acontece mesmo assim, mostra "contexto 0%" sem o limiar: aí zero é
+    /// a verdade honesta, não um valor pequeno escondido pelo arredondamento.
+    private static func contextoDoRodape(_ proporcao: Double) -> String {
+        guard proporcao > 0 else { return "contexto 0%" }
+        let arredondado = Int((proporcao * 100).rounded())
+        return arredondado < 1 ? "contexto < 1%" : "contexto \(arredondado)%"
     }
 
     private static func rodapeDur(_ s: TimeInterval) -> String {
@@ -417,6 +477,21 @@ public final class SessionStore {
         guard usd > 0 else { return nil }
         if usd < 0.01 { return "< US$ 0,01" }
         return String(format: "US$ %.2f", usd)
+    }
+
+    /// O trecho ", custo US$ 0,42" a ANEXAR num `accessibilityLabel` que já fala presença e
+    /// procedência — string vazia quando não há custo a anunciar. Reaproveita `custoDoChip`
+    /// (mesma regra: zero não aparece, nada arredonda para zero) em vez de reimplementar.
+    ///
+    /// 🚨 Achado de review: `FrotaView` tinha `.accessibilityElement(children: .combine)`
+    /// SEGUIDO de `.accessibilityLabel(...)` — o label explícito SUBSTITUI o texto combinado dos
+    /// filhos, não o soma a ele. O chip de custo é um desses filhos, então VoiceOver nunca ouvia
+    /// o número que esta fatia inteira existe para tornar visível. Extraído aqui (em vez de
+    /// montado inline na view) para ser testável sem SwiftUI, no mesmo padrão do resto do
+    /// arquivo.
+    public static func custoParaAcessibilidade(_ usd: Double) -> String {
+        guard let custo = custoDoChip(usd) else { return "" }
+        return ", custo \(custo)"
     }
 
     // MARK: - Um pedido, uma resposta
