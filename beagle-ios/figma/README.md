@@ -45,12 +45,15 @@ que já existem:
 | Fala | `BeagleCockpit/Companion/MessageBubble.swift` |
 | Campo de entrada | `BeagleCockpit/Companion/ChatComposer.swift` |
 
-`send_code_connect_mappings` recusou os três com **“Published component not
-found”**. Não é erro dos templates: o arquivo está na pasta de **Rascunhos** e o
-Code Connect só liga a componentes **publicados numa biblioteca de equipe**.
+**LIGADO em 12-ago-2026.** Os cinco componentes reportam `CURRENT` e
+`get_code_connect_suggestions` confirma: *“All component instances in this
+selection are already connected to code.”*
 
-Para destravar: mover o arquivo dos Rascunhos para um projeto de equipe e publicar
-a biblioteca. Depois disso os três mapeamentos sobem sem alteração.
+Ficou o registro do que travava antes, porque a mensagem engana: enquanto o
+arquivo estava em **Rascunhos**, `send_code_connect_mappings` recusava com
+**“Published component not found”** — que soa como componente inexistente, mas
+significa *biblioteca de equipe não publicada*. Publicar resolveu sem tocar nos
+templates.
 
 `Linha de dado` e `Faixa de estado` **não têm** contraparte Swift ainda — foram
 desenhadas a partir do contrato de UI (`companion-ui-design/SCREEN_MAP.md`), que as
