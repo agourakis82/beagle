@@ -238,10 +238,13 @@ mod tests {
 
     // ─── Achado 1: reinicio do daemon nao pode reingerir o transcript inteiro ────────────────
 
+    /// A chave é `lastPrompt`, como no transcript real — não `prompt`. Enquanto esta fábrica
+    /// mentiu, os testes deste tailer exerciam uma linha que em PRODUÇÃO não produzia evento
+    /// nenhum: o encanamento era provado numa forma sintética, e o silêncio real passava.
     fn linha_prompt(texto: &str) -> String {
         format!(
             "{}\n",
-            serde_json::json!({"type": "last-prompt", "prompt": texto})
+            serde_json::json!({"type": "last-prompt", "lastPrompt": texto})
         )
     }
 
@@ -341,10 +344,8 @@ mod tests {
         // A lane escreve a segunda linha INTEIRA, mais uma TERCEIRA linha que fica pela metade —
         // exatamente o formato de um `write()` de tamanho de página interrompido pelo scan.
         let linha_completa = linha_prompt("dois");
-        let linha_completa_3 = format!(
-            "{}",
-            serde_json::json!({"type": "last-prompt", "prompt": "tres"})
-        );
+        // Sem o `\n`: é a fábrica, aparada, para poder ser rasgada ao meio logo abaixo.
+        let linha_completa_3 = linha_prompt("tres").trim_end().to_string();
         let (rasgo, resto) = linha_completa_3.split_at(linha_completa_3.len() / 2);
         {
             use std::io::Write as _;

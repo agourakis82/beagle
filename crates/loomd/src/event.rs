@@ -405,12 +405,19 @@ pub fn codex_approval_reply(method: &str, allow: bool) -> serde_json::Value {
 pub fn from_transcript_line(lane: &str, l: &serde_json::Value) -> Option<AgentEvent> {
     let tipo = l.get("type").and_then(|x| x.as_str()).unwrap_or("");
     match tipo {
+        // 🚨 As chaves são `aiTitle` e `lastPrompt` — camelCase, medidas no transcript de
+        // produção (`claude-1`, 98 ocorrências de cada). Isto já esteve escrito como `title` e
+        // `prompt`, nomes que NUNCA existiram em transcript nenhum: as duas ramificações
+        // devolviam `None` em toda linha real, e o efeito visível era `turns: 0` para sempre nas
+        // três lanes de transcrição — o operador mandava dezenas de pedidos e a Frota afirmava
+        // zero. Os testes passavam porque INVENTARAM a forma em vez de copiá-la do censo que o
+        // próprio comentário citava. Ver `chaves_do_transcript_sao_as_reais`.
         "ai-title" => {
-            let t = l.get("title").and_then(|x| x.as_str())?;
+            let t = l.get("aiTitle").and_then(|x| x.as_str())?;
             Some(AgentEvent::new(lane, Kind::SessionStarted, Confidence::Exact).detail(t))
         }
         "last-prompt" => {
-            let p = l.get("prompt").and_then(|x| x.as_str())?;
+            let p = l.get("lastPrompt").and_then(|x| x.as_str())?;
             Some(AgentEvent::new(lane, Kind::UserPrompt, Confidence::Exact).with_text(p))
         }
         "assistant" => {
@@ -642,11 +649,17 @@ pub fn from_acp_update(lane: &str, u: &serde_json::Value) -> Option<AgentEvent> 
 mod tests {
     use super::*;
 
+    /// Linha REAL do transcript de produção, copiada verbatim de
+    /// `.agents/claude-1/.claude/projects/-workspace-sounio/b2b7e98a-…jsonl` em 12-ago-2026.
+    /// Nada aqui é digitado de memória: foi este hábito que deixou o defeito das chaves viver.
+    const LINHA_AI_TITLE: &str = r#"{"type":"ai-title","aiTitle":"Decide whether to land PR #1672 for self-compilation","sessionId":"b2b7e98a-6f9c-46b6-8277-635cb4a54efd"}"#;
+    const LINHA_LAST_PROMPT: &str = r#"{"type":"last-prompt","lastPrompt":"roda o gate de confiabilidade","leafUuid":"c82cb38d-83c7-458d-92cc-44fbb41b9645","sessionId":"b2b7e98a-6f9c-46b6-8277-635cb4a54efd"}"#;
+
     #[test]
     fn ai_title_do_transcript_vira_o_titulo_da_lane() {
-        // O Claude Code NOMEIA o que está fazendo (298 ocorrências no censo). É melhor que o
-        // título OSC raspado do tmux, que é o que a Frota usava.
-        let l = serde_json::json!({"type":"ai-title","title":"Consertar o gate do stdlib"});
+        // O Claude Code NOMEIA o que está fazendo. É melhor que o título OSC raspado do tmux,
+        // que é o que a Frota usava.
+        let l: serde_json::Value = serde_json::from_str(LINHA_AI_TITLE).unwrap();
         let e = from_transcript_line("claude-2", &l).expect("ai-title e informacao");
         assert_eq!(e.kind, Kind::SessionStarted);
         assert_eq!(
@@ -654,16 +667,34 @@ mod tests {
             Confidence::Exact,
             "transcript e fato, nao inferencia"
         );
-        assert_eq!(e.detail.as_deref(), Some("Consertar o gate do stdlib"));
+        assert_eq!(
+            e.detail.as_deref(),
+            Some("Decide whether to land PR #1672 for self-compilation")
+        );
     }
 
     #[test]
     fn last_prompt_do_transcript_vira_userprompt_exato() {
-        let l = serde_json::json!({"type":"last-prompt","prompt":"roda o gate de confiabilidade"});
+        let l: serde_json::Value = serde_json::from_str(LINHA_LAST_PROMPT).unwrap();
         let e = from_transcript_line("claude-2", &l).unwrap();
         assert_eq!(e.kind, Kind::UserPrompt);
         assert_eq!(e.confidence, Confidence::Exact);
         assert_eq!(e.text.as_deref(), Some("roda o gate de confiabilidade"));
+    }
+
+    /// A trava contra a forma INVENTADA. `title`/`prompt` (snake/lower) não existem em transcript
+    /// nenhum — se alguém "simplificar" o leitor para aceitá-los de novo, o teste acima volta a
+    /// passar por acidente e o contador de turnos volta a zerar em silêncio. Este teste é o que
+    /// impede isso: a chave errada tem de continuar não valendo nada.
+    #[test]
+    fn chaves_do_transcript_sao_as_reais() {
+        for (tipo, chave_errada) in [("ai-title", "title"), ("last-prompt", "prompt")] {
+            let l = serde_json::json!({ "type": tipo, chave_errada: "texto qualquer" });
+            assert!(
+                from_transcript_line("claude-2", &l).is_none(),
+                "`{chave_errada}` nunca foi a chave de `{tipo}` — a real e camelCase"
+            );
+        }
     }
 
     #[test]
