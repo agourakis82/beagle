@@ -825,7 +825,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# O NUMERO DE BUILD E A CONTAGEM DE COMMITS. Sobe sozinho, nunca colide, e\n# aponta para um commit exato quando algo der errado.\n#\n# Por que isto existe: em 12-ago-2026 instalei um build 50 sobre o 57 e devolvi o\n# app para antes dos consertos de travamento. A causa era este numero ser cravado\n# a mao no project.pbxproj — arquivo que as duas faixas editam, sem nada coordenar.\n# Nao mora mais la: no pbxproj ficou 0, para que uma falha aqui quebre alto em vez\n# de mentir um numero.\nset -e\nRAIZ=$(git -C \"$SRCROOT\" rev-parse --show-toplevel 2>/dev/null || true)\nif [ -z \"$RAIZ\" ]; then\n  echo \"error: sem repositorio git — nao da para calcular o numero de build\"\n  exit 1\nfi\nN=$(git -C \"$RAIZ\" rev-list --count HEAD)\nif [ -z \"$N\" ] || [ \"$N\" -lt 1 ]; then\n  echo \"error: contagem de commits invalida: '$N'\"\n  exit 1\nfi\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $N\" \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\n# As extensoes TEM que bater com o app — se divergirem, o iOS recusa a instalacao.\nfor P in \"$TARGET_BUILD_DIR/$WRAPPER_NAME\"/PlugIns/*.appex/Info.plist; do\n  [ -f \"$P\" ] && /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $N\" \"$P\"\ndone\necho \"numero de build: $N\"\n";
+			shellScript = "# O NUMERO DE BUILD E A CONTAGEM DE COMMITS. Sobe sozinho, nunca colide, e\n# aponta para um commit exato quando algo der errado.\n#\n# Por que existe: em 12-ago-2026 instalei um build 50 sobre o 57 e devolvi o app\n# para antes dos consertos de travamento. A causa era este numero ser cravado a mao\n# no project.pbxproj — arquivo que as duas faixas editam, sem nada coordenar.\nset -e\nRAIZ=$(git -C \"$SRCROOT\" rev-parse --show-toplevel 2>/dev/null || true)\nif [ -z \"$RAIZ\" ]; then\n  echo \"error: sem repositorio git — nao da para calcular o numero de build\"\n  exit 1\nfi\nN=$(git -C \"$RAIZ\" rev-list --count HEAD)\nif [ -z \"$N\" ] || [ \"$N\" -lt 1 ]; then\n  echo \"error: contagem de commits invalida: '$N'\"\n  exit 1\nfi\n\n# Set falha se a chave nao existir; Add falha se existir. Tentar os dois nesta ordem.\ncarimbar() {\n  ALVO=\"$1\"\n  [ -f \"$ALVO\" ] || return 0\n  /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $N\" \"$ALVO\" 2>/dev/null \\\n    || /usr/libexec/PlistBuddy -c \"Add :CFBundleVersion string $N\" \"$ALVO\"\n}\n\nAPP=\"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\nif [ ! -f \"$APP\" ]; then\n  echo \"error: nao achei o Info.plist construido em $APP\"\n  exit 1\nfi\ncarimbar \"$APP\"\n\n# As extensoes TEM que bater com o app — se divergirem, o iOS recusa a instalacao.\nfor P in \"$TARGET_BUILD_DIR/$WRAPPER_NAME\"/PlugIns/*.appex/Info.plist; do\n  carimbar \"$P\"\ndone\necho \"numero de build: $N\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1014,6 +1014,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 		259D6B5AD80DB709C926DDAA /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = BeagleWatchAppIcon;
 				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
@@ -1032,6 +1033,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 		2EE420CA543A8EA8CE935ACA /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ASSETCATALOG_COMPILER_APPICON_NAME = BeagleWatchAppIcon;
 				CODE_SIGN_ENTITLEMENTS = Entitlements/BeagleWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
