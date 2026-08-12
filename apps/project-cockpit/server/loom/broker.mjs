@@ -120,6 +120,8 @@ export class Broker {
         // At a SHELL, not an agent's input box — the client must not draw an action that types
         // a command where an agent would read it as a request.
         atShell: obs?.atShell === true,
+        // A lane não existe no tmux — DECLARADO, não inferido do texto do `detail`.
+        ausente: obs?.ausente === true,
         // Truth-mode metadata: when this was actually observed (null = we are guessing).
         observedAt: obs?.observedAt || null,
         cols: m.cols, rows: m.rows,
@@ -177,11 +179,12 @@ export class Broker {
       ? { t: "state", sid, state: exact.state, detail: exact.detail, confidence: EXACT,
           approveKey: null, atShell: false, observedAt: exact.observedAt,
           aceita: exact.aceita ?? null, usd: Number(exact.usd) || 0,
-          loomdKind: exact.loomdKind ?? null }
+          loomdKind: exact.loomdKind ?? null, ausente: false }
       : { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", confidence: INFERRED,
           approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null,
           aceita: null, usd: this._lastUsd.get(sid) ?? 0,
-          loomdKind: null };
+          // Uma lane com contraparte no loomd existe por construção; sem ela, quem sabe é a tela.
+          loomdKind: null, ausente: obs?.ausente === true };
     for (const c of this._clients) this._send(c, msg);
   }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }

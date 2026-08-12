@@ -70,6 +70,11 @@ test("a lane tmux does not list is EXITED, not a blank card guessing `unknown`",
   await p.poll();
   assert.equal(p.get("grok-cli1").state, "exited");
   assert.match(p.get("grok-cli1").detail, /não existe no tmux/, "the card must say WHY it is empty");
+  // 🚨 E a ausência tem de ser DECLARADA além de dita. A frase é para o operador ler; o campo é
+  // para a tela decidir. Enquanto só existia a frase, o cliente Swift deduzia capacidade fazendo
+  // `detail.contains("não existe no tmux")` — traduzir ou reescrever essa string quebraria a
+  // Frota em silêncio, e nenhum teste pegaria.
+  assert.equal(p.get("grok-cli1").ausente, true, "lane que nunca existiu declara `ausente`");
   assert.equal(p.get("grok-cli1").approveKey, null, "an absent lane offers no action");
   assert.equal(p.get("claude-1").state, "running", "the live lanes are unaffected");
   assert.equal(p.get("repo").state, "idle");

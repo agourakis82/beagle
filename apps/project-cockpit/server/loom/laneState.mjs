@@ -175,13 +175,19 @@ export function classifyLane({
   if (!alive) {
     return {
       state: "exited", detail: last || "sessão não existe no tmux",
+      // 🚨 A ausência é FATO aqui, e é aqui que ela se sabe — `!alive` sem nada para citar só
+      // acontece com lane que NUNCA foi criada. Antes o cliente Swift deduzia isso lendo a PROSA
+      // acima (`detail.contains("não existe no tmux")`), o que amarrava a capacidade da tela à
+      // redação de uma string em português: traduzir a frase quebrava a Frota em silêncio.
+      // `last` presente = a lane rodou e morreu, que é coisa diferente e tem tela para citar.
+      ausente: !last,
       question: "", working: false, atPrompt: false, atShell: false, awaitingInput: false, approveKey: null,
     };
   }
   // A blank screen tells us nothing. Found live on codex-3, which reported "running" with no
   // evidence at all — exactly the confident-but-empty verdict this vocabulary exists to avoid.
   if (lines.length === 0) {
-    return { state: "unknown", detail: "", question: "", working: false, atPrompt: false, atShell: false, awaitingInput: false, approveKey: null };
+    return { state: "unknown", detail: "", question: "", working: false, atPrompt: false, atShell: false, awaitingInput: false, approveKey: null, ausente: false };
   }
 
   let state, detail, approveKey = null;
@@ -209,7 +215,7 @@ export function classifyLane({
     detail = last.slice(0, 240);
   }
 
-  return { state, detail, question, working, atPrompt, atShell, awaitingInput, approveKey };
+  return { state, detail, question, working, atPrompt, atShell, awaitingInput, approveKey, ausente: false };
 }
 
 /// The last N content lines — the opaque 2-line terminal peek on a Frota card.

@@ -102,6 +102,8 @@ export class LanePoller {
         // Whether the lane is sitting at a SHELL (not an agent's input box). Anything that types
         // a command may only aim here — see laneActions.decideIsolate.
         atShell: r.atShell,
+        // Declarado pelo classificador, nunca deduzido de prosa pelo cliente.
+        ausente: r.ausente === true,
         peek: peekLines(text, 2),
         observedAt: now,
         lastOutputAt: changed ? now : (prev?.lastOutputAt ?? now),
