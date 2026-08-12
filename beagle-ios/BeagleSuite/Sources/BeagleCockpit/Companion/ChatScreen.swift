@@ -254,7 +254,10 @@ public struct ChatScreen: View {
             // dentro de PrimordialPresence.
             PrimordialPresence(
                 state: presenceState,
-                breath: breathRate,
+                // `breathRate` aqui e Double? (bpm); PrimordialPresence quer o tipo
+                // PresenceBreath, que carrega tambem a frescura da medida. A fabrica
+                // ja existe e trata bpm ausente — melhor que inventar um valor.
+                breath: PresenceBreath.from(bpm: breathRate, observedAt: nil),
                 sky: weather?.band ?? .calm
             )
             .opacity(empty ? 0.95 : 0.55)
