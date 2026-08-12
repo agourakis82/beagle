@@ -47,6 +47,31 @@ Feito isso, os três templates deste diretório sobem numa chamada e o Dev Mode 
 | `codeSyntax` iOS nas 40 variáveis | `BeagleTheme.truthObserved`, `BeagleSpacing.md`, … | leitura plena no Dev Mode é gated |
 | Este diretório | template pronto para publicar | não |
 
+## Separador decimal do dinheiro — consertado (12-ago-2026)
+
+O Figma renderizado expôs um defeito que a leitura do código só sugeria: `< US$ 0,01` (vírgula,
+literal) aparecia na **mesma coluna** que `US$ 12.35` (ponto, de `String(format:)`, que é insensível
+a locale). O app é inteiramente em pt-BR — a vírgula era a forma certa e os pontos eram o defeito.
+
+Consertado em `SessionStore.swift` (Mac `1bfea9f7`): um helper único com `NumberFormatter` e locale
+**explícito `pt_BR`** — nunca `Locale.current`, que faria o mesmo teste passar numa máquina e falhar
+noutra. O limiar passou a ser **derivado** do helper em vez de literal, então não pode mais divergir.
+Agrupamento de milhar ligado (`US$ 1.234,56`), e o teste de consistência olha o **último** separador
+— porque em pt-BR o ponto é separador de milhar legítimo e proibir todo ponto proibiria o acerto
+junto com o erro.
+
+Duas descobertas do conserto que valem mais que ele:
+
+- **O teste tolerante era o que deixava o defeito viver.** Três asserções usavam
+  `contains("12.35") || contains("12,35")` — escritas para passar de qualquer jeito, nunca poderiam
+  pegar a inconsistência. Agora exigem a vírgula e **proíbem** o ponto.
+- **Uma mutação foi declarada inválida em vez de forjada.** Trocar o locale explícito por
+  `Locale.current` **não** derrubou nada, porque este Mac está em `pt_BR` — o implementador disse
+  isso e substituiu por forçar `en_US`, que prova a mesma coisa. Mutação que passa não é mutação.
+
+Os componentes do Figma foram atualizados para as strings novas: o desenho não pode mostrar o que o
+app já não mostra.
+
 ## Substituições de fonte — declaradas, não escondidas
 
 O Figma **não** renderiza a face do app. As duas trocas estão na descrição de cada estilo:
