@@ -214,6 +214,37 @@ test("🚨 uma lane que perde a fonte exata NÃO tem o `usd` apagado — congela
   assert.equal(patch.usd, 12.5, "o gasto já ocorrido não desaparece só porque a fonte exata sumiu");
 });
 
+test("🚨 o FRAME CHEIO — não só o patch de lane única — também congela o `usd`", () => {
+  // Achado da review: `_broadcastState` (patch) já congelava `usd` via `_lastUsd`, mas
+  // `_sessionsSnapshot`/`fuseFleet` (o frame cheio que `startStatePump` manda a cada 20s, e que
+  // todo `list`/`hello` também dispara) simplesmente OMITIA a chave no ramo `if (!l)` — a chave
+  // saía AUSENTE do frame cheio, e o cliente Swift lê ausência como zero: o chip some. Como o
+  // pump manda o frame cheio periodicamente, o congelamento do patch durava no máximo o
+  // intervalo do pump antes do frame cheio apagar `usd` de novo.
+  const loomd = new Map([["codex-1", exactCard("codex-1", { state: "running", loomdKind: "tool_call", usd: 12.5 })]]);
+  const broker = new Broker({ sessionFactory: fakeSession, laneStates: fakeLaneStates({ loomd }) });
+  broker.addSeed(fakeSession("codex-1", "codex-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  // 1) frame cheio COM loomd: usd = 12.5, e a lane sai como `exact` (ver `fuseFleet`, ramo `l`).
+  sock.recv({ t: "list" });
+  const comLoomd = sock.sent.filter((m) => m.t === "sessions").at(-1).sessions.find((s) => s.sid === "codex-1");
+  assert.equal(comLoomd.usd, 12.5);
+  assert.equal(comLoomd.confidence, "exact");
+
+  // 2) o loomd cai — a lane não tem mais contraparte no Map.
+  loomd.delete("codex-1");
+
+  // 3) FRAME CHEIO sem loomd: antes do conserto a chave `usd` saía AUSENTE aqui (`undefined`),
+  // mesmo com o patch de lane única já sabendo congelar. Depois do conserto, `usd` continua
+  // 12.5 — o frame cheio não desfaz o que o patch já protegia.
+  sock.recv({ t: "list" });
+  const semLoomd = sock.sent.filter((m) => m.t === "sessions").at(-1).sessions.find((s) => s.sid === "codex-1");
+  assert.equal(semLoomd.confidence, "inferred");
+  assert.equal(semLoomd.usd, 12.5, "o frame cheio tem de carregar o mesmo congelamento que o patch já tinha");
+});
+
 // ─── Heartbeat: sockets meio-abertos não disparam `close` — o tick tem de reapar sozinho ────
 
 test("heartbeat: tick on a live socket sends a ping and marks it awaiting pong", () => {

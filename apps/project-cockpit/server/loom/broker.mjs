@@ -95,8 +95,16 @@ export class Broker {
   /// O array de cards, já rotulado. `fuseFleet` é quem garante o invariante: tudo que veio de
   /// `capture-pane` sai `inferred` — literal, não derivado — e só o que o loomd serviu sai
   /// `exact`. Lanes que só o loomd conhece entram como cards ADICIONAIS, sem apagar ninguém.
+  ///
+  /// 🚨 `this._lastUsd` viaja como terceiro argumento para que o FRAME CHEIO também congele
+  /// `usd` quando uma lane perde a contraparte no loomd — antes só o PATCH de lane única
+  /// (`_broadcastState`) fazia isso, e o frame cheio (mandado a cada 20s por `startStatePump`)
+  /// reintroduzia a ausência a cada sweep, apagando o congelamento na prática. A ordem dos
+  /// argumentos abaixo importa: `this._loomdLanes()` é quem ATUALIZA `_lastUsd` com os valores
+  /// deste sweep (ver o comentário lá), e por avaliação esquerda-para-direita ele já rodou antes
+  /// de `fuseFleet` ler `this._lastUsd`.
   _sessionsSnapshot() {
-    return fuseFleet(this._peekedSnapshot(), this._loomdLanes());
+    return fuseFleet(this._peekedSnapshot(), this._loomdLanes(), this._lastUsd);
   }
   _peekedSnapshot() {
     return [...this._sessions.values()].map((s) => {

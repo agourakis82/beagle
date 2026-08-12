@@ -156,6 +156,8 @@ export function reduceLoomdLanes(payload, readAtMs) {
 }
 
 /// A fusão. `entries` são os cards do LanePoller (tela raspada); `loomdLanes` é o Map acima.
+/// `lastUsd` (opcional) é o último `usd` MEDIDO por sid, sobrevivendo à perda da fonte exata —
+/// o mesmo Map que `Broker._lastUsd` já mantinha para o PATCH de lane única (`_broadcastState`).
 /// Puro, e é aqui que mora o invariante:
 ///   * todo card sem contraparte no loomd sai `inferred` — LITERAL, não derivado, porque hoje
 ///     100% deles vem de `capture-pane`;
@@ -163,11 +165,29 @@ export function reduceLoomdLanes(payload, readAtMs) {
 ///     `exact`; a tela dela, se houver, vira só o peek;
 ///   * uma lane que só o loomd conhece entra como card ADICIONAL, sem apagar ninguém.
 /// Sem loomd no ar, o array de saída é exatamente o de hoje mais `confidence:"inferred"`.
-export function fuseFleet(entries, loomdLanes) {
+export function fuseFleet(entries, loomdLanes, lastUsd = null) {
   const map = loomdLanes instanceof Map ? loomdLanes : new Map(Object.entries(loomdLanes || {}));
+  const custos = lastUsd instanceof Map ? lastUsd : new Map();
   const fused = (entries || []).map((e) => {
     const l = map.get(e.sid);
-    if (!l) return { ...e, confidence: INFERRED, truthSource: "capture-pane" };
+    if (!l) {
+      // 🚨 `usd` é FATO DO PASSADO (ver o comentário gêmeo em `Broker._broadcastState`): perder
+      // a contraparte no loomd não desfaz o que já foi gasto. Antes deste conserto o FRAME
+      // CHEIO (`_sessionsSnapshot` → `fuseFleet`) simplesmente OMITIA a chave `usd` neste ramo —
+      // diferente do PATCH de lane única, que já congelava em `_lastUsd`. Como
+      // `startStatePump()` manda o frame cheio a cada 20s, o congelamento do patch durava no
+      // máximo 20s antes do frame cheio apagar a chave de novo, e o cliente Swift lê ausência
+      // de `usd` como zero — o chip some. `aceita` continua de fora deste objeto de propósito:
+      // é afirmação sobre CAPACIDADE ATUAL, que pode ter mudado, então degrada para o lado
+      // seguro (ausente/null) — a assimetria com `usd` é intencional, não descuido.
+      const usd = custos.get(e.sid);
+      return {
+        ...e,
+        confidence: INFERRED,
+        truthSource: "capture-pane",
+        ...(typeof usd === "number" ? { usd } : {}),
+      };
+    }
     return {
       ...e,
       // 🚨 O confidence é do CONTRATO, também aqui. `loomdCard` já honra o campo que a fonte
@@ -192,9 +212,9 @@ export function fuseFleet(entries, loomdLanes) {
       currentTurn: l.currentTurn,
       turns: l.turns,
       // O que a lane aceita e o custo acumulado — do loomd, sem normalizar. Uma lane sem
-      // contraparte no loomd (branch acima, `if (!l) ...`) não ganha `aceita`/`usd` aqui: ela é
-      // só `capture-pane`, que não sabe o que a lane aceita nem o que ela custou, e inventar um
-      // valor ali seria pior que a ausência.
+      // contraparte no loomd (branch acima, `if (!l) ...`) não ganha `aceita` aqui: capacidade
+      // é afirmação sobre o PRESENTE, e `capture-pane` não sabe o que a lane aceita agora —
+      // inventar um valor ali seria pior que a ausência. `usd` é diferente (ver o branch acima).
       aceita: l.aceita,
       usd: l.usd,
       approveKey: null,          // aprovação por RPC, não por tecla — ver loomdCard
