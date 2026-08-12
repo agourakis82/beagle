@@ -398,6 +398,18 @@ public final class SessionStore {
         return "\(t / 3600)h \((t % 3600) / 60)m"
     }
 
+    /// O custo da lane para o chip. `nil` = não mostrar nada.
+    /// 🚨 Zero NÃO se mostra: "US$ 0,00" em todo chip treina o olho a ignorar a linha, e aí o
+    /// número que importa também deixa de ser lido. O servidor omite a chave quando é zero.
+    ///
+    /// Formato IGUAL ao do rodapé do turno (`String(format: "US$ %.4f", …)`) — dois formatos
+    /// para o mesmo tipo de número na mesma tela é o defeito de fundo que esta fatia existe
+    /// para matar. O número já vem SOMADO do servidor (loomd); esta função só formata.
+    public static func custoDoChip(_ usd: Double) -> String? {
+        guard usd > 0 else { return nil }
+        return String(format: "US$ %.4f", usd)
+    }
+
     // MARK: - Um pedido, uma resposta
 
     /// Quantos LUGARES na trilha ofereceriam Aplicar/Recusar para o pedido pendente deste turno.

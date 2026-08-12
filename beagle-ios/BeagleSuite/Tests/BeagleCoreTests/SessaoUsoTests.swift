@@ -267,4 +267,51 @@ final class SessaoUsoTests: XCTestCase {
         XCTAssertEqual(SessionStore.lugaresDeResposta(passos), 1)
     }
 
+
+    // MARK: - Custo do chip da Frota (Task 6b) — o servidor já somou, o Swift só lê
+
+    /// `custoDoChip` usa o MESMO formato que o rodapé do turno (`String(format: "US$ %.4f", …)`)
+    /// — dois formatos para o mesmo tipo de número na mesma tela é o defeito de fundo desta fatia.
+    func testCustoDoChipZeroEhNil() {
+        XCTAssertNil(SessionStore.custoDoChip(0), "zero é ruído — o servidor já omite a chave")
+    }
+
+    func testCustoDoChipComValorMostraOUSD() {
+        let texto = try! XCTUnwrap(SessionStore.custoDoChip(0.42))
+        XCTAssertTrue(texto.contains("0.42"), texto)
+    }
+
+    /// `usd` vem do JSON no caminho `sessions` — a lane carrega o que o loomd já somou.
+    func testUsdVemDoJSONNoCaminhoSessions() throws {
+        let obj = loomObj(#","usd":0.42"#)
+        let snap = try XCTUnwrap(LaneSnapshot(loom: obj))
+        XCTAssertEqual(snap.usd, 0.42, accuracy: 0.0001)
+    }
+
+    /// A chave é OMITIDA quando o custo é zero (serde skip_serializing_if) — ausência não é erro.
+    func testUsdAusenteEhZero() throws {
+        let obj = loomObj()
+        let snap = try XCTUnwrap(LaneSnapshot(loom: obj))
+        XCTAssertEqual(snap.usd, 0, accuracy: 0.0001)
+    }
+
+    /// 🚨 O caminho de patch de lane única (`{t:"state"}`) é onde um campo novo some em
+    /// silêncio — igual `confidence` e `aceita` antes dele. Uma lane com custo recebe um frame
+    /// `state` que NÃO menciona `usd`, e o valor tem de sobreviver (cair para `old.usd`, nunca 0).
+    func testUmPatchDeStateSemUsdPreservaOCusto() {
+        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        c.handle("""
+        {"t":"sessions","sessions":[
+          {"sid":"claude-1","title":"claude-1","state":"waiting","detail":"aprovar?",
+           "confidence":"exact","observedAt":1000,"usd":0.42}
+        ]}
+        """)
+        XCTAssertEqual(c.lanes.first { $0.sid == "claude-1" }?.usd ?? -1, 0.42, accuracy: 0.0001)
+
+        c.handle(#"{"t":"state","sid":"claude-1","state":"running","detail":"trabalhando"}"#)
+        let lane = c.lanes.first { $0.sid == "claude-1" }
+        XCTAssertEqual(lane?.state, .running, "o patch precisa ter sido aplicado de fato")
+        XCTAssertEqual(lane?.usd ?? -1, 0.42, accuracy: 0.0001,
+                        "silêncio sobre usd não é o custo virando zero")
+    }
 }

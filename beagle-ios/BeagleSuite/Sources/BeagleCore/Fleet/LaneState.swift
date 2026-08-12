@@ -169,6 +169,16 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     public let pendingApproval: Bool
     /// O que esta lane aceita. `nil` = o servidor não declarou; a tela então não oferece gesto.
     public let aceita: Aceita?
+    /// O custo acumulado da lane, em USD — SOMADO NO SERVIDOR (loomd), a partir dos `Turno.uso`
+    /// de cada turno. O Swift NÃO recalcula: o `LaneCard` só tem este snapshot, sem acesso aos
+    /// eventos por turno que o custo exigiria somar corretamente (último `usd` não-zero por
+    /// turno, nunca a soma bruta — ver `Turno.uso`). Duas fontes calculando o mesmo número
+    /// divergem, e nenhuma fica confiável.
+    ///
+    /// Valor padrão `0` no `init` explícito: zero é o valor HONESTO aqui, porque o servidor
+    /// OMITE a chave `usd` do JSON quando não houve cobrança (`serde skip_serializing_if`) — a
+    /// ausência da chave não é "desconhecido", é "zero".
+    public let usd: Double
 
     public var id: String { sid }
     public var family: LaneFamily { LaneFamily.of(sid) }
@@ -214,7 +224,8 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         atShell: Bool = false, observedAt: Date? = nil,
         confidence: Confidence = .inferred,
         pendingApproval: Bool = false,
-        aceita: Aceita? = nil
+        aceita: Aceita? = nil,
+        usd: Double = 0
     ) {
         self.sid = sid; self.title = title; self.state = state; self.detail = detail
         self.peek = peek; self.approve = approve; self.atShell = atShell
@@ -224,6 +235,9 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         self.confidence = confidence
         self.pendingApproval = pendingApproval
         self.aceita = aceita
+        // Default `0` pela mesma razão de `aceita: nil`: quem constrói sem dizer o custo não o
+        // conhece, e o servidor trata "não sei" e "zero" como a mesma coisa (chave omitida).
+        self.usd = usd
     }
 
     /// True when the observation is too old to present as current. The card must then show it
@@ -259,6 +273,9 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         // Ausente = o servidor não sabe o que esta lane aceita. `nil` aqui, NÃO um chute — a
         // tela então não oferece gesto nenhum em vez de oferecer um errado.
         self.aceita = (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))
+        // Ausente = zero: o servidor OMITE a chave quando não houve cobrança
+        // (`serde skip_serializing_if`), então a falta da chave não é "desconhecido".
+        self.usd = (obj["usd"] as? Double) ?? 0
     }
 }
 

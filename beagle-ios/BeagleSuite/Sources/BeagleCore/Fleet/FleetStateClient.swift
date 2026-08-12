@@ -351,7 +351,13 @@ public final class FleetStateClient {
                 // dela — e foi exatamente este ponto que apagou `confidence` em silêncio antes
                 // de o comentário acima existir. `aceita` não repete o erro.
                 aceita: (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))
-                    ?? old.aceita
+                    ?? old.aceita,
+                // Mesma disciplina de `confidence`/`aceita`: `?? old.usd`, NÃO `?? 0`. Um frame
+                // `state` que omite `usd` é silêncio sobre o custo, não a afirmação de que ele
+                // zerou — e o servidor OMITE a chave por padrão quando o valor não mudou desde
+                // o último `sessions`, então tratar ausência como zero apagaria o custo já
+                // acumulado a cada patch de lane única.
+                usd: (obj["usd"] as? Double) ?? old.usd
             )
         default:
             break   // data/scrollback belong to PTYClient; the board ignores terminal bytes.

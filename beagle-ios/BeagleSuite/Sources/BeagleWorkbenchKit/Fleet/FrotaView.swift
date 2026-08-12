@@ -514,6 +514,14 @@ private struct LaneCard: View {
             Text(lane.presenceLabel)
                 .font(.caption2)
                 .foregroundStyle(.white.opacity(0.6))
+            // O custo, ao lado do estado — mesma fonte que o rodapé da Sessão soma (o loomd).
+            // Só aparece quando > 0: "US$ 0,00" em todo card é ruído que treina o olho a ignorar
+            // a linha, e aí o número que importa também deixa de ser lido.
+            if let custo = SessionStore.custoDoChip(lane.usd) {
+                Text(custo)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.6))
+            }
             Spacer()
             truthBadge
         }
