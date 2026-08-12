@@ -3,8 +3,8 @@
   "fileKey": "fS1TEG5cDGHs0uAHA953y7",
   "fileUrl": "https://www.figma.com/design/fS1TEG5cDGHs0uAHA953y7",
   "fonte": "beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift @ mac/integration-mission-control-ui (ac3c7bdb)",
-  "phase": "phase4",
-  "step": "P4.a-code-connect-BLOQUEADO-por-plano",
+  "phase": "concluido",
+  "step": "arquivo-completo",
   "entities": {
     "collections": {
       "Cor": "VariableCollectionId:1:2",
@@ -21,13 +21,19 @@
       "Fundacoes-Tipo-Medida": "3:18",
       "separador": "3:19",
       "Compositor-da-Sessao": "3:20",
-      "Chip-de-Lane": "3:21"
+      "Chip-de-Lane": "3:21",
+      "Rodape-do-Turno": "11:2"
     },
     "docs": {
-      "FundacoesDeCor": "5:2"
+      "FundacoesDeCor": "5:2",
+      "FundacoesTipo": "17:2",
+      "FundacoesMedida": "18:2",
+      "Capa": "20:2"
     },
     "components": {
-      "CompositorDaSessao": "6:28"
+      "CompositorDaSessao": "6:28",
+      "ChipDeLane": "10:44",
+      "RodapeDoTurno": "11:23"
     }
   },
   "substituicoesDeclaradas": [
@@ -52,30 +58,35 @@
     "P4.a-tentado-bloqueado"
   ],
   "pendente": [
-    "P2.b: pagina Fundacoes — Tipo & Medida (rampa e barras de espacamento) ainda vazia",
-    "P3: Chip de Lane (pagina 3:21 vazia) — presenca + confianca + custo, com o limiar '< US$ 0,01'",
-    "P3: Rodape do turno (duracao · contexto · USD) com os casos '< 1%' e custo zero omitido",
-    "P4: Code Connect ligando o conjunto ao SessionStore/SessionView",
-    "Capa (0:1) sem conteudo"
+    "nenhuma pendencia declarada do arquivo; dividas de codigo seguem no README"
   ],
   "codeConnect": {
-    "disponivel": false,
-    "medido": "11-ago-2026",
-    "plano": "pro / seat Full",
-    "exige": "Organization ou Enterprise",
-    "erroVerbatim": "You need a Dev or Full seat on an Organization or Enterprise plan to use Code Connect.",
-    "caminhosTestados": [
-      "get_code_connect_suggestions",
-      "add_code_connect_map"
-    ],
-    "ambosFalharam": true,
-    "contornoEntregue": [
-      "descricao do conjunto + das 5 variantes com arquivo:linha de cada decisao (sem gate)",
-      "codeSyntax iOS nas 40 variaveis",
-      "beagle-ios/figma/CompositorDaSessao.figma.ts — template pronto, publica sem reescrita",
-      "beagle-ios/figma/README.md — o gate medido e as substituicoes de fonte"
-    ],
-    "commit": "dfcca368"
+    "disponivel": true,
+    "plano": "organization::1669203848746358212 (tier org)",
+    "ligados": {
+      "CompositorDaSessao": {
+        "node": "6:28",
+        "code": "SessionView",
+        "hasTemplate": true
+      },
+      "ChipDeLane": {
+        "node": "10:44",
+        "code": "LaneCard",
+        "hasTemplate": true
+      },
+      "RodapeDoTurno": {
+        "node": "11:23",
+        "code": "SessionStore.rodapeDoTurno",
+        "hasTemplate": true
+      }
+    },
+    "comoPublicar": "cd beagle-ios/figma && FIGMA_ACCESS_TOKEN=\"$(tr -d '[:space:]' < ~/.config/figma/token)\" npx figma connect publish --force --skip-update-check",
+    "achados": [
+      "parserless se ativa OMITINDO a chave parser (project.d.ts: CodeConnectParserlessConfig = Base & { parser: undefined })",
+      "o CLI reconhece template cru pelos diretivos // url= // component= // source= (raw_templates.d.ts isRawTemplate)",
+      "--dry-run roda SEM token e valida parse/rotulo/lista",
+      "a API MCP aceita o campo template e responde success:true, mas hasTemplate fica false — so o CLI publica template"
+    ]
   },
   "publicada": {
     "em": "2026-08-12",
@@ -86,8 +97,15 @@
     "confirmadoPor": "search_design_system (so devolve o que esta publicado)"
   },
   "fontes": {
-    "SF Pro": "OK depois de instalar o Figma Desktop no Mac (antes media largura ZERO). Rampa de UI usa a face real.",
+    "SF Pro": "OK com o Figma Desktop instalado. A rampa de UI usa a face REAL do app; substituicao por Inter foi desfeita.",
     "SF Mono": "AUSENTE mesmo com o Desktop. Rampa de dado em JetBrains Mono, declarado.",
     "SF Compact": "listada e mede zero"
-  }
+  },
+  "armadilhas": [
+    "figma.createAutoLayout() nasce com fill BRANCO — pegou 2x. Limpar fills nos conteineres e validar nos DOIS modos.",
+    "binding de cor vai no PAINT: figma.variables.setBoundVariableForPaint devolve paint NOVO que precisa ser reatribuido.",
+    "resize() reverte textAutoResize para FIXED — chamar resize ANTES, senao a altura trava e o texto corta.",
+    "FILL num filho exige que o PAI seja auto-layout; createFrame simples nao serve.",
+    "setCurrentPageAsync no maximo UMA vez por script."
+  ]
 }

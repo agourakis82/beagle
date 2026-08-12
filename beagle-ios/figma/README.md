@@ -113,5 +113,17 @@ Feito: fundações de cor (26 tokens, modos Claro/Escuro, semânticos por **alia
 8 + 5 raios), 15 estilos de texto, página de fundações de cor nos dois modos, e o conjunto
 **Compositor da Sessão** com os 5 estados.
 
-Pendente: página de Tipo & Medida, Chip de Lane (com o limiar `< US$ 0,01`), rodapé do turno (com
-`< 1%`), capa.
+**Completo.** Capa, Fundações de Cor (dois modos lado a lado), Fundações de Tipo & Medida (o
+especímen APLICA os 15 estilos, e as barras/raios têm largura e canto LIGADOS às variáveis), e os
+três conjuntos de variantes — Compositor da Sessão, Chip de Lane, Rodapé do Turno — todos com Code
+Connect e snippet por variante.
+
+### Armadilhas do Plugin API que já custaram rodadas aqui
+
+| sintoma | causa |
+|---|---|
+| bloco branco no escuro, invisível no claro | `figma.createAutoLayout()` nasce com fill **branco** |
+| `setBoundVariable` recusa em `fills`/`strokes` | binding de cor vai no **paint**: `setBoundVariableForPaint` devolve paint **novo** |
+| texto cortado depois da 2ª linha | `resize()` **reverte** `textAutoResize` para `FIXED` — chame `resize` **antes** |
+| `FILL can only be set on children of auto-layout frames` | o **pai** tem de ser auto-layout; `createFrame` simples não serve |
+| glifos invisíveis, `width == 0` | fonte listada mas não renderizável — **medir `t.width > 0`** depois de escrever |
