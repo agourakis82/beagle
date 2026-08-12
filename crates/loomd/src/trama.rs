@@ -102,6 +102,26 @@ pub struct LaneState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aceita: Option<Aceita>,
     pub turns: u32,
+    /// Custo acumulado da lane, em USD. Soma dos custos POR TURNO, onde o custo de um turno é o
+    /// último `Usage` com valor — não a soma dos `Usage`, porque 15 de 16 vêm nulos e um
+    /// fechamento zerado não pode apagar o preço que o turno já tinha.
+    ///
+    /// Omitido do JSON quando zero: "US$ 0,00" na tela é ruído que treina o olho a ignorar a
+    /// linha, e zero é o estado da imensa maioria das lanes que nunca receberam um `usage_update`
+    /// com custo. A ausência do campo já diz "sem custo conhecido" sem precisar de um número.
+    #[serde(skip_serializing_if = "e_zero")]
+    pub usd: f64,
+    /// Último custo > 0 visto no turno EM CURSO (`None` fora de um turno, ou dentro de um que
+    /// ainda não recebeu `Usage` com valor). Não vai ao JSON — é só o marcador que permite `usd`
+    /// já contar o turno aberto (substituindo a contribuição antiga pela nova quando um segundo
+    /// `Usage` chega) sem esperar um `TurnEnded` que pode nunca acontecer antes de o operador
+    /// olhar a tela.
+    #[serde(skip)]
+    turno_usd: Option<f64>,
+}
+
+fn e_zero(v: &f64) -> bool {
+    *v == 0.0
 }
 
 pub struct Trama {
@@ -203,6 +223,8 @@ impl Trama {
                 streaming_text: None,
                 aceita: None,
                 turns: 0,
+                usd: 0.0,
+                turno_usd: None,
             });
         st.observed_at_ms = agora;
         st.streaming_text
@@ -269,6 +291,8 @@ impl Trama {
                 streaming_text: None,
                 aceita,
                 turns: 0,
+                usd: 0.0,
+                turno_usd: None,
             });
     }
 
@@ -398,6 +422,17 @@ fn urgency(k: Kind) -> u8 {
     }
 }
 
+/// Lê o custo de um `detail` de `Kind::Usage` — o formato que este mesmo crate escreve em
+/// `event.rs` (`.detail(format!("contexto {usados}/{teto} · USD {custo:.4}"))`).
+///
+/// `None` quando o detail não tem a forma esperada: melhor não somar nada do que somar lixo.
+/// `Some(0.0)` é uma resposta válida e diferente de `None` — custo zero É informação ("veio
+/// evento, sem cobrança"), enquanto `None` diz "isto não é um `Usage` legível".
+pub fn custo_do_detail(detail: &str) -> Option<f64> {
+    let (_, resto) = detail.split_once("USD ")?;
+    resto.trim().parse::<f64>().ok()
+}
+
 /// A redução. Toda a máquina de estado da frota mora aqui, e são vinte linhas — porque o
 /// protocolo já diz o estado. A versão que raspava tela precisava de um classificador inteiro
 /// com regex por família de CLI, e ainda errava.
@@ -416,6 +451,8 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
         streaming_text: None,
         aceita: None,
         turns: 0,
+        usd: 0.0,
+        turno_usd: None,
     });
 
     st.observed_at_ms = e.ts_ms;
@@ -435,6 +472,34 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
     // precondição, o que na tela viraria um botão que falha sem explicação.
     if matches!(e.kind, Kind::TurnEnded | Kind::Idle | Kind::SessionEnded) {
         st.current_turn = None;
+    }
+
+    // O turno fecha aqui — em TurnEnded/Idle/SessionEnded, OU sucedido por um novo TurnStarted
+    // (ninguém garante que o adaptador sempre emite um fim explícito). `st.usd` já contava a
+    // contribuição do turno (ver abaixo), então fechar é só soltar o marcador: nada a somar de
+    // novo, e nada que um evento de fechamento sem custo possa apagar.
+    if matches!(
+        e.kind,
+        Kind::TurnStarted | Kind::TurnEnded | Kind::Idle | Kind::SessionEnded
+    ) {
+        st.turno_usd = None;
+    }
+
+    // Custo do turno em curso. `usados`/`teto` não interessam aqui — só `USD`, e só quando > 0:
+    // medido nas fixtures do censo ACP, 15 dos 16 `usage_update` de um turno vêm com custo nulo,
+    // e o adaptador às vezes fecha o turno com um `usage` de custo ZERO depois de um com custo.
+    // Se aceitássemos qualquer valor (inclusive 0.0) aqui, esse fechamento apagaria o preço que
+    // o turno já tinha. `st.usd` é mantido como TOTAL corrente: ao trocar o custo pendente do
+    // turno em curso, tira-se a contribuição antiga e soma-se a nova — assim um turno aberto já
+    // conta, sem esperar o `TurnEnded` que pode nunca vir antes de o operador olhar a tela.
+    if e.kind == Kind::Usage {
+        if let Some(custo) = e.detail.as_deref().and_then(custo_do_detail) {
+            if custo > 0.0 {
+                let antigo = st.turno_usd.take().unwrap_or(0.0);
+                st.usd = st.usd - antigo + custo;
+                st.turno_usd = Some(custo);
+            }
+        }
     }
 
     match e.kind {
@@ -898,5 +963,92 @@ mod tests {
             "declarar não pode apagar uma pendência"
         );
         assert!(st.pending_approval.is_some());
+    }
+
+    // ─── Custo (Task 6a): o chip da Frota lê `usd` daqui ──────────────────────────────────────
+
+    fn usage(lane: &str, custo: f64) -> AgentEvent {
+        AgentEvent::new(lane, Kind::Usage, Confidence::Exact)
+            .detail(format!("contexto 100/200 · USD {custo:.4}"))
+    }
+
+    #[test]
+    fn custo_do_detail_le_o_formato_real_e_rejeita_lixo() {
+        assert_eq!(custo_do_detail("contexto 100/200 · USD 0.1000"), Some(0.1));
+        assert_eq!(custo_do_detail("isto não é um usage"), None);
+        // Zero É informação ("veio evento, sem cobrança") — não é o mesmo que "detail ilegível".
+        assert_eq!(custo_do_detail("contexto 100/200 · USD 0.0000"), Some(0.0));
+    }
+
+    #[test]
+    fn dentro_do_turno_o_custo_e_o_ultimo_com_valor_nao_a_soma() {
+        // 15 dos 16 `usage_update` de um turno vêm com custo nulo; só o último traz número. Se
+        // a regra fosse "somar todos os Usage com custo", 0.10 + 0.25 daria 0.35 — errado.
+        let t = Trama::open(arquivo_novo("custo-ultimo-nao-soma"));
+        t.append(ev("codex-1", Kind::TurnStarted));
+        t.append(usage("codex-1", 0.10));
+        t.append(usage("codex-1", 0.25));
+        t.append(ev("codex-1", Kind::TurnEnded));
+        assert_eq!(t.state()[0].usd, 0.25);
+    }
+
+    #[test]
+    fn dois_turnos_somam_seus_custos() {
+        let t = Trama::open(arquivo_novo("custo-dois-turnos"));
+        t.append(ev("codex-1", Kind::TurnStarted));
+        t.append(usage("codex-1", 0.10));
+        t.append(ev("codex-1", Kind::TurnEnded));
+        t.append(ev("codex-1", Kind::TurnStarted));
+        t.append(usage("codex-1", 0.25));
+        t.append(ev("codex-1", Kind::TurnEnded));
+        assert_eq!(t.state()[0].usd, 0.35);
+    }
+
+    #[test]
+    fn um_fechamento_com_custo_zero_nao_apaga_o_custo_do_turno() {
+        // O adaptador às vezes emite um `usage` de fechamento com custo zero depois de um com
+        // custo. Esse zero não pode substituir o preço que o turno já tinha.
+        let t = Trama::open(arquivo_novo("custo-fechamento-zero"));
+        t.append(ev("codex-1", Kind::TurnStarted));
+        t.append(usage("codex-1", 0.25));
+        t.append(usage("codex-1", 0.0));
+        t.append(ev("codex-1", Kind::TurnEnded));
+        assert_eq!(t.state()[0].usd, 0.25);
+    }
+
+    #[test]
+    fn turno_aberto_com_custo_ja_conta_sem_esperar_turn_ended() {
+        // A regra: turno fecha em TurnEnded/Idle/SessionEnded OU é sucedido por um novo
+        // TurnStarted. Um turno que nunca fecha explicitamente não pode perder o custo — se só
+        // somássemos em TurnEnded, uma lane com turno aberto mostraria zero, que é exatamente
+        // onde o operador está olhando.
+        let t = Trama::open(arquivo_novo("custo-turno-aberto"));
+        t.append(ev("codex-1", Kind::TurnStarted));
+        t.append(usage("codex-1", 0.42));
+        // Sem TurnEnded — o turno segue aberto.
+        assert_eq!(t.state()[0].usd, 0.42);
+    }
+
+    #[test]
+    fn lane_sem_usage_tem_custo_zero_e_o_json_nao_afirma_isso() {
+        let t = Trama::open(arquivo_novo("custo-ausente"));
+        t.append(ev("codex-1", Kind::TurnStarted));
+        t.append(ev("codex-1", Kind::TurnEnded));
+        let st = &t.state()[0];
+        assert_eq!(st.usd, 0.0);
+        let j = serde_json::to_string(st).unwrap();
+        assert!(
+            !j.contains("\"usd\""),
+            "custo zero deve ser OMITIDO, não afirmado como 0.0: {j}"
+        );
+    }
+
+    #[test]
+    fn json_com_custo_inclui_usd() {
+        let t = Trama::open(arquivo_novo("custo-json"));
+        t.append(ev("codex-1", Kind::TurnStarted));
+        t.append(usage("codex-1", 0.42));
+        let j = serde_json::to_string(&t.state()[0]).unwrap();
+        assert!(j.contains("\"usd\":0.42"), "{j}");
     }
 }
