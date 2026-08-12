@@ -484,9 +484,26 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
     // (ninguém garante que o adaptador sempre emite um fim explícito). `st.usd` já contava a
     // contribuição do turno (ver abaixo), então fechar é só soltar o marcador: nada a somar de
     // novo, e nada que um evento de fechamento sem custo possa apagar.
+    //
+    // 🚨 `UserPrompt` está nesta lista porque é a ÚNICA fronteira de turno que a lane ACP de
+    // fato emite. `Kind::Usage` só nasce em `event.rs::from_acp_update` (`usage_update` do ACP)
+    // — ou seja, só em lanes ACP. E o vocabulário real de uma lane ACP não tem
+    // `TurnStarted`/`TurnEnded`/`Idle`: tem `user_prompt`, `agent_message`, `tool_call`,
+    // `usage`, `error`, `session_started/ended`. Sem `UserPrompt` aqui, `turno_usd` nunca era
+    // liberado numa lane ACP, e `st.usd` acabava sendo o ÚLTIMO `usage` com custo da SESSÃO
+    // inteira, não a soma por turno (medido: 3 turnos de 0,10/0,25/0,30 deviam somar 0,65 e
+    // davam 0,30). É também a mesma fronteira que o lado Swift usa — `Turno.agrupar` quebra em
+    // `.prompt` — então isto unifica a unidade "turno" entre as duas linguagens.
+    //
+    // Nas lanes de codex é inócuo: `item/completed` de `userMessage` (que vira `UserPrompt`)
+    // chega no MESMO turno que já tem `turn/started` (`TurnStarted`), e lanes de codex nunca
+    // emitem `Usage` — então soltar `turno_usd` de novo aqui não muda nada para elas. Note que
+    // isto NÃO mexe na contagem de `turns`: `st.turns += 1` só acontece no bloco de
+    // `Kind::TurnStarted` acima, que é um `if` separado — `UserPrompt` não entra nele, então
+    // turno não é contado em dobro.
     if matches!(
         e.kind,
-        Kind::TurnStarted | Kind::TurnEnded | Kind::Idle | Kind::SessionEnded
+        Kind::TurnStarted | Kind::TurnEnded | Kind::Idle | Kind::SessionEnded | Kind::UserPrompt
     ) {
         st.turno_usd = None;
     }
@@ -1101,6 +1118,127 @@ mod tests {
         t.append(usage("codex-1", 0.42));
         // Sem TurnEnded — o turno segue aberto.
         assert_eq!(t.state()[0].usd, 0.42);
+    }
+
+    /// Tolerância para `f64`: os casos abaixo até acertam com `assert_eq!` exato hoje, por
+    /// sorte de representação binária — não é prova de nada. Compare com isto, não com `==`.
+    fn perto(a: f64, b: f64) {
+        assert!(
+            (a - b).abs() < 1e-9,
+            "esperava {b}, veio {a} (diferença {})",
+            (a - b).abs()
+        );
+    }
+
+    /// 🚨 O teste que a produção teria falhado. Construído SÓ com o vocabulário que uma lane
+    /// ACP de fato emite — `user_prompt`, `usage`, `agent_message` — SEM NENHUM
+    /// `TurnStarted`/`TurnEnded`: injetar fronteira de turno numa lane ACP é ficção, porque o
+    /// adaptador ACP nunca produz esses kinds (só o hook do Claude Code e o app-server do Codex
+    /// produzem). As sete reviews anteriores passaram porque todos os testes de custo
+    /// injetavam `TurnStarted`/`TurnEnded` numa lane `codex-*` — uma combinação que a produção,
+    /// para uma lane ACP como `claude-4`, nunca produz.
+    ///
+    /// Três turnos delimitados por `UserPrompt`, custos 0,10 / 0,25 / 0,30 → soma 0,65. Antes do
+    /// conserto (sem `UserPrompt` na lista de fronteiras), `turno_usd` nunca era liberado e o
+    /// resultado era o ÚLTIMO usage com custo da sessão inteira: 0,30.
+    #[test]
+    fn lane_acp_sem_fronteira_explicita_soma_por_turno_via_user_prompt() {
+        let t = Trama::open(arquivo_novo("acp-vocabulario-real-soma-por-turno"));
+        // Turno 1
+        t.append(ev("claude-4", Kind::UserPrompt));
+        t.append(usage("claude-4", 0.10));
+        t.append(
+            AgentEvent::new("claude-4", Kind::AgentMessage, Confidence::Exact).with_text("ok"),
+        );
+        // Turno 2
+        t.append(ev("claude-4", Kind::UserPrompt));
+        t.append(usage("claude-4", 0.25));
+        t.append(
+            AgentEvent::new("claude-4", Kind::AgentMessage, Confidence::Exact).with_text("ok"),
+        );
+        // Turno 3
+        t.append(ev("claude-4", Kind::UserPrompt));
+        t.append(usage("claude-4", 0.30));
+        t.append(
+            AgentEvent::new("claude-4", Kind::AgentMessage, Confidence::Exact).with_text("ok"),
+        );
+
+        let st = t
+            .state()
+            .into_iter()
+            .find(|l| l.lane == "claude-4")
+            .unwrap();
+        perto(st.usd, 0.65);
+    }
+
+    /// Dentro de UM turno ACP (delimitado só por `UserPrompt`, sem `TurnStarted`/`TurnEnded`),
+    /// o segundo `usage` com custo substitui o primeiro — a regra do último-com-custo não pode
+    /// se perder quando a fronteira passa a ser `UserPrompt`.
+    #[test]
+    fn dentro_de_um_turno_acp_o_ultimo_usage_com_custo_vale_nao_a_soma() {
+        let t = Trama::open(arquivo_novo("acp-um-turno-ultimo-usage-vale"));
+        t.append(ev("claude-4", Kind::UserPrompt));
+        t.append(usage("claude-4", 0.10));
+        t.append(usage("claude-4", 0.25));
+        let st = t
+            .state()
+            .into_iter()
+            .find(|l| l.lane == "claude-4")
+            .unwrap();
+        perto(st.usd, 0.25);
+    }
+
+    /// Um `usage` de fechamento com custo ZERO, depois de um turno ACP delimitado por
+    /// `UserPrompt` já ter um custo, não pode apagar o que já foi contado.
+    #[test]
+    fn fechamento_com_custo_zero_em_turno_acp_nao_apaga_o_custo() {
+        let t = Trama::open(arquivo_novo("acp-fechamento-zero-nao-apaga"));
+        t.append(ev("claude-4", Kind::UserPrompt));
+        t.append(usage("claude-4", 0.25));
+        t.append(usage("claude-4", 0.0));
+        let st = t
+            .state()
+            .into_iter()
+            .find(|l| l.lane == "claude-4")
+            .unwrap();
+        perto(st.usd, 0.25);
+    }
+
+    /// Turno ACP aberto (sem `UserPrompt` seguinte que o feche) com custo já conta — não espera
+    /// nenhuma fronteira posterior que uma lane ACP pode nunca emitir.
+    #[test]
+    fn turno_acp_aberto_com_custo_ja_conta() {
+        let t = Trama::open(arquivo_novo("acp-turno-aberto-ja-conta"));
+        t.append(ev("claude-4", Kind::UserPrompt));
+        t.append(usage("claude-4", 0.42));
+        let st = t
+            .state()
+            .into_iter()
+            .find(|l| l.lane == "claude-4")
+            .unwrap();
+        perto(st.usd, 0.42);
+    }
+
+    /// A lane de codex não regride: `TurnStarted`/`TurnEnded` E `UserPrompt` presentes (o
+    /// vocabulário real do codex, onde `item/completed` de `userMessage` chega no mesmo turno
+    /// que `turn/started`) não pode contar turno nem custo em dobro. `turns` é incrementado só
+    /// no bloco de `Kind::TurnStarted`, que é um `if` totalmente separado da lista de
+    /// fronteiras de `turno_usd` — `UserPrompt` não participa dele, então isto verifica
+    /// exatamente que as duas listas não colidiram.
+    #[test]
+    fn lane_codex_com_turn_started_e_user_prompt_nao_dobra_turno_nem_custo() {
+        let t = Trama::open(arquivo_novo("codex-turn-started-e-user-prompt-sem-dobra"));
+        t.append(ev("codex-4", Kind::TurnStarted));
+        t.append(ev("codex-4", Kind::UserPrompt)); // codex emite os dois no mesmo turno
+        t.append(usage("codex-4", 0.42)); // hipotético: codex hoje não emite Usage, mas prova a regra
+        t.append(ev("codex-4", Kind::TurnEnded));
+
+        let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
+        assert_eq!(
+            st.turns, 1,
+            "turns não pode contar em dobro por causa do UserPrompt"
+        );
+        perto(st.usd, 0.42);
     }
 
     #[test]
