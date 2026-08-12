@@ -1,0 +1,93 @@
+{
+  "runId": "beagle-mc-2026-08-11",
+  "fileKey": "fS1TEG5cDGHs0uAHA953y7",
+  "fileUrl": "https://www.figma.com/design/fS1TEG5cDGHs0uAHA953y7",
+  "fonte": "beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift @ mac/integration-mission-control-ui (ac3c7bdb)",
+  "phase": "phase4",
+  "step": "P4.a-code-connect-BLOQUEADO-por-plano",
+  "entities": {
+    "collections": {
+      "Cor": "VariableCollectionId:1:2",
+      "Medida": "VariableCollectionId:1:29"
+    },
+    "modes": {
+      "Claro": "1:0",
+      "Escuro": "1:1",
+      "Padrao": "1:2"
+    },
+    "pages": {
+      "Capa": "0:1",
+      "Fundacoes-Cor": "3:17",
+      "Fundacoes-Tipo-Medida": "3:18",
+      "separador": "3:19",
+      "Compositor-da-Sessao": "3:20",
+      "Chip-de-Lane": "3:21"
+    },
+    "docs": {
+      "FundacoesDeCor": "5:2"
+    },
+    "components": {
+      "CompositorDaSessao": "6:28"
+    }
+  },
+  "substituicoesDeclaradas": [
+    "SF Pro: LISTADA pelo Figma e loadFontAsync nao reclama, mas as glifos medem largura ZERO — inutilizavel. Rampa de UI usa Inter, declarado na descricao de cada estilo.",
+    "SF Mono: nao existe no Figma. Rampa de dado usa JetBrains Mono, declarado."
+  ],
+  "armadilhaRecorrente": "figma.createAutoLayout() nasce com fill BRANCO. Invisivel no tema claro, bloco opaco no escuro. Me pegou DUAS vezes (doc de fundacoes e componente). Sempre limpar fills nos conteineres intermediarios, deixando superficie so onde ela e intencional.",
+  "completedSteps": [
+    "P1.a",
+    "P1.b",
+    "P1.c",
+    "P1.d",
+    "P1.e",
+    "P1.f",
+    "P2.a",
+    "P2.b",
+    "P2.c",
+    "P3.b",
+    "P3.c",
+    "P3.f",
+    "P3.g",
+    "P4.a-tentado-bloqueado"
+  ],
+  "pendente": [
+    "P2.b: pagina Fundacoes — Tipo & Medida (rampa e barras de espacamento) ainda vazia",
+    "P3: Chip de Lane (pagina 3:21 vazia) — presenca + confianca + custo, com o limiar '< US$ 0,01'",
+    "P3: Rodape do turno (duracao · contexto · USD) com os casos '< 1%' e custo zero omitido",
+    "P4: Code Connect ligando o conjunto ao SessionStore/SessionView",
+    "Capa (0:1) sem conteudo"
+  ],
+  "codeConnect": {
+    "disponivel": false,
+    "medido": "11-ago-2026",
+    "plano": "pro / seat Full",
+    "exige": "Organization ou Enterprise",
+    "erroVerbatim": "You need a Dev or Full seat on an Organization or Enterprise plan to use Code Connect.",
+    "caminhosTestados": [
+      "get_code_connect_suggestions",
+      "add_code_connect_map"
+    ],
+    "ambosFalharam": true,
+    "contornoEntregue": [
+      "descricao do conjunto + das 5 variantes com arquivo:linha de cada decisao (sem gate)",
+      "codeSyntax iOS nas 40 variaveis",
+      "beagle-ios/figma/CompositorDaSessao.figma.ts — template pronto, publica sem reescrita",
+      "beagle-ios/figma/README.md — o gate medido e as substituicoes de fonte"
+    ],
+    "commit": "dfcca368"
+  },
+  "publicada": {
+    "em": "2026-08-12",
+    "library": "Beagle Mission Control — Sovereign Dark",
+    "libKey": "lk-94e81045d9910ce0cfa35536cef023f96b92c3cb5a942173655e31b1af31dad5d58238b72595b4488a0c4fc808afabd41db4b886209fbc80494d80e01257af33",
+    "compKeyCompositor": "190a94d7e57f9c21ab47ea59e687b5593ec03e17",
+    "varSetCor": "3585feff430e0c4534032cf8636ac87a2d9951f6",
+    "confirmadoPor": "search_design_system (so devolve o que esta publicado)"
+  },
+  "fontes": {
+    "SF Pro": "OK depois de instalar o Figma Desktop no Mac (antes media largura ZERO). Rampa de UI usa a face real.",
+    "SF Mono": "AUSENTE mesmo com o Desktop. Rampa de dado em JetBrains Mono, declarado.",
+    "SF Compact": "listada e mede zero"
+  }
+}
