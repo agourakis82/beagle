@@ -131,3 +131,65 @@ A tipagem publicada e o validador **discordam**. Medido contra o validador:
   `glassEffectID` + `@Namespace` faz a metamorfose entre estados.
 - **Shader em tela cheia NÃO é gratuito** — a alegação de viabilidade universal foi
   refutada 3-0. O orçamento é o prazo do quadro, medível no Instruments 26.
+
+---
+
+# Segunda passada — o que faltava para não ser amador
+
+Uma pesquisa profunda sobre o Plugin API (105 agentes, verificação adversarial)
+apontou a linha exata que separa arquivo profissional de amador, e o arquivo
+estava do lado errado dela.
+
+## O que estava errado
+
+**A escala de espaçamento veio incompleta.** `BeagleSpacing` tem **9** degraus;
+eu havia levado **6** — meu regex não pegou `xxs: 4`, `xxxl: 40`, `jumbo: 48`.
+Eu afirmei fidelidade ao código e entreguei dois terços dela.
+
+**Todo o espaçamento estava cravado em número.** Preenchimento, espaço entre
+itens e raio eram literais nos componentes — nenhum ligado a variável. Trocar o
+ritmo do sistema exigiria editar cada nó à mão.
+
+**Faltavam propriedades de componente.** Sem elas, os componentes eram figuras,
+não peças: não dava para trocar o texto de uma instância sem detachar.
+
+## O que passou a valer
+
+- **72 ligações** de `padding`/`itemSpacing`/`cornerRadius` a variáveis, com os
+  valores encaixados na escala (nada de 10, 14, 18 soltos).
+- **Propriedades TEXT** em todos: `Fala.Texto`, `Linha de dado.{Rótulo, Valor,
+  Carimbo}`, `Faixa de estado.{Tempo, Corpo, Céu}`, `Campo de entrada.Texto`.
+  A chave volta com sufixo `#` imprevisível (`Rótulo#31:0`) e **tem que ser usada
+  verbatim** em `componentPropertyReferences`.
+- **Auditoria automática** que varre os cinco componentes e falha se sobrar
+  número solto. Ela exclui, por decisão explícita: a moldura do `COMPONENT_SET`
+  (grade de exibição, não embarca) e o raio dos círculos de 44pt (22 é metade de
+  44 — geometria, não token).
+- Um defeito que só a auditoria pegou: o balão tinha três cantos em `raio/xl` e o
+  quarto cravado em 18.
+
+## Regras do Plugin API que eu não conhecia
+
+- `layoutMode` tem **quatro** valores — `'NONE' | 'HORIZONTAL' | 'VERTICAL' | 'GRID'`.
+  GRID traz `gridRowSizes`/`setGridChildPosition`/`appendChildAt`; `itemSpacing`
+  vira no-op e `gridRowGap`/`gridColumnGap` tomam o lugar.
+- `layoutWrap` só pode ser definido com `layoutMode === 'HORIZONTAL'` — em
+  qualquer outro caso **lança erro**.
+- `VariableBindableNodeField` tem **27** membros: além de padding e raio, também
+  `visible`, `characters`, espessura de traço por lado, min/max size e `opacity`.
+- `SLOT` é tipo de propriedade de componente de primeira classe.
+- `addComponentProperty` em uma **variante** lança erro — tem que ser no
+  `COMPONENT_SET` ou num componente não-variante.
+- `setExplicitVariableModeForCollection` com id em string está **depreciado** e
+  lança sob `documentAccess: dynamic-page`. Passe o objeto da coleção.
+
+## Honestidade sobre a fonte
+
+Quatro dos erros que me custaram iterações estavam **documentados** no material
+que acompanha a ferramenta: `resize()` reseta os modos de eixo; TEXT em
+`WIDTH_AND_HEIGHT` ignora `FILL` e colapsa; `color` não aceita `a` mas o valor de
+variável COLOR aceita; máscara mascara os irmãos **posteriores** no array. Eu
+aprendi por mensagem de erro em vez de ler. Registrado aqui para não repetir.
+
+Já `SHADER`, `GLASS`, `NOISE`, `importShaderById` e o ofício de grão/banding não
+aparecem em lugar nenhum da referência — esses tiveram de ser medidos.
