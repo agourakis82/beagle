@@ -269,6 +269,20 @@ public struct ChatScreen: View {
             .opacity(topBarHidden ? 0 : 1)
             .offset(y: topBarHidden ? -72 : 0)
             .blur(radius: topBarHidden ? 6 : 0)
+
+            // Tempo · corpo · céu. Fica logo abaixo da barra e some junto com ela
+            // quando você lê para a frente — as duas são cromo, e cromo se dissolve
+            // no conteúdo.
+            //
+            // Isto NÃO é a antiga tira de corpo que foi retirada daqui: aquela era
+            // permanente acima do compositor. Esta nasce recolhida — em repouso é só
+            // um traço — e só se abre para quem a procura. É a regra do contrato:
+            // "a faixa é porta", e o estado se revela por gesto.
+            FaixaDeEstado(breath: breath, sky: weather?.band)
+                .opacity(topBarHidden ? 0 : 1)
+                .offset(y: topBarHidden ? -72 : 0)
+                .animation(.easeOut(duration: 0.22), value: topBarHidden)
+
             Spacer()
         }
     }
