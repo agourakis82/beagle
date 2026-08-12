@@ -536,9 +536,69 @@ public final class SessionStore {
     /// o número que esta fatia inteira existe para tornar visível. Extraído aqui (em vez de
     /// montado inline na view) para ser testável sem SwiftUI, no mesmo padrão do resto do
     /// arquivo.
-    public static func custoParaAcessibilidade(_ usd: Double) -> String {
+    ///
+    /// 🚨 O parâmetro `velho` é a extensão DESTE caminho, não um segundo caminho: se o número
+    /// pode estar velho (ver `chipDeCusto`), quem OUVE tem de ouvir isso também — senão o
+    /// conserto visual deixaria VoiceOver com a versão confiante do mesmo número, que é
+    /// exatamente o defeito que esta função foi criada para não repetir.
+    public static func custoParaAcessibilidade(_ usd: Double, velho: Bool = false) -> String {
         guard let custo = custoDoChip(usd) else { return "" }
-        return ", custo \(custo)"
+        // A frase é a MESMA que o selo de procedência do card já usa para uma observação
+        // vencida ("leitura antiga"): um significado, um vocabulário.
+        return velho ? ", custo \(custo) (leitura antiga)" : ", custo \(custo)"
+    }
+
+    /// O caminho que as views usam: a MESMA decisão de `chipDeCusto` alimenta a fala, para o
+    /// desenho e o rótulo nunca discordarem sobre o frescor do mesmo número.
+    public static func custoParaAcessibilidade(_ lane: LaneSnapshot, agora: Date = Date()) -> String {
+        guard let chip = chipDeCusto(lane, agora: agora) else { return "" }
+        return custoParaAcessibilidade(lane.usd, velho: chip.velho)
+    }
+
+    // MARK: - O frescor do número, não só o número
+
+    /// O chip de custo JÁ MARCADO quando o número pode estar velho — a decisão, pura, fora da
+    /// view. A `LaneCard` só escolhe COMO desenhar o que esta função decidiu.
+    ///
+    /// 🚨 Por que isto existe: o chip mostrava o acumulado da lane sem herdar `isStale` da lane,
+    /// ao contrário do `observationAge` logo abaixo dele no MESMO card. Pior: o servidor CONGELA
+    /// o último custo conhecido quando perde a fonte exata (antes mandava zero, o que apagava o
+    /// gasto), e o cliente faz o mesmo com `?? old.usd` — então o número pode estar velho POR
+    /// CONSTRUÇÃO, sem prazo visível, e não apenas atrasado por polling. É o número mais
+    /// perigoso de estar errado sem aviso: o operador decide continuar ou PARAR uma lane cara
+    /// com base nele.
+    ///
+    /// 🚨 A marca é TEXTO, não opacidade. Num chip que já é `.caption2` a 60% de branco, baixar
+    /// a opacidade não é sinal — é o mesmo ruído, mais fraco: o dado velho ficaria menos
+    /// LEGÍVEL em vez de mais suspeito, e opacidade não tem nome que um leitor de tela possa
+    /// dizer. Por isso a marca é um sufixo (mais a cor, escolhida na view), e o `valor`
+    /// continua inteiro na string: marcar não é esconder, porque o gasto ACONTECEU e o operador
+    /// precisa da ordem de grandeza mesmo quando a leitura envelheceu.
+    public struct ChipDeCusto: Equatable, Sendable {
+        /// O valor sozinho — exatamente o que `custoDoChip` já dizia, sem a marca.
+        public let valor: String
+        /// O que desenhar: `valor`, mais a marca quando velho.
+        public let texto: String
+        /// A observação por trás deste número está vencida (`LaneSnapshot.isStale`).
+        public let velho: Bool
+    }
+
+    /// O sufixo que marca um custo velho. Curto de propósito: cabe num card estreito ao lado de
+    /// "US$ 1.234,57" sem empurrar o dígito que importa para fora do campo visual.
+    public static let marcaDeCustoVelho = "· antigo"
+
+    /// `nil` = não desenhar chip nenhum.
+    ///
+    /// 🚨 A regra de zero NÃO muda com o frescor: custo zero segue sem chip, velho ou não — uma
+    /// leitura envelhecer não faz aparecer um gasto que nunca houve.
+    public static func chipDeCusto(_ lane: LaneSnapshot, agora: Date = Date()) -> ChipDeCusto? {
+        guard let valor = custoDoChip(lane.usd) else { return nil }
+        // Herda o MESMO predicado de frescor que `observationAge` desenha logo abaixo, em vez
+        // de inventar um limiar próprio para o dinheiro. Um card, um relógio.
+        let velho = lane.isStale(now: agora)
+        return ChipDeCusto(valor: valor,
+                           texto: velho ? "\(valor) \(marcaDeCustoVelho)" : valor,
+                           velho: velho)
     }
 
     // MARK: - Um pedido, uma resposta

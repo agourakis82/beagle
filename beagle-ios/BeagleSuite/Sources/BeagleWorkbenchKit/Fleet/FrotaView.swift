@@ -506,7 +506,8 @@ private struct LaneCard: View {
         // nunca ouve o número que esta fatia inteira existe para tornar visível.
         .accessibilityLabel(
             "\(lane.title), \(lane.presenceLabel), \(lane.confidenceLabel)"
-            + "\(SessionStore.custoParaAcessibilidade(lane.usd)). \(lane.detail)"
+            // A lane, não o `usd` cru: assim a fala herda o MESMO frescor que o chip desenha.
+            + "\(SessionStore.custoParaAcessibilidade(lane)). \(lane.detail)"
         )
     }
 
@@ -522,15 +523,22 @@ private struct LaneCard: View {
             // O custo, ao lado do estado — mesma fonte que o rodapé da Sessão soma (o loomd).
             // Só aparece quando > 0: "US$ 0,00" em todo card é ruído que treina o olho a ignorar
             // a linha, e aí o número que importa também deixa de ser lido.
-            // ⚠️ DÍVIDA: este chip NÃO herda `isStale`/`confidence` da lane — se o transporte
-            // cair, o número fica parado sem sinal visual, ao contrário de `observationAge`
-            // logo abaixo (que já resolve isto para outros campos via `lane.isStale(...)`/
-            // `confidenceLabel`). É o número mais perigoso de estar errado sem aviso: o
-            // operador decide continuar ou parar uma lane cara com base nele.
-            if let custo = SessionStore.custoDoChip(lane.usd) {
-                Text(custo)
+            // 🚨 O chip HERDA o frescor da lane (dívida saldada). A decisão mora em
+            // `SessionStore.chipDeCusto` — puro, assertável sem SwiftUI, junto de `custoDoChip`
+            // e `rodapeDoTurno`; aqui só se escolhe como desenhá-la.
+            //
+            // A marca NÃO é opacidade: `.caption2` a 60% de branco já é discreto, e baixar mais
+            // faria do dado velho o texto MENOS legível da linha — ruído mais fraco, não sinal.
+            // São duas marcas que se leem: o sufixo "· antigo" (que sobrevive a quem não
+            // distingue cor, e que VoiceOver diz) e a cor. A cor é a MESMA laranja de "leitura
+            // antiga" em `observationAge`, dois pontos acima nesta mesma linha — um significado,
+            // um vocabulário. `BeagleTheme.truthStale` foi considerado e recusado aqui: sobre
+            // este vidro escuro ele é mais APAGADO que o branco a 60%, então diria "velho"
+            // tornando o número mais difícil de ler, e o gasto aconteceu.
+            if let chip = SessionStore.chipDeCusto(lane) {
+                Text(chip.texto)
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .foregroundStyle(chip.velho ? Color.orange : Color.white.opacity(0.6))
             }
             Spacer()
             truthBadge
@@ -822,7 +830,7 @@ private struct LaneRow: View {
         // um leitor de tela saber o custo desta lane sem abrir o card.
         .accessibilityLabel(
             "\(lane.sid), \(lane.presenceLabel), \(lane.confidenceLabel)"
-            + SessionStore.custoParaAcessibilidade(lane.usd)
+            + SessionStore.custoParaAcessibilidade(lane)
         )
     }
 

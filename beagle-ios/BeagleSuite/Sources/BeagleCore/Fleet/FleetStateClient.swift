@@ -374,12 +374,12 @@ public final class FleetStateClient {
                 // leitor a procurar um comportamento do servidor que não existe. A razão real:
                 // é defensivo por cautela, não porque o servidor hoje se comporta assim.
                 //
-                // ⚠️ DÍVIDA: o chip de custo (`FrotaView` — ver o comentário ao lado de
-                // `SessionStore.custoDoChip` na `LaneCard`) NÃO herda `isStale`/`confidence` da
-                // lane. Como o servidor CONGELA o último custo conhecido quando perde a fonte
-                // exata (é o que este `?? old.usd` faz do lado do cliente também), o valor pode
-                // ficar stale POR CONSTRUÇÃO — dos dois lados — sem nenhum indicador visível de
-                // expiração. Não implementado aqui de propósito: este item é só o comentário.
+                // 🚨 Este `?? old.usd` é a razão pela qual o número pode estar velho POR
+                // CONSTRUÇÃO: o servidor CONGELA o último custo conhecido quando perde a fonte
+                // exata, e o cliente faz o mesmo aqui. A dívida que ficava neste ponto (o chip
+                // não herdava `isStale` da lane, e o valor congelava sem indicador de
+                // expiração) está SALDADA em `SessionStore.chipDeCusto`, que marca o chip e o
+                // rótulo de VoiceOver quando a observação por trás do número venceu.
                 usd: (obj["usd"] as? Double) ?? old.usd
             )
         default:

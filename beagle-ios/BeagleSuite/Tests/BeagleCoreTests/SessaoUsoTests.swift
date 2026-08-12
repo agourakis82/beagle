@@ -503,6 +503,93 @@ final class SessaoUsoTests: XCTestCase {
         XCTAssertFalse(trecho.isEmpty)
     }
 
+    // MARK: - O chip de custo herda o frescor da lane (a dívida do "número mais perigoso")
+
+    /// Uma lane com custo e uma observação de `segundos` atrás. O limiar é o de
+    /// `LaneSnapshot.isStale` (45s) — os testes ficam de um lado e do outro dele de propósito,
+    /// sem redefinir limiar próprio para dinheiro.
+    private func laneComCusto(_ usd: Double, observadaHa segundos: TimeInterval) -> LaneSnapshot {
+        LaneSnapshot(sid: "claude-1", title: "claude-1", state: .running,
+                     observedAt: Date().addingTimeInterval(-segundos),
+                     confidence: .exact, usd: usd)
+    }
+
+    /// Custo fresco não leva marca nenhuma: se todo chip fosse marcado, a marca pararia de
+    /// significar "não confie neste número" — o mesmo erro do "US$ 0,00" em todo card.
+    func testChipDeCustoFrescoNaoLevaMarcaDeVelho() throws {
+        let chip = try XCTUnwrap(SessionStore.chipDeCusto(laneComCusto(12.3456, observadaHa: 5)))
+        XCTAssertFalse(chip.velho, "5s atrás está dentro da tolerância de frescor da lane")
+        XCTAssertEqual(chip.texto, chip.valor, "sem marca, o chip é só o valor")
+        XCTAssertFalse(chip.texto.contains(SessionStore.marcaDeCustoVelho), chip.texto)
+        XCTAssertTrue(chip.texto.contains("12,35"), chip.texto)
+    }
+
+    /// 🚨 O teste que a dívida existia para pedir: o servidor CONGELA o último custo conhecido
+    /// quando perde a fonte exata, então o número pode estar velho POR CONSTRUÇÃO. Sem herdar
+    /// `isStale` da lane, ele ficava parado na tela afirmando um valor atual — e o operador
+    /// decide continuar ou PARAR uma lane cara com base nele.
+    func testChipDeCustoVelhoLevaMarcaEOValorContinuaLegivel() throws {
+        let chip = try XCTUnwrap(SessionStore.chipDeCusto(laneComCusto(12.3456, observadaHa: 600)))
+        XCTAssertTrue(chip.velho, "10 minutos sem observação não é um número atual")
+        XCTAssertTrue(chip.texto.contains(SessionStore.marcaDeCustoVelho),
+                      "dado velho tem de PARECER velho, e a marca precisa ser texto: \(chip.texto)")
+        // 🚨 Marcar não é ESCONDER: o gasto aconteceu, e o operador precisa da ordem de grandeza
+        // mesmo quando a leitura envelheceu. Um chip velho que apaga o número troca um defeito
+        // (número errado sem aviso) por outro (nenhum número).
+        XCTAssertTrue(chip.texto.contains("12,35"),
+                      "o valor tem de continuar legível ao lado da marca: \(chip.texto)")
+        XCTAssertEqual(chip.valor, "US$ 12,35", "o valor sozinho não muda por estar velho")
+        XCTAssertTrue(chip.texto.hasPrefix(chip.valor),
+                      "o número vem primeiro; a marca é sufixo: \(chip.texto)")
+    }
+
+    /// Lane que nunca foi observada é o caso mais velho de todos — `isStale` já devolve `true`
+    /// para `observedAt == nil`, e o chip tem de concordar com o selo do card, não discordar.
+    func testChipDeCustoDeLaneNuncaObservadaEhVelho() throws {
+        let lane = LaneSnapshot(sid: "claude-1", title: "claude-1", state: .running,
+                                observedAt: nil, usd: 0.42)
+        let chip = try XCTUnwrap(SessionStore.chipDeCusto(lane))
+        XCTAssertTrue(chip.velho, "sem observação nenhuma, nada garante que o custo seja atual")
+        XCTAssertTrue(chip.texto.contains("0,42"), chip.texto)
+    }
+
+    /// A regra "zero não aparece" NÃO se mexe: uma leitura envelhecer não faz surgir um gasto
+    /// que nunca houve, e "US$ 0,00 · antigo" em todo card seria o ruído de sempre com um
+    /// carimbo a mais.
+    func testChipDeCustoZeroNaoAparecePorVelhoQueSeja() {
+        XCTAssertNil(SessionStore.chipDeCusto(laneComCusto(0, observadaHa: 5)),
+                     "custo zero fresco: nada a desenhar")
+        XCTAssertNil(SessionStore.chipDeCusto(laneComCusto(0, observadaHa: 600)),
+                     "custo zero velho segue sem chip — velho não inventa gasto")
+    }
+
+    /// 🚨 Se o número pode estar velho, quem OUVE tem de ouvir isso também. Sem esta asserção o
+    /// conserto seria só visual, e VoiceOver continuaria recebendo a versão CONFIANTE do mesmo
+    /// número — que é a forma mais silenciosa possível do defeito original.
+    func testCustoParaAcessibilidadeVelhoDizOValorEAIdade() {
+        let velho = SessionStore.custoParaAcessibilidade(laneComCusto(12.3456, observadaHa: 600))
+        XCTAssertTrue(velho.contains("12,35"), "o valor tem de ser falado: \(velho)")
+        XCTAssertTrue(velho.contains("antiga"),
+                      "a idade da leitura tem de ser falada junto do valor: \(velho)")
+
+        let fresco = SessionStore.custoParaAcessibilidade(laneComCusto(12.3456, observadaHa: 5))
+        XCTAssertTrue(fresco.contains("12,35"), fresco)
+        XCTAssertFalse(fresco.contains("antiga"),
+                       "custo fresco não pode ser anunciado como antigo: \(fresco)")
+    }
+
+    /// O caminho por lane e o caminho por `usd` são o MESMO caminho — um chama o outro. Se
+    /// alguém abrir um segundo, o chip e a fala voltam a poder discordar sobre o mesmo número.
+    func testFalaEDesenhoConcordamSobreOFrescorDoMesmoNumero() throws {
+        for segundos in [5.0, 600.0] {
+            let lane = laneComCusto(0.42, observadaHa: segundos)
+            let chip = try XCTUnwrap(SessionStore.chipDeCusto(lane))
+            XCTAssertEqual(SessionStore.custoParaAcessibilidade(lane),
+                           SessionStore.custoParaAcessibilidade(lane.usd, velho: chip.velho),
+                           "a fala tem de sair da mesma decisão que o desenho")
+        }
+    }
+
     // MARK: - Link caído esconde a caixa sem mentir (Important da review)
 
     /// 🚨 Achado de review: `SessionView` não tinha referência nenhuma ao estado do link do
