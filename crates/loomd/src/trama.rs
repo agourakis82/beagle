@@ -1108,7 +1108,7 @@ mod tests {
         t.append(usage("codex-1", 0.10));
         t.append(usage("codex-1", 0.25));
         t.append(ev("codex-1", Kind::TurnEnded));
-        assert_eq!(t.state()[0].usd, 0.25);
+        perto(t.state()[0].usd, 0.25);
     }
 
     #[test]
@@ -1145,7 +1145,7 @@ mod tests {
         t.append(ev("codex-1", Kind::TurnStarted));
         t.append(usage("codex-1", 0.25));
         t.append(ev("codex-1", Kind::TurnEnded));
-        assert_eq!(t.state()[0].usd, 0.35);
+        perto(t.state()[0].usd, 0.35);
     }
 
     #[test]
@@ -1157,7 +1157,7 @@ mod tests {
         t.append(usage("codex-1", 0.25));
         t.append(usage("codex-1", 0.0));
         t.append(ev("codex-1", Kind::TurnEnded));
-        assert_eq!(t.state()[0].usd, 0.25);
+        perto(t.state()[0].usd, 0.25);
     }
 
     #[test]
@@ -1170,7 +1170,7 @@ mod tests {
         t.append(ev("codex-1", Kind::TurnStarted));
         t.append(usage("codex-1", 0.42));
         // Sem TurnEnded — o turno segue aberto.
-        assert_eq!(t.state()[0].usd, 0.42);
+        perto(t.state()[0].usd, 0.42);
     }
 
     /// Tolerância para `f64`: os casos abaixo até acertam com `assert_eq!` exato hoje, por
@@ -1368,7 +1368,7 @@ mod tests {
         t.append(ev("codex-1", Kind::TurnStarted));
         t.append(ev("codex-1", Kind::TurnEnded));
         let st = &t.state()[0];
-        assert_eq!(st.usd, 0.0);
+        perto(st.usd, 0.0);
         let j = serde_json::to_string(st).unwrap();
         assert!(
             !j.contains("\"usd\""),
