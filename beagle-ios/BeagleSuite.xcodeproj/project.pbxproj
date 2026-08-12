@@ -607,6 +607,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 				60AFF1F31D1152AF683B0322 /* Resources */,
 				3F0BEEB1D553DC6A2D007FC1 /* Frameworks */,
 				11995D61FE54A62855FAB8C9 /* Embed Foundation Extensions */,
+							E43E000000000000000000F3 /* Numero de build a partir dos commits */,
 			);
 			buildRules = (
 			);
@@ -809,6 +810,24 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		E43E000000000000000000F3 /* Numero de build a partir dos commits */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Numero de build a partir dos commits";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# O NUMERO DE BUILD E A CONTAGEM DE COMMITS. Sobe sozinho, nunca colide, e\n# aponta para um commit exato quando algo der errado.\n#\n# Por que isto existe: em 12-ago-2026 instalei um build 50 sobre o 57 e devolvi o\n# app para antes dos consertos de travamento. A causa era este numero ser cravado\n# a mao no project.pbxproj — arquivo que as duas faixas editam, sem nada coordenar.\n# Nao mora mais la: no pbxproj ficou 0, para que uma falha aqui quebre alto em vez\n# de mentir um numero.\nset -e\nRAIZ=$(git -C \"$SRCROOT\" rev-parse --show-toplevel 2>/dev/null || true)\nif [ -z \"$RAIZ\" ]; then\n  echo \"error: sem repositorio git — nao da para calcular o numero de build\"\n  exit 1\nfi\nN=$(git -C \"$RAIZ\" rev-list --count HEAD)\nif [ -z \"$N\" ] || [ \"$N\" -lt 1 ]; then\n  echo \"error: contagem de commits invalida: '$N'\"\n  exit 1\nfi\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $N\" \"$TARGET_BUILD_DIR/$INFOPLIST_PATH\"\n# As extensoes TEM que bater com o app — se divergirem, o iOS recusa a instalacao.\nfor P in \"$TARGET_BUILD_DIR/$WRAPPER_NAME\"/PlugIns/*.appex/Info.plist; do\n  [ -f \"$P\" ] && /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $N\" \"$P\"\ndone\necho \"numero de build: $N\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2F8654292CB59E11F7C219D6 /* Sources */ = {
@@ -1063,7 +1082,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 58;
+				CURRENT_PROJECT_VERSION = 0;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1133,7 +1152,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 58;
+				CURRENT_PROJECT_VERSION = 0;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
