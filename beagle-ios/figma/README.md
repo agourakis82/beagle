@@ -14,9 +14,27 @@ add_code_connect_map            Enterprise plan to use Code Connect."
 ```
 
 Os **três** endpoints falham — `get_code_connect_suggestions`, `add_code_connect_map` e
-`list_file_components_for_code_connect`. Code Connect exige
-**Organization ou Enterprise**; `Pro` não baste, mesmo com assento `Full`. Não há flag, SDK local
-nem rota alternativa: o gate é do servidor da Figma.
+`list_file_components_for_code_connect`. Code Connect exige **Organization ou Enterprise**; `Pro`
+não basta, mesmo com assento `Full`.
+
+### A hipótese de escopo de token foi ELIMINADA (12-ago-2026)
+
+Havia uma ressalva honesta em aberto: se a equipe vivesse **dentro** de uma organização e o token
+OAuth alcançasse só a equipe, o gate seria do token e não da conta. **Testado e descartado.**
+
+O plugin oficial da Figma traz um **segundo servidor MCP, com autenticação própria e independente**.
+Fizemos um login OAuth novo do zero (com túnel reverso, porque o `redirect_uri` aponta para o
+`localhost` da máquina onde o Claude Code roda, não a do navegador). Resultado idêntico:
+
+```
+servidor A (claude.ai Figma)   whoami → team::1654179493326852903  tier: pro  seat: Full
+servidor B (plugin oficial)    whoami → team::1654179493326852903  tier: pro  seat: Full
+                               get_code_connect_suggestions → mesmo erro de plano
+```
+
+Duas autenticações independentes reportam **um único plano**, e ele é uma **equipe Pro** — não uma
+organização (o prefixo é `team::`, não `organization::`). Nem o plugin oficial nem o DesignAgent
+contornam: os dois atuam do lado do **cliente**, e o gate é do **servidor**. Só o upgrade resolve.
 
 ### ✅ Publicação: feita (12-ago-2026)
 
