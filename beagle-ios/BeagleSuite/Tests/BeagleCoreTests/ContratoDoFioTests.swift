@@ -33,6 +33,7 @@ final class ContratoDoFioTests: XCTestCase {
         "diff": "--- a/src/main.rs\n+++ b/src/main.rs\n-velho\n+novo",
         "approvalKind": "patch",
         "loomdKind": "agent_message",
+        "ausente": true,
     ]
 
     /// `Mirror` sobre as propriedades ARMAZENADAS. Uma propriedade que o `init?(loom:)` não lê fica
@@ -109,5 +110,32 @@ final class ContratoDoFioTests: XCTestCase {
         XCTAssertNil(c.lanes.first?.aceita, "`null` é o servidor dizendo que não sabe mais")
         XCTAssertNil(c.lanes.first?.loomdKind, "idem — a evidência volta a ser leitura de máquina")
         XCTAssertEqual(c.lanes.first?.usd, 12.35, "mas `usd` é fato do passado: continua lá")
+    }
+
+    /// ✅ A dívida do `isAbsent`, saldada — e a asserção que importa é a TERCEIRA.
+    ///
+    /// Enquanto a ausência era lida da prosa, a capacidade da tela dependia da redação de uma
+    /// string em português. O conserto não é só passar a ler o campo: é o campo VENCER o texto.
+    /// Um servidor que declara "esta lane existe" não pode ser contradito por uma frase que ele
+    /// mesmo escreveu — senão a dedução continua viva, só que escondida atrás de um `??`.
+    func testAusenciaVemDoCampoDeclarado_eOCampoVenceAProsa() {
+        let prosa = "sessão não existe no tmux"
+
+        // 1. Sem declaração (cockpit antigo): a prosa ainda serve de ponte.
+        let velho = LaneSnapshot(loom: ["sid": "grok-cli2", "state": "exited", "detail": prosa])!
+        XCTAssertNil(velho.ausenteDeclarada)
+        XCTAssertTrue(velho.isAbsent, "sem o campo, a prosa é a única fonte que resta")
+
+        // 2. Declarado `true`: sem depender de texto nenhum.
+        let dito = LaneSnapshot(loom: ["sid": "grok-cli2", "state": "exited", "detail": "", "ausente": true])!
+        XCTAssertTrue(dito.isAbsent, "declarado basta — nenhuma frase precisa ser reconhecida")
+
+        // 3. 🚨 Declarado `false` COM a prosa presente: o campo vence.
+        let contradito = LaneSnapshot(loom: ["sid": "grok-cli2", "state": "exited", "detail": prosa, "ausente": false])!
+        XCTAssertFalse(
+            contradito.isAbsent,
+            "o servidor disse que a lane EXISTE; a frase é para o operador ler, não para a tela "
+            + "contradizer o servidor. Se isto falhar, a dedução por prosa continua viva."
+        )
     }
 }

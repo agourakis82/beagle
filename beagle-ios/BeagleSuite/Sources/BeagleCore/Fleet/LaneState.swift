@@ -206,6 +206,9 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// falando enquanto trabalha e um agente falando enquanto espera dizem a mesma espécie de
     /// coisa, e saíam em faces diferentes.
     public let loomdKind: String?
+    /// A lane não existe no tmux — DECLARADO pelo servidor, não deduzido daqui.
+    /// `nil` = um cockpit antigo que ainda não declara; aí, e só aí, valemo-nos da prosa.
+    public let ausenteDeclarada: Bool?
 
     public var id: String { sid }
     public var family: LaneFamily { LaneFamily.of(sid) }
@@ -217,8 +220,17 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// not there. The server states this in `detail`, so the client never has to infer it.
     // ⚠️ DÍVIDA: capacidade deduzida de prosa. A frase vem do LanePoller do project-cockpit (Node),
     // não do loomd — consertar exige tocar naquele serviço. Ver o spec desta fatia, §1.
+    /// ✅ DÍVIDA SALDADA. Isto lia PROSA — `detail.contains("não existe no tmux")` — e amarrava
+    /// a capacidade da tela à redação de uma string em português: traduzir a frase quebraria a
+    /// Frota em silêncio, e nenhum teste pegaria. Agora o servidor DECLARA (`ausente`), e o
+    /// classificador o faz onde o fato se sabe.
+    ///
+    /// A leitura da prosa sobrevive só como ponte para um cockpit que ainda não declara — e
+    /// **só** quando o campo está ausente, nunca sobrepondo um `false` explícito. Um servidor que
+    /// diz "esta lane existe" não pode ser contradito pelo texto que ele mesmo escreveu.
     public var isAbsent: Bool {
-        state == .exited && detail.localizedCaseInsensitiveContains("não existe no tmux")
+        if let declarada = ausenteDeclarada { return declarada }
+        return state == .exited && detail.localizedCaseInsensitiveContains("não existe no tmux")
     }
 
     /// What the card calls this lane's presence.
@@ -255,7 +267,8 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         usd: Double = 0,
         diff: String? = nil,
         approvalKind: SessionStep.ApprovalKind? = nil,
-        loomdKind: String? = nil
+        loomdKind: String? = nil,
+        ausenteDeclarada: Bool? = nil
     ) {
         self.sid = sid; self.title = title; self.state = state; self.detail = detail
         self.peek = peek; self.approve = approve; self.atShell = atShell
@@ -273,6 +286,7 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         self.diff = diff
         self.approvalKind = approvalKind
         self.loomdKind = loomdKind
+        self.ausenteDeclarada = ausenteDeclarada
     }
 
     /// True when the observation is too old to present as current. The card must then show it
@@ -365,6 +379,9 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         self.loomdKind = obj["loomdKind"] == nil
             ? antigo?.loomdKind
             : (obj["loomdKind"] as? String)
+        self.ausenteDeclarada = obj["ausente"] == nil
+            ? antigo?.ausenteDeclarada
+            : (obj["ausente"] as? Bool)
     }
 }
 
