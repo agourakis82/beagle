@@ -217,20 +217,50 @@ public struct ChatScreen: View {
     // drifts horizontally, ripples vertically, hue cycles, brightens when the
     // companion is streaming. Empty state: brighter and fills upper half.
     // Chatting: dimmer and pulled to upper third so the conversation reads.
+    /// O estado do bicho. Entradas que este ramo não tem (ocioso, hora, céu medido)
+    /// ficam no padrão do resolvedor — ele degrada para um estado calmo em vez de
+    /// exigir tudo. Ligar o que existe hoje e crescer depois é melhor que não ligar.
+    private var presenceState: PresenceState {
+        PresenceResolver(
+            isStreaming: store.isStreaming,
+            isVoiceListening: speech.isRecording,
+            composerFocused: !draft.isEmpty,
+            ultimaFalaDele: store.messages.last(where: { $0.role == .user })?.content,
+            hora: Calendar.current.component(.hour, from: Date()),
+            ceu: weather?.band
+        ).state(now: Date())
+    }
+
     private var presenceBackground: some View {
         let empty = store.messages.isEmpty
-        return AuroraPresence(
-            breathRate: breathRate,
-            weather: weather,
-            isStreaming: store.isStreaming,
-            size: empty ? .greeter : .header
-        )
-        // Inspiring when empty (greeter); a quiet whisper behind the text when reading, so the
-        // conversation stays the hero (the user: "a aurora no fundo é inspiradora, sabendo fazer
-        // design não atrapalha").
-        .opacity(empty ? 0.9 : 0.28)
+        // CADA CAMADA TEM A SUA OPACIDADE.
+        //
+        // Havia um `.opacity(empty ? 0.9 : 0.28)` único no retorno da propriedade.
+        // Herdá-lo deixaria o BICHO a 28% justamente enquanto se lê — o efeito
+        // fantasma. A aurora pode ser cenário; ele não.
+        return ZStack {
+            // Atrás: a aurora continua (foi construída de propósito e ele gosta dela),
+            // mas rebaixada a cenário do cenário para não virar sopa visual.
+            AuroraPresence(
+                breathRate: breathRate,
+                weather: weather,
+                isStreaming: store.isStreaming,
+                size: empty ? .greeter : .header
+            )
+            .opacity(empty ? 0.55 : 0.16)
+            .animation(.easeOut(duration: 0.35), value: empty)
+
+            // Na frente: o bicho. Máscara radial e curva própria de opacidade vivem
+            // dentro de PrimordialPresence.
+            PrimordialPresence(
+                state: presenceState,
+                breath: breathRate,
+                sky: weather?.band ?? .calm
+            )
+            .opacity(empty ? 0.95 : 0.55)
+            .animation(.easeOut(duration: 0.35), value: empty)
+        }
         .allowsHitTesting(false)
-        .animation(.easeOut(duration: 0.35), value: empty)
     }
 
     // Top-right "novo" button — clears the conversation thread. Floats over the
