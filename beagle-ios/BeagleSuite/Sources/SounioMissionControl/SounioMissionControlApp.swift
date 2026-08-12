@@ -181,6 +181,17 @@ enum Section: String, CaseIterable, Identifiable, Hashable {
 struct MissionControlWindow: View {
     @State private var section: Section = .frota
     @State private var openLane: String?
+    /// A lane que o operador escolheu na gaveta da Sessão. `nil` = ele ainda não escolheu, e a
+    /// tela segue o roster.
+    ///
+    /// 🚨 Tem que ser ESTADO, e opcional. Antes, a lane da Sessão era DERIVADA
+    /// (`fleet.loomdRoster.first`) a cada render: não existia onde guardar um clique, então
+    /// `onTrocarLane` não tinha o que fazer — e por isso nem era passado. Semear este estado com
+    /// uma lane concreta seria o defeito espelho: `"loom-1"` gravado antes do primeiro frame
+    /// prenderia a tela na constante mesmo depois do roster do servidor chegar. `nil` distingue
+    /// "não escolheu" de "escolheu loom-1"; a conciliação inteira vive em `SessaoLane.exibida`,
+    /// que é pura e testada.
+    @State private var sessionLaneEscolhida: String?
     /// UM cliente para a janela toda. A Frota e a Sessão concordam sobre o que uma lane aceita
     /// porque leem do MESMO quadro — dois clientes divergiriam no primeiro poll perdido por um
     /// dos dois, e "GUIAR" mentindo por causa de um `FleetStateClient` que a Sessão não tinha é
@@ -240,9 +251,25 @@ struct MissionControlWindow: View {
                     // `linkDaFrota` é o mesmo `fleet.link` que a Frota já observa — sem ele, um
                     // socket caído congelava `aceita` em `nil` para sempre e a Sessão não tinha
                     // como distinguir "servidor ainda não falou" de "servidor emudeceu".
-                    let sessionLane = fleet.loomdRoster.first ?? FleetEndpoint.loomdLanes.first ?? "loom-1"
-                    SessionView(lane: sessionLane, roster: fleet.loomdRoster,
-                                aceita: fleet.aceita(de: sessionLane), linkDaFrota: fleet.link)
+                    //
+                    // A lane exibida é a conciliação de semente, roster e escolha do operador —
+                    // regra pura em `SessaoLane.exibida`, presa em teste. `aceita` é consultado
+                    // com ESSA lane, não com a semente: `aceita` da lane anterior é a tela
+                    // mentindo sobre o que a lane de agora aceita.
+                    //
+                    // 🚨 O `.id(lane)` não é enfeite. `SessionView` guarda o `SessionStore` em
+                    // `@State`, e `@State` SOBREVIVE a uma atualização da view: passar um `lane`
+                    // novo trocaria o rótulo e manteria o store — cursor, turnos e parcial — da
+                    // lane anterior na tela. Isso é pior que a gaveta morta, porque parece
+                    // funcionar. Mudar a identidade da view é o que descarta o `@State` e faz o
+                    // store nascer de novo, com `onDisappear`/`onAppear` parando e religando o
+                    // fio na ordem certa.
+                    let lane = SessaoLane.exibida(roster: fleet.loomdRoster,
+                                                  escolha: sessionLaneEscolhida)
+                    SessionView(lane: lane, roster: fleet.loomdRoster,
+                                aceita: fleet.aceita(de: lane), linkDaFrota: fleet.link,
+                                onTrocarLane: { sessionLaneEscolhida = $0 })
+                        .id(lane)
                 case .terminals:
                     FleetTerminalsView(initialAgent: openLane)
                 }

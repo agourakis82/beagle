@@ -48,6 +48,48 @@ final class SessionSnapshotTests: XCTestCase {
             .environment(\.colorScheme, .dark)
     }
 
+    /// O CABEÇALHO com roster — o retrato da gaveta de troca de lane.
+    ///
+    /// 🚨 Os outros retratos renderizam `conteudo`, que NÃO inclui o cabeçalho: a gaveta podia
+    /// estar morta (era) sem nenhum PNG mudar. Este caso existe para que a lane exibida tenha
+    /// prova em imagem. Renderiza os dois lados da mesma regra: sem escolha (segue o roster) e
+    /// com escolha (a escolha vence), e o nome no cabeçalho tem que diferir entre os dois.
+    @MainActor
+    func testRetratoDoCabecalhoComRoster() throws {
+        let roster = ["loom-1", "codex-4"]
+
+        let semEscolha = SessaoLane.exibida(roster: roster, escolha: nil)
+        XCTAssertEqual(semEscolha, "loom-1")
+        try render(cabecalho(lane: semEscolha, roster: roster),
+                   width: 900, name: "20-sessao-cabecalho-sem-escolha")
+
+        let comEscolha = SessaoLane.exibida(roster: roster, escolha: "codex-4")
+        XCTAssertEqual(comEscolha, "codex-4")
+        try render(cabecalho(lane: comEscolha, roster: roster),
+                   width: 900, name: "21-sessao-cabecalho-escolha-codex-4")
+
+        XCTAssertNotEqual(semEscolha, comEscolha)
+
+        // 🚨 Nos dois PNGs acima o nome da lane NÃO se lê: com roster > 1 o cabeçalho é um
+        // `Menu`, e `ImageRenderer` desenha `Menu` como um retângulo-placeholder — a gaveta é
+        // justamente a parte que não fotografa. Este terceiro retrato usa o caminho de UMA lane,
+        // onde o cabeçalho é `Text(store.lane)` puro, e é o que de fato PROVA em pixel que a
+        // lane resolvida chega ao cabeçalho: construir a Sessão com a lane escolhida escreve
+        // `codex-4` na tela, não `loom-1`.
+        try render(cabecalho(lane: comEscolha, roster: [comEscolha]),
+                   width: 900, name: "22-sessao-cabecalho-lane-escrita")
+    }
+
+    /// O cabeçalho sozinho, com a lane já resolvida — é assim que a janela o constrói.
+    @MainActor
+    private func cabecalho(lane: String, roster: [String]) -> some View {
+        SessionView(lane: lane, roster: roster).cabecalho
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(BeagleTheme.surface0)
+            .environment(\.colorScheme, .dark)
+    }
+
     // ─── O turno real, medido ────────────────────────────────────────────────────────────
 
     /// O diff que o codex realmente propôs no censo.

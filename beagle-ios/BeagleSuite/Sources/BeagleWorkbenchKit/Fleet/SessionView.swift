@@ -89,7 +89,10 @@ public struct SessionView: View {
 
     // MARK: - Cabeçalho
 
-    private var cabecalho: some View {
+    /// Interno (não privado) pelo mesmo motivo que `conteudo`: o retrato o renderiza sozinho.
+    /// É o único lugar onde a lane exibida vira pixel, e portanto o único ponto onde dá para
+    /// PROVAR em imagem que a Sessão está de fato na lane escolhida.
+    var cabecalho: some View {
         HStack(spacing: BeagleSpacing.sm) {
             // Com mais de uma lane de protocolo o nome fixo deixa de ser cabeçalho e passa a ser
             // uma mentira sobre onde você está. Com uma só, o seletor não aparece — um menu de um
