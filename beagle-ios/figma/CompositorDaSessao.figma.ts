@@ -2,11 +2,19 @@
 // source=beagle-ios/BeagleSuite/Sources/BeagleWorkbenchKit/Fleet/SessionView.swift
 // component=SessionView
 //
-// ⚠️ NÃO PUBLICADO. Code Connect exige plano Organization/Enterprise; a conta é Pro, e tanto
-//    `get_code_connect_suggestions` quanto `add_code_connect_map` responderam:
-//    "You need a Dev or Full seat on an Organization or Enterprise plan to use Code Connect."
-//    Este arquivo existe para que o mapeamento não se perca e possa ser revisado agora. No dia em
-//    que o plano permitir, ele publica sem reescrita. Ver beagle-ios/figma/README.md.
+// ✅ BIBLIOTECA PUBLICADA em 12-ago-2026 (o pré-requisito de publicação do Code Connect está
+//    cumprido — confirmado por `search_design_system`, que só devolve o que está publicado):
+//      library : Beagle Mission Control — Sovereign Dark
+//      libKey  : lk-94e81045d9910ce0cfa35536cef023f96b92c3cb5a942173655e31b1af31dad5d58238b72595b4488a0c4fc808afabd41db4b886209fbc80494d80e01257af33
+//      compKey : 190a94d7e57f9c21ab47ea59e687b5593ec03e17   (component_set "Compositor da Sessão")
+//      varSet  : 3585feff430e0c4534032cf8636ac87a2d9951f6   (coleção "Cor")
+//
+// ⚠️ AINDA NÃO LIGADO. O que falta é SÓ o plano: Code Connect exige Organization/Enterprise, e a
+//    conta é Pro (assento Full). TRÊS endpoints medidos batem no mesmo gate —
+//    `get_code_connect_suggestions`, `add_code_connect_map` e
+//    `list_file_components_for_code_connect` — e o último nem chega a olhar a publicação, porque o
+//    plano barra antes. Com o upgrade, este arquivo publica sem reescrita.
+//    Ver beagle-ios/figma/README.md.
 //
 // A tese que este componente carrega: a tela não oferece um gesto que o servidor não aceita, e o
 // rótulo diz a verdade ANTES do clique. Mentir no momento da decisão é pior que contar depois,

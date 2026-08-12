@@ -18,6 +18,21 @@ Os **três** endpoints falham — `get_code_connect_suggestions`, `add_code_conn
 **Organization ou Enterprise**; `Pro` não baste, mesmo com assento `Full`. Não há flag, SDK local
 nem rota alternativa: o gate é do servidor da Figma.
 
+### ✅ Publicação: feita (12-ago-2026)
+
+A biblioteca **está publicada** — o outro pré-requisito do Code Connect está cumprido, confirmado por
+`search_design_system`, que só devolve o que está publicado:
+
+```
+library : Beagle Mission Control — Sovereign Dark
+libKey  : lk-94e81045d9910ce0cfa35536cef023f96b92c3cb...
+compKey : 190a94d7e57f9c21ab47ea59e687b5593ec03e17   (component_set "Compositor da Sessão")
+varSet  : 3585feff430e0c4534032cf8636ac87a2d9951f6   (coleção "Cor")
+```
+
+Ou seja: **falta só o plano.** `list_file_components_for_code_connect` nem chega a olhar a
+publicação — o gate de plano barra antes dele.
+
 `CompositorDaSessao.figma.ts` existe para que o mapeamento **não se perca e possa ser revisado
 agora**. No dia em que o plano subir, ele publica sem reescrita.
 
