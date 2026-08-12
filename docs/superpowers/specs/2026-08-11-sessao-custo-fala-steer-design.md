@@ -206,3 +206,80 @@ observação; e o botão diz **ENFILEIRAR** na `claude-4` e **GUIAR** na `codex-
 - Transporte do ACP pelo crate `agent-client-protocol` e migração do `codex.rs`.
 - Consertar a credencial da `claude-4` — operacional, não de código.
 - Reescrever a Sessão, trocar o layout, ou tocar na aba Terminais.
+
+## Resultado — 11-ago-2026
+
+### Provado
+
+**O campo chega, medido nas 6 lanes de produção.** `/v2/state` do `loomd` em
+`sounio-workspace-control-0:4400`:
+
+```
+claude-1/2/3  aceita=somente_leitura     codex-4, loom-1  aceita=redireciona
+claude-4      aceita=enfileira           usd numérico em 6/6, confidence=exact
+```
+
+**A cadeia inteira, exercitada contra o código deployado.** O app não fala com o `loomd`: o caminho é
+`app → cockpit (/ws/loom) → loomd:4400`. Rodei `loomdCard` e `fuseFleet` **dentro do pod do cockpit
+já atualizado** (imagem `aceita-e08f362e`), alimentados com o `/v2/state` real: `aceita` presente em
+6/6 e `usd` numérico em 6/6 após a fusão.
+
+**Testes.** `loomd` 102 verdes (era 92); cockpit 299 (era 291, com uma falha pré-existente e alheia em
+`fetchSounioState`); `beagle-ios` 120 XCTest + 147 Swift Testing. Cada asserção nova foi validada por
+**mutação com vermelho por asserção** — vermelho por erro de compilação foi recusado como prova.
+
+**App instalado com prova de frescor**: `pid=4652 build=202608112159 janelas=1`, sem abortar — o
+script compara o início do processo com o mtime do binário justamente porque, em 10-ago, três rodadas
+de conserto foram testadas num build antigo.
+
+### Dois defeitos que só a execução real revelou
+
+Ambos da mesma família: **o sistema sabia e a tela não recebia.**
+
+1. **Ordem, no `loomd`.** `Trama::open` **rehidrata** as lanes do diário; `declarar_com` usava
+   `or_insert_with`, que só age em chave inexistente. Com diário cheio, a declaração era
+   silenciosamente inútil e as 6 lanes vinham `aceita: None`. O teste de fumaça passou porque a trama
+   estava **vazia**. Conserto: `and_modify` tocando **só** o campo `aceita` — recriar a `LaneState`
+   zeraria o custo acumulado, que sobrevive de propósito ao respawn do filho.
+
+2. **A camada Node comia os campos.** `loomdCard` monta o card campo a campo e `fuseFleet` copia uma
+   **lista explícita**; nenhuma das duas incluía `aceita` nem `usd`. Servidor certo, app certo, tela
+   cega — num arquivo cujo próprio comentário avisa que o patch de lane única é onde um campo novo
+   passa a aparecer "só às vezes".
+
+E dentro do segundo conserto, uma assimetria que quase passou: no ramo sem fonte exata, `aceita: null`
+está certo (capacidade é afirmação sobre o **presente** e pode ter mudado; não saber empurra a tela
+para o lado seguro), mas `usd: 0` estava errado — custo é **fato cumulativo do passado**, e zerar faz
+a tela afirmar "esta lane não custou nada" quando ela só perdeu quem confirmava o gasto. Como o chip
+esconde zero, o número desapareceria no campo que decide se se para uma lane cara. Agora congela o
+último valor conhecido.
+
+### Não provado, e por quê
+
+- **Rodapé com USD num turno real** (critério 4): a `claude-4` está com **credencial expirada** —
+  prompts entram na trama e o turno não executa. Não declarado provado por inspeção de código.
+- **A concordância chip ↔ rodapé** (critério 5) depende do mesmo turno: com `usd = 0` em todas as
+  lanes, os dois concordam trivialmente, o que não é prova.
+- **Os rótulos na tela** (critérios 1–3) estão provados como **função pura** (`rotuloDeGuiar`,
+  `dicaDaCaixa`, `semCaixa`) e o dado que os alimenta chega. A afirmação visual em si não foi
+  asserida: a introspecção por acessibilidade não expõe o conteúdo SwiftUI.
+
+### Suposição declarada, ainda aberta
+
+`cost.amount` é tratado como custo **do turno**. Se for acumulado da sessão, o total soma duas vezes.
+Verificar exige um turno de dois prompts na `claude-4` — bloqueado pela mesma credencial.
+
+### Dívidas registradas
+
+- `isAbsent` deduz capacidade de **prosa** em português. Deliberadamente não tocado: a frase vem do
+  `LanePoller` do project-cockpit, não do `loomd`.
+- A `SessionView` não tem referência reativa ao cliente de estado: socket morto congela o `aceita` sem
+  sinal visual, e silêncio de transporte é lido como silêncio do agente.
+- O chip de custo não herda `isStale`/`confidence`, e o congelamento do `usd` cria um dado que pode
+  ser velho **por construção**, sem prazo visível.
+- O painel `tmux` chamado `loomd` ainda carrega a configuração **antiga** (só `loom-1,codex-4`, sem
+  lanes ACP e sem tails). O processo vivo subiu por `subir-loomd.sh`, que tem a configuração completa;
+  religar pelo painel traria a frota mutilada.
+- Havia **quatro** `loomd` vivos, três deles de teste, supervisionando `claude-4` e `codex-4` — as
+  mesmas lanes da produção, na mesma worktree. Candidato concreto às lanes caindo ao longo do dia.
+  Agora há um só.
