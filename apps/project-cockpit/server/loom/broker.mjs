@@ -166,13 +166,22 @@ export class Broker {
     // (`_lastUsd`, atualizado toda vez que `_loomdLanes()` vê um valor) e só cai para `0` quando
     // nunca houve leitura — aí `0` é honesto: nada foi gasto, ou nada foi observado, e o chip não
     // mostra nada nos dois casos.
+    // 🚨 `loomdKind` segue a regra do `aceita`, não a do `usd`: ele diz QUAL foi o último evento
+    // do protocolo, e a tela usa isso para escolher a VOZ da linha de evidência — título (um
+    // nome que o agente escolheu), fala (algo dito) ou leitura (raspada da tela). Perder a
+    // contraparte no loomd é perder quem sabia responder isso, e o `detail` deste ramo vem do
+    // `capture-pane`: mandar o último kind conhecido casaria uma voz de protocolo com um texto
+    // de tela — exatamente a mentira que `fuseFleet` recusa ao não herdar o `detail`. `null` é o
+    // vocabulário de "não sei" aqui, e o cliente já cai para `leitura` por causa do `inferred`.
     const msg = exact
       ? { t: "state", sid, state: exact.state, detail: exact.detail, confidence: EXACT,
           approveKey: null, atShell: false, observedAt: exact.observedAt,
-          aceita: exact.aceita ?? null, usd: Number(exact.usd) || 0 }
+          aceita: exact.aceita ?? null, usd: Number(exact.usd) || 0,
+          loomdKind: exact.loomdKind ?? null }
       : { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", confidence: INFERRED,
           approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null,
-          aceita: null, usd: this._lastUsd.get(sid) ?? 0 };
+          aceita: null, usd: this._lastUsd.get(sid) ?? 0,
+          loomdKind: null };
     for (const c of this._clients) this._send(c, msg);
   }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }

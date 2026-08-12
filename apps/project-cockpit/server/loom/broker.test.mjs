@@ -194,6 +194,36 @@ test("o patch de lane única carrega `aceita` e `usd` — exact do loomd, `aceit
   assert.equal(exato.usd, 2.25);
 });
 
+test("o patch de lane única carrega `loomdKind` — é ele que escolhe a VOZ da linha de evidência", () => {
+  // Sexta vez que um campo atravessa Rust e Node e morre no caminho de patch de lane única.
+  // `loomdKind` diz qual foi o último evento do protocolo, e a Frota usa isso para decidir se a
+  // evidência é um TÍTULO que o agente escolheu, uma FALA sua, ou uma LEITURA raspada da tela.
+  // Sem ele no patch, um cliente que faz `?? antigo` mantém a voz anterior; um que não o tem
+  // desenha tudo com a mesma voz — que é o defeito que este campo existe para consertar.
+  const loomd = new Map([["codex-1", exactCard("codex-1", { state: "idle", loomdKind: "session_started" })]]);
+  const broker = new Broker({ sessionFactory: fakeSession, laneStates: fakeLaneStates({ loomd }) });
+  broker.addSeed(fakeSession("claude-1", "claude-1"));
+  broker.addSeed(fakeSession("codex-1", "codex-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  sock.recv({ t: "kill", sid: "claude-1" });   // sem contraparte → ramo inferred
+  sock.recv({ t: "kill", sid: "codex-1" });    // com contraparte → ramo exact
+  const patches = sock.sent.filter((m) => m.t === "state");
+
+  assert.equal(
+    patches.find((m) => m.sid === "codex-1").loomdKind, "session_started",
+    "o kind do protocolo tem de chegar inteiro — é a única fonte que distingue título de fala"
+  );
+  const inferido = patches.find((m) => m.sid === "claude-1");
+  assert.ok("loomdKind" in inferido, "a chave PRECISA existir: ausente, o cliente congela a voz anterior");
+  assert.equal(
+    inferido.loomdKind, null,
+    "sem a fonte exata não sabemos o kind, e o detail deste ramo veio do capture-pane — " +
+    "mandar o último kind casaria voz de protocolo com texto de tela"
+  );
+});
+
 test("🚨 uma lane que perde a fonte exata NÃO tem o `usd` apagado — congela o último valor medido", () => {
   // Achado da review: `aceita` e `usd` são afirmações de natureza oposta. `aceita` é sobre o
   // presente (perder a fonte = não saber mais → `null`); `usd` é fato acumulado do passado
