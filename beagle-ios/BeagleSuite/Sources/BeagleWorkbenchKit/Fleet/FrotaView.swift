@@ -752,11 +752,24 @@ private struct LaneCard: View {
         }
     }
 
-    /// The agent's own words — the reason this card is on the shelf. Serif, because it is
-    /// something being SAID to the operator, not a machine reading.
+    /// A voz da evidência vem da ORIGEM do texto, não do estado da lane — função pura, testável
+    /// sem SwiftUI. Ver `SessionStore.registroDaEvidencia`.
+    private var registro: SessionStore.RegistroDaEvidencia {
+        SessionStore.registroDaEvidencia(loomdKind: lane.loomdKind, confidence: lane.confidence)
+    }
+
+    /// The agent's own words — the reason this card is on the shelf.
+    ///
+    /// Serifada quando é algo DITO ao operador; monoespaçada quando é leitura de máquina. Esta
+    /// linha já dizia isso em comentário e fazia outra coisa: a condição era `lane.state ==
+    /// .waiting`, então a fala de um agente que estava TRABALHANDO saía vestida de dado — e neste
+    /// sistema monoespaçada é reservada a número, medida e identificador.
+    ///
+    /// 🚨 Dois eixos, de propósito: a ORIGEM governa a FACE (aqui), o ESTADO governa a
+    /// PROMINÊNCIA (poço, opacidade, número de linhas — logo abaixo). Misturá-los foi o defeito.
     private var evidence: some View {
         Text(lane.detail)
-            .font(.system(.subheadline, design: lane.state == .waiting ? .serif : .monospaced))
+            .font(.system(.subheadline, design: registro == .fala ? .serif : .monospaced))
             .foregroundStyle(.white.opacity(lane.state == .waiting ? 0.95 : 0.6))
             .lineLimit(lane.state == .waiting ? 4 : 1)
             .textSelection(.enabled)

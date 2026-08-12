@@ -468,6 +468,46 @@ public final class SessionStore {
     /// isto está custando" decide se ele deixa correr ou aperta parar. O lado Rust já conta o
     /// turno aberto sem esperar por um `TurnEnded` que pode não chegar antes do olho passar pela
     /// tela; o rodapé não pode ser mais conservador que a fonte que ele lê.
+    /// De onde veio o texto da linha de evidência — e portanto em que VOZ ele deve ser lido.
+    ///
+    /// 🚨 Falta aqui um caso `titulo`, e a ausência é MEDIDA, não esquecimento. O único kind que
+    /// poderia carregá-lo é `session_started`, e ele é ambíguo hoje: numa lane de transcrição o
+    /// `detail` é o título que o agente escolheu (`ai-title`), mas numa lane ACP é o anúncio da
+    /// sessão — `"sessao ACP 979fc90f-8a56-…"`, um IDENTIFICADOR, para o qual monoespaçada é a
+    /// face certa. Distinguir os dois exige o loomd dar ao título um kind próprio, no lugar de
+    /// sobrecarregar `SessionStarted`. Até lá, `titulo` existe só no Figma, como especificação.
+    public enum RegistroDaEvidencia: String, Sendable, Equatable, CaseIterable {
+        /// Algo DITO ao operador — a prosa do agente, ou a pergunta que ele está fazendo.
+        case fala
+        /// Leitura de máquina: cromo de terminal, identificador, ou texto raspado da tela.
+        case leitura
+    }
+
+    /// A voz da evidência segue a ORIGEM do texto, nunca o estado da lane.
+    ///
+    /// O código anterior decidia por `lane.state == .waiting`, e o comentário logo acima dele já
+    /// declarava a intenção certa — *"serif, because it is something being SAID to the operator,
+    /// not a machine reading"*. O estado é o eixo errado: um agente falando enquanto trabalha
+    /// dizia a mesma espécie de coisa que um agente falando enquanto espera, e saía em
+    /// monoespaçada — que neste sistema é reservada a DADO (número, medida, identificador).
+    ///
+    /// O ESTADO continua governando prominência (poço, opacidade, número de linhas). Só a FACE
+    /// passou para a origem.
+    public nonisolated static func registroDaEvidencia(
+        loomdKind: String?, confidence: Confidence
+    ) -> RegistroDaEvidencia {
+        // Procedência primeiro: `inferred` é `capture-pane` + regex. Nenhum kind de protocolo
+        // acompanha um texto que veio da tela — e o cockpit manda `loomdKind: null` justamente
+        // nesse ramo, então confiar no kind aqui seria confiar num campo que não existe.
+        guard confidence == .exact else { return .leitura }
+        switch loomdKind {
+        // `awaiting_approval` / `awaiting_input`: a pergunta É dirigida ao operador. Sem estes
+        // dois a mudança seria uma REGRESSÃO — hoje a lane que espera já sai em serifada.
+        case "agent_message", "awaiting_approval", "awaiting_input": return .fala
+        default: return .leitura
+        }
+    }
+
     public static func rodapeDoTurno(duracao: TimeInterval?, uso: UsoDoTurno?) -> String? {
         var partes: [String] = []
         if let d = duracao { partes.append(rodapeDur(d)) }

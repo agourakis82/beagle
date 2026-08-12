@@ -394,7 +394,15 @@ public final class FleetStateClient {
                 approvalKind: obj["approvalKind"] == nil
                     ? old.approvalKind
                     : (obj["approvalKind"] as? String)
-                        .flatMap(SessionStep.ApprovalKind.init(rawValue:))
+                        .flatMap(SessionStep.ApprovalKind.init(rawValue:)),
+                // Mesma disciplina — e a MESMA distinção que `aceita` obrigou a fazer: chave
+                // AUSENTE (cockpit antigo, silêncio) preserva o valor antigo; chave PRESENTE com
+                // `null` (o servidor dizendo que perdeu a fonte exata) degrada para `nil`. Somar
+                // os dois no mesmo `?? old` manteria a voz de protocolo numa lane cuja evidência
+                // voltou a vir da tela — a fala continuaria em serifada sobre texto raspado.
+                loomdKind: obj["loomdKind"] == nil
+                    ? old.loomdKind
+                    : (obj["loomdKind"] as? String)
             )
         default:
             break   // data/scrollback belong to PTYClient; the board ignores terminal bytes.

@@ -197,6 +197,15 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// Reaproveita `SessionStep.ApprovalKind` (mesmo vocabulário, mesmos rótulos, mesma regra de
     /// reversibilidade) em vez de um enum paralelo: dois tipos para o mesmo fato divergem.
     public let approvalKind: SessionStep.ApprovalKind?
+    /// O ÚLTIMO evento do protocolo nesta lane, como o loomd o nomeia (`agent_message`,
+    /// `tool_call`, `awaiting_approval`, `session_started`…). `nil` = o servidor não declarou.
+    ///
+    /// Existe por uma razão só: escolher a VOZ da linha de evidência. `detail` carrega o texto,
+    /// e só o kind diz que TIPO de coisa aquele texto é — algo que o agente DISSE, ou cromo de
+    /// máquina. Sem ele a tela decidia pelo ESTADO da lane, que é o eixo errado: um agente
+    /// falando enquanto trabalha e um agente falando enquanto espera dizem a mesma espécie de
+    /// coisa, e saíam em faces diferentes.
+    public let loomdKind: String?
 
     public var id: String { sid }
     public var family: LaneFamily { LaneFamily.of(sid) }
@@ -245,7 +254,8 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         aceita: Aceita? = nil,
         usd: Double = 0,
         diff: String? = nil,
-        approvalKind: SessionStep.ApprovalKind? = nil
+        approvalKind: SessionStep.ApprovalKind? = nil,
+        loomdKind: String? = nil
     ) {
         self.sid = sid; self.title = title; self.state = state; self.detail = detail
         self.peek = peek; self.approve = approve; self.atShell = atShell
@@ -262,6 +272,7 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         // sendo aprovado não sabe — e a tela cala em vez de inventar.
         self.diff = diff
         self.approvalKind = approvalKind
+        self.loomdKind = loomdKind
     }
 
     /// True when the observation is too old to present as current. The card must then show it
@@ -309,6 +320,10 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         // afirmar "o agente quer seguir" sobre algo que pode não se desfazer.
         self.approvalKind = (obj["approvalKind"] as? String)
             .flatMap(SessionStep.ApprovalKind.init(rawValue:))
+        // Ausente OU `null` = o servidor não declarou o último evento. `nil`, e a evidência cai
+        // para a voz de leitura — nunca chutar `agent_message`, que faria cromo de terminal ser
+        // lido como fala do agente.
+        self.loomdKind = obj["loomdKind"] as? String
     }
 }
 
