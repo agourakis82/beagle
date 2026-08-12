@@ -34,5 +34,9 @@ spec:
             - "--cache=false"
             - "--snapshot-mode=redo"
           volumeMounts: [{ name: workspace, mountPath: /workspace }]
-          resources: { requests: { cpu: "1", memory: "2Gi" }, limits: { cpu: "4", memory: "6Gi" } }
+          resources: { requests: { cpu: "300m", memory: "2Gi" }, limits: { cpu: "4", memory: "6Gi" } }
+          # A RESERVA era 1 CPU e o no io-lab (5860) esta com 93% da CPU RESERVADA
+          # — 11255m de 12000m — enquanto usa 13% de verdade. O job ficava Pending
+          # por reserva, nao por falta de maquina. O teto de 4 continua: ele ainda
+          # constroi rapido, so nao bloqueia 1 CPU inteira enquanto espera I/O.
       volumes: [{ name: workspace, emptyDir: { sizeLimit: 3Gi } }]
