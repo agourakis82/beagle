@@ -3,56 +3,41 @@
 Arquivo de design: **[Beagle Mission Control — Sovereign Dark](https://www.figma.com/design/fS1TEG5cDGHs0uAHA953y7)**
 Fonte de verdade dos tokens: `beagle-ios/BeagleSuite/Sources/BeagleCore/Theme.swift`
 
-## 🚫 Code Connect está bloqueado — e não é contornável por código
+## ✅ Code Connect está ATIVO (12-ago-2026)
 
-Medido em 11-ago-2026 contra a conta real:
-
-```
-whoami                        → tier: "pro",  seat: "Full"
-get_code_connect_suggestions  → "You need a Dev or Full seat on an Organization or
-add_code_connect_map            Enterprise plan to use Code Connect."
-```
-
-Os **três** endpoints falham — `get_code_connect_suggestions`, `add_code_connect_map` e
-`list_file_components_for_code_connect`. Code Connect exige **Organization ou Enterprise**; `Pro`
-não basta, mesmo com assento `Full`.
-
-### A hipótese de escopo de token foi ELIMINADA (12-ago-2026)
-
-Havia uma ressalva honesta em aberto: se a equipe vivesse **dentro** de uma organização e o token
-OAuth alcançasse só a equipe, o gate seria do token e não da conta. **Testado e descartado.**
-
-O plugin oficial da Figma traz um **segundo servidor MCP, com autenticação própria e independente**.
-Fizemos um login OAuth novo do zero (com túnel reverso, porque o `redirect_uri` aponta para o
-`localhost` da máquina onde o Claude Code roda, não a do navegador). Resultado idêntico:
+O upgrade de plano destravou. A conta passou de equipe Pro para **organização**:
 
 ```
-servidor A (claude.ai Figma)   whoami → team::1654179493326852903  tier: pro  seat: Full
-servidor B (plugin oficial)    whoami → team::1654179493326852903  tier: pro  seat: Full
-                               get_code_connect_suggestions → mesmo erro de plano
+antes  →  team::1654179493326852903          tier: pro   (dois logins independentes confirmaram)
+depois →  organization::1669203848746358212  tier: org   name: "Beagle"
 ```
 
-Duas autenticações independentes reportam **um único plano**, e ele é uma **equipe Pro** — não uma
-organização (o prefixo é `team::`, não `organization::`). Nem o plugin oficial nem o DesignAgent
-contornam: os dois atuam do lado do **cliente**, e o gate é do **servidor**. Só o upgrade resolve.
+O gate era mesmo de plano — nem escopo de token (testado com um segundo servidor MCP e
+autenticação própria), nem falta de publicação (`list_file_components_for_code_connect` falhava
+antes de olhar a publicação). Registro fica aqui porque o caminho até a conclusão é a parte útil:
+**três endpoints medidos**, uma hipótese levantada e **eliminada por experimento**, e só então o
+upgrade.
 
-### ✅ Publicação: feita (12-ago-2026)
+### Estado das ligações
 
-A biblioteca **está publicada** — o outro pré-requisito do Code Connect está cumprido, confirmado por
-`search_design_system`, que só devolve o que está publicado:
+| componente | nodeId | ligado | template |
+|---|---|---|---|
+| Compositor da Sessão → `SessionView` | `6:28` | ✅ nas 5 variantes | ❌ `hasTemplate: false` |
+| Chip de Lane → `LaneCard` | `10:44` | ❌ | template pronto |
+| Rodapé do Turno → `rodapeDoTurno` | `11:23` | ❌ | template pronto |
 
-```
-library : Beagle Mission Control — Sovereign Dark
-libKey  : lk-94e81045d9910ce0cfa35536cef023f96b92c3cb...
-compKey : 190a94d7e57f9c21ab47ea59e687b5593ec03e17   (component_set "Compositor da Sessão")
-varSet  : 3585feff430e0c4534032cf8636ac87a2d9951f6   (coleção "Cor")
-```
+**Dois cliques na UI destravam o resto** — nenhum deles tem API:
 
-Ou seja: **falta só o plano.** `list_file_components_for_code_connect` nem chega a olhar a
-publicação — o gate de plano barra antes dele.
+1. **Republicar a biblioteca.** O Chip e o Rodapé foram criados **depois** da primeira publicação,
+   então `send_code_connect_mappings` recusa os dois com *"Published component not found"*.
+2. **Desconectar o Code Connect do Compositor.** A primeira tentativa registrou mapeamento
+   **simples** (sem trecho de código) por erro meu — usei `figma.currentInstance` e omiti o
+   `import figma from 'figma'`, quando a API é `figma.selectedInstance`. Os dois caminhos de
+   escrita agora recusam com *"already mapped… disconnect the existing mapping in the Figma UI
+   first"*.
 
-`CompositorDaSessao.figma.ts` existe para que o mapeamento **não se perca e possa ser revisado
-agora**. No dia em que o plano subir, ele publica sem reescrita.
+Feito isso, os três templates deste diretório sobem numa chamada e o Dev Mode passa a mostrar o
+`SessionView(...)` real por variante, em vez de só o caminho do arquivo.
 
 ## O que funciona no Pro, e onde o contrato vive hoje
 
