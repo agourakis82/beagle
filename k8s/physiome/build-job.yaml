@@ -2,6 +2,10 @@
 #   kubectl delete job physiome-build -n beagle --ignore-not-found
 #   kubectl apply -f k8s/physiome/build-job.yaml
 # Then poll the registry tag (NOT the Job — TTL deletes it): 192.168.3.207:5003/v2/physiome/tags/list
+#
+# A tag e DERIVADA DO COMMIT, nunca fixa em 0.1.0. Tag mutavel e o mesmo defeito do
+# numero de build cravado a mao: nao da para saber o que esta rodando, e o kubelet
+# pode servir cache velho sem ninguem perceber.
 apiVersion: batch/v1
 kind: Job
 metadata: { name: physiome-build, namespace: beagle }
@@ -19,7 +23,7 @@ spec:
         - name: clone
           image: alpine/git:latest
           # Pinned to an immutable commit SHA (not a mutable branch) for reproducible, tamper-resistant builds. Bump per release.
-          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 3a8273aaca71e55be6e280306335aa825fd64cdd && git checkout -q FETCH_HEAD"]
+          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 3df75104501785c4f82c12f864157fa8eb801183 && git checkout -q FETCH_HEAD"]
           volumeMounts: [{ name: workspace, mountPath: /workspace }]
       containers:
         - name: kaniko
@@ -27,7 +31,7 @@ spec:
           args:
             - "--dockerfile=/workspace/apps/physiome/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/physiome:0.1.0"
+            - "--destination=192.168.3.207:5003/physiome:instrumentado-3df75104"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
