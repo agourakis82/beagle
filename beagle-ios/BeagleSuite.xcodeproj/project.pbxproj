@@ -818,7 +818,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */,
 				00F812AB7229A6E94A452495 /* BeagleWatchApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -827,6 +826,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */,
 				951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */,
 				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
 				029E94DF2B6FD3EFABFAF744 /* AgoraDetailView.swift in Sources */,
