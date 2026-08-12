@@ -65,6 +65,7 @@
 		9D3E9AC3F435A2A585B1F48B /* ChatBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189F9DCDE0C15DEF48A24B21 /* ChatBubbleView.swift */; };
 		9E87B243B252D1D9E4FF3478 /* AuroraPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6228903A5E9B0E149CA85D29 /* AuroraPresence.swift */; };
 		BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA11A0000000000000000001 /* PrimordialPresence.swift */; };
+		E43E000000000000000000F2 /* EmberField.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43E000000000000000000F1 /* EmberField.swift */; };
 		BA11A000000000000000000B /* st-adormecido.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000A /* st-adormecido.mp4 */; };
 		BA11A000000000000000000D /* st-adormecido.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000C /* st-adormecido.png */; };
 		BA11A000000000000000000F /* st-atento.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000E /* st-atento.mp4 */; };
@@ -226,6 +227,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 		5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleVisionOSApp.swift; sourceTree = "<group>"; };
 		6228903A5E9B0E149CA85D29 /* AuroraPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuroraPresence.swift; sourceTree = "<group>"; };
 		BA11A0000000000000000001 /* PrimordialPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimordialPresence.swift; sourceTree = "<group>"; };
+		E43E000000000000000000F1 /* EmberField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmberField.swift; sourceTree = "<group>"; };
 		BA11A000000000000000000A /* st-adormecido.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = st-adormecido.mp4; sourceTree = "<group>"; };
 		BA11A000000000000000000C /* st-adormecido.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = st-adormecido.png; sourceTree = "<group>"; };
 		BA11A000000000000000000E /* st-atento.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = st-atento.mp4; sourceTree = "<group>"; };
@@ -457,6 +459,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 			children = (
 				6228903A5E9B0E149CA85D29 /* AuroraPresence.swift */,
 				BA11A0000000000000000001 /* PrimordialPresence.swift */,
+				E43E000000000000000000F1 /* EmberField.swift */,
 				59FBC87CBB5038D5A3471981 /* BeagleFigure.swift */,
 				9D18264939BB3C472DC5342F /* BeagleSplatView.swift */,
 				A5286286749095956E24B879 /* BodyStory.swift */,
@@ -826,6 +829,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 				029E94DF2B6FD3EFABFAF744 /* AgoraDetailView.swift in Sources */,
 				9E87B243B252D1D9E4FF3478 /* AuroraPresence.swift in Sources */,
 				BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */,
+				E43E000000000000000000F2 /* EmberField.swift in Sources */,
 				2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */,
 				B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */,
 				E69EEC2DD2B3683A6CAFFC83 /* BeagleFigure.swift in Sources */,
@@ -1059,7 +1063,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 57;
+				CURRENT_PROJECT_VERSION = 58;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -1129,7 +1133,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				CURRENT_PROJECT_VERSION = 57;
+				CURRENT_PROJECT_VERSION = 58;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;

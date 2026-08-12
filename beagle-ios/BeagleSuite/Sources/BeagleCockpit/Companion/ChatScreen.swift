@@ -306,6 +306,12 @@ public struct ChatScreen: View {
         // `.opacity(empty ? 0.9 : 0.28)` no retorno da propriedade; herdá-lo deixaria
         // o primordial a 28% justamente enquanto se lê — o efeito "fantasma".
         return ZStack {
+            // O CHÃO DE LUZ. Vem primeiro porque é ambiente, não elemento: é a brasa
+            // que o bicho espalha, ancorada onde fica o coração dele. Sem ela o bicho
+            // flutua sobre um retângulo chapado.
+            EmberField(breath: breath, intensity: empty ? 1.0 : 0.62)
+                .animation(.easeOut(duration: 0.6), value: empty)
+
             // Atrás: a aurora continua (foi construída de propósito e o usuário gosta
             // dela), mas rebaixada a cenário do cenário para não virar sopa visual.
             AuroraPresence(
