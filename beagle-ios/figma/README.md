@@ -13,7 +13,8 @@ get_code_connect_suggestions  → "You need a Dev or Full seat on an Organizatio
 add_code_connect_map            Enterprise plan to use Code Connect."
 ```
 
-Os **dois** caminhos falham — o template completo e o mapeamento leve. Code Connect exige
+Os **três** endpoints falham — `get_code_connect_suggestions`, `add_code_connect_map` e
+`list_file_components_for_code_connect`. Code Connect exige
 **Organization ou Enterprise**; `Pro` não baste, mesmo com assento `Full`. Não há flag, SDK local
 nem rota alternativa: o gate é do servidor da Figma.
 
@@ -32,11 +33,15 @@ agora**. No dia em que o plano subir, ele publica sem reescrita.
 
 O Figma **não** renderiza a face do app. As duas trocas estão na descrição de cada estilo:
 
-- **`SF Pro`** — o Figma a **lista** e `loadFontAsync` **não** reclama, mas as glifos medem
-  **largura zero**: inutilizável. A rampa de UI usa **Inter**. Tamanho e peso são fiéis; o desenho
-  da letra não.
-- **`SF Mono`** — não existe no Figma. A rampa de dado usa **JetBrains Mono**. Monospace aqui não é
-  estética: o sistema reserva monoespaçada para **dado** (número, medida, identificador).
+- **`SF Pro`** — ✅ **RESOLVIDO em 11-ago-2026.** Antes de o Figma Desktop ser instalado no Mac, a
+  família era **listada** e `loadFontAsync` **não** reclamava, mas as glifos mediam **largura zero**:
+  inutilizável, e tudo saía invisível. Com o desktop instalado ela passou a medir (283 px numa
+  string de teste) e a rampa de UI voltou para **SF Pro**, a face real do app. A substituição por
+  Inter foi desfeita e o aviso removido dos 12 estilos — aviso que deixou de valer vira mentira na
+  direção oposta.
+- **`SF Mono`** — ❌ **continua ausente**, mesmo com o Figma Desktop instalado. A rampa de dado usa
+  **JetBrains Mono**. Monospace aqui não é estética: o sistema reserva monoespaçada para **dado**
+  (número, medida, identificador). `SF Compact` também é listada e também mede zero.
 
 ## Armadilha que já custou duas rodadas
 
