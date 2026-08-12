@@ -18,34 +18,47 @@ antes de olhar a publicação). Registro fica aqui porque o caminho até a concl
 **três endpoints medidos**, uma hipótese levantada e **eliminada por experimento**, e só então o
 upgrade.
 
-### Estado das ligações
+### Estado das ligações: os TRÊS ligados com template (12-ago-2026)
 
 | componente | nodeId | ligado | template |
 |---|---|---|---|
-| Compositor da Sessão → `SessionView` | `6:28` | ✅ nas 5 variantes | ❌ `hasTemplate: false` |
-| Chip de Lane → `LaneCard` | `10:44` | ❌ | template pronto |
-| Rodapé do Turno → `rodapeDoTurno` | `11:23` | ❌ | template pronto |
+| Compositor da Sessão → `SessionView` | `6:28` | ✅ 5 variantes | ✅ snippet por variante |
+| Chip de Lane → `LaneCard` | `10:44` | ✅ 5 variantes | ✅ |
+| Rodapé do Turno → `SessionStore.rodapeDoTurno` | `11:23` | ✅ 5 variantes | ✅ |
 
-**Dois cliques na UI destravam o resto** — nenhum deles tem API:
+No Dev Mode, cada variante mostra o `SessionView(...)` real com o `aceita` daquele estado —
+`.redireciona`, `.enfileira`, `.somenteLeitura`, `nil` com link vivo, `nil` com
+`.insistindo(motivo:tentativas:)`. Verificado por `get_code_connect_map`: `hasTemplate: true` nas
+cinco, com o snippet renderizado.
 
-1. **Republicar a biblioteca.** O Chip e o Rodapé foram criados **depois** da primeira publicação,
-   então `send_code_connect_mappings` recusa os dois com *"Published component not found"*.
-2. **Desconectar o Code Connect do Compositor.** A primeira tentativa registrou mapeamento
-   **simples** (sem trecho de código) por erro meu — usei `figma.currentInstance` e omiti o
-   `import figma from 'figma'`, quando a API é `figma.selectedInstance`. Os dois caminhos de
-   escrita agora recusam com *"already mapped… disconnect the existing mapping in the Figma UI
-   first"*.
+### Como publicar (o que funcionou, e por quê a API não bastava)
 
-Feito isso, os três templates deste diretório sobem numa chamada e o Dev Mode passa a mostrar o
-`SessionView(...)` real por variante, em vez de só o caminho do arquivo.
+A API MCP (`add_code_connect_map` / `send_code_connect_mappings`) **aceita** o campo `template` e
+responde `success: true`, mas o template **não gruda** — `hasTemplate` fica `false` e só a referência
+ao arquivo é registrada. Templates parserless sobem pelo **CLI oficial**:
 
-## O que funciona no Pro, e onde o contrato vive hoje
+```bash
+cd beagle-ios/figma
+npm install --no-save @figma/code-connect          # 1.5.2; node_modules é git-ignored
+FIGMA_ACCESS_TOKEN="$(tr -d '[:space:]' < ~/.config/figma/token)"   npx figma connect publish --force --skip-update-check
+```
 
-| Onde | O quê | Gate de plano? |
-|---|---|---|
-| Descrição do conjunto e de cada variante no Figma | símbolo Swift, arquivo e linha de cada decisão | não |
-| `codeSyntax` iOS nas 40 variáveis | `BeagleTheme.truthObserved`, `BeagleSpacing.md`, … | leitura plena no Dev Mode é gated |
-| Este diretório | template pronto para publicar | não |
+Três coisas que só se descobrem lendo o pacote, não a documentação:
+
+1. **Parserless se ativa OMITINDO a chave `parser`** — `CodeConnectParserlessConfig =
+   BaseCodeConnectConfig & { parser: undefined }` (`dist/connect/project.d.ts`). Com um `parser`
+   qualquer, o CLI tenta o parser nativo e ignora os templates.
+2. O CLI reconhece template cru pelos diretivos **`// url=`, `// component=`, `// source=`** no
+   cabeçalho (`dist/connect/raw_templates.d.ts` → `isRawTemplate`).
+3. **`--dry-run` roda sem token** — valida parse, rótulo e a lista do que subiria antes de a
+   credencial existir. Foi assim que a configuração ficou provada antes de pedir o token.
+
+**`--force` é necessário se houver mapeamento criado pela UI/API** para o mesmo rótulo: o CLI avisa
+`Warning: N node(s) already have UI-created Code Connect mappings` e não sobrescreve sem ele.
+
+O token é um Personal Access Token (escopos Code Connect + File content), gravado em
+`~/.config/figma/token` com permissão `600` no t560. Para revogar: Figma → Settings → Security →
+Personal access tokens.
 
 ## Separador decimal do dinheiro — consertado (12-ago-2026)
 
