@@ -412,7 +412,6 @@
 			isa = PBXGroup;
 			children = (
 				BA11A0000000000000000001 /* PrimordialPresence.swift */,
-				BA11A0000000000000000003 /* Presence */,
 				6228903A5E9B0E149CA85D29 /* AuroraPresence.swift */,
 				59FBC87CBB5038D5A3471981 /* BeagleFigure.swift */,
 				9D18264939BB3C472DC5342F /* BeagleSplatView.swift */,
@@ -445,6 +444,7 @@
 		49306022E798431025B3FFFC /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				BA11A0000000000000000003 /* Presence */,
 				381B14E054CDB5B337BC4A52 /* trellis_doodle.ply */,
 			);
 			path = Resources;
