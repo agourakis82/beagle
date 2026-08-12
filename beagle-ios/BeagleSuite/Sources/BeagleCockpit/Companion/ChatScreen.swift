@@ -239,6 +239,16 @@ public struct ChatScreen: View {
         // Herdá-lo deixaria o BICHO a 28% justamente enquanto se lê — o efeito
         // fantasma. A aurora pode ser cenário; ele não.
         return ZStack {
+            // O CHÃO DE LUZ. Vem antes de tudo porque é o ambiente, não um elemento:
+            // é a brasa que o bicho espalha, ancorada onde fica o coração dele.
+            // Sem ela o bicho flutua sobre um retângulo chapado — foi exatamente o
+            // que fez a primeira versão do desenho parecer pobre.
+            EmberField(
+                breathRate: breathRate,
+                intensity: empty ? 1.0 : 0.62
+            )
+            .animation(.easeOut(duration: 0.6), value: empty)
+
             // Atrás: a aurora continua (foi construída de propósito e ele gosta dela),
             // mas rebaixada a cenário do cenário para não virar sopa visual.
             AuroraPresence(

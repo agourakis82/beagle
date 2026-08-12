@@ -101,6 +101,7 @@
 		FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */; };
 		BA11C0000000000000000001 /* Secrets.plist in Resources */ = {isa = PBXBuildFile; fileRef = BA11C0000000000000000002 /* Secrets.plist */; };
 		BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA11A0000000000000000001 /* PrimordialPresence.swift */; };
+		E43E000000000000000000F2 /* EmberField.swift in Sources */ = {isa = PBXBuildFile; fileRef = E43E000000000000000000F1 /* EmberField.swift */; };
 		BA11A000000000000000000B /* st-adormecido.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000A /* st-adormecido.mp4 */; };
 		BA11A000000000000000000D /* st-adormecido.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000C /* st-adormecido.png */; };
 		BA11A000000000000000000F /* st-atento.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000E /* st-atento.mp4 */; };
@@ -261,6 +262,7 @@
 		FCFA09876B0976760E929222 /* CognitiveRecall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveRecall.swift; sourceTree = "<group>"; };
 		BA11C0000000000000000002 /* Secrets.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Secrets.plist; sourceTree = "<group>"; };
 		BA11A0000000000000000001 /* PrimordialPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimordialPresence.swift; sourceTree = "<group>"; };
+		E43E000000000000000000F1 /* EmberField.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmberField.swift; sourceTree = "<group>"; };
 		BA11A000000000000000000A /* st-adormecido.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = st-adormecido.mp4; sourceTree = "<group>"; };
 		BA11A000000000000000000C /* st-adormecido.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = st-adormecido.png; sourceTree = "<group>"; };
 		BA11A000000000000000000E /* st-atento.mp4 */ = {isa = PBXFileReference; lastKnownFileType = file; path = st-atento.mp4; sourceTree = "<group>"; };
@@ -412,6 +414,7 @@
 			isa = PBXGroup;
 			children = (
 				BA11A0000000000000000001 /* PrimordialPresence.swift */,
+				E43E000000000000000000F1 /* EmberField.swift */,
 				6228903A5E9B0E149CA85D29 /* AuroraPresence.swift */,
 				59FBC87CBB5038D5A3471981 /* BeagleFigure.swift */,
 				9D18264939BB3C472DC5342F /* BeagleSplatView.swift */,
@@ -827,6 +830,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */,
+				E43E000000000000000000F2 /* EmberField.swift in Sources */,
 				951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */,
 				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
 				029E94DF2B6FD3EFABFAF744 /* AgoraDetailView.swift in Sources */,
