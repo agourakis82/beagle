@@ -318,92 +318,25 @@ public final class FleetStateClient {
         case "sessions":
             guard let arr = obj["sessions"] as? [[String: Any]] else { return }
             let antes = lanes
-            lanes = arr.compactMap(LaneSnapshot.init(loom:))
+            // Closure, e não `LaneSnapshot.init(loom:)`: o init ganhou `mesclandoCom` (com default), e
+            // referência de função não aceita parâmetro defaultado. Quadro cheio = mesclar com nada.
+            lanes = arr.compactMap { LaneSnapshot(loom: $0) }
             ingestLoomd(obj["loomd"] as? [String: Any], antes: antes)
             trace("sessions: \(lanes.count) lanes, \(shelf.count) na prateleira, fonte medida: \(loomd?.mode.rawValue ?? "não declarada")")
         case "state":
             // A single lane changed; patch it in place so the board does not reflow.
+            //
+            // 🚨 Aqui havia uma reconstrução CAMPO-A-CAMPO do `LaneSnapshot`, e era o segundo
+            // caminho de decodificação do projeto. Seis campos morreram nesta exata linha —
+            // `confidence`, `aceita`, `usd`, o congelamento do `usd`, `diff`/`approvalKind`,
+            // `loomdKind` — porque cada campo novo entrava no `init?(loom:)` e ninguém lembrava
+            // daqui. Agora existe UM caminho: `init?(loom:mesclandoCom:)`, onde a política de
+            // ausência de cada campo é escrita uma única vez. Não há mais onde esquecer.
             guard let sid = obj["sid"] as? String,
-                  let idx = lanes.firstIndex(where: { $0.sid == sid }) else { return }
-            let old = lanes[idx]
-            lanes[idx] = LaneSnapshot(
-                sid: old.sid,
-                title: old.title,
-                state: LaneState(rawValue: (obj["state"] as? String) ?? "") ?? .unknown,
-                detail: (obj["detail"] as? String) ?? old.detail,
-                peek: (obj["peek"] as? [Any])?.compactMap { $0 as? String } ?? old.peek,
-                // A patch that kept the OLD affordance could leave an approve button on a lane
-                // that has moved on to a question needing a typed answer.
-                approve: obj["approveKey"] == nil
-                    ? old.approve
-                    : ApproveAffordance(approveKey: obj["approveKey"] as? String),
-                atShell: (obj["atShell"] as? Bool) ?? old.atShell,
-                observedAt: (obj["observedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
-                    ?? old.observedAt,
-                // Patch de lane única: `?? old.confidence`, NÃO `?? .inferred`. Um frame
-                // `state` que omite o campo é silêncio sobre a procedência, não a afirmação
-                // de que a lane passou a ser adivinhada — rebaixá-la apagaria o contraste
-                // no primeiro evento depois do snapshot.
-                confidence: (obj["confidence"] as? String).flatMap(Confidence.init(rawValue:))
-                    ?? old.confidence,
-                // Mesma disciplina de `confidence`: `?? old.aceita`, NÃO `?? nil`. Um frame
-                // `state` que omite `aceita` é silêncio sobre a capacidade, não a revogação
-                // dela — e foi exatamente este ponto que apagou `confidence` em silêncio antes
-                // de o comentário acima existir. `aceita` não repete o erro.
-                //
-                // 🚨 Achado de review: CHAVE AUSENTE e VALOR ILEGÍVEL não podem cair no mesmo
-                // `?? old.aceita`. `(obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))`
-                // devolve `nil` tanto para "a chave não veio" quanto para "a chave veio com um
-                // valor que o vocabulário atual não reconhece" (ex.: o servidor renomeou
-                // `redireciona` e este binário ainda não sabe) — e os dois `nil` acabavam no
-                // MESMO `?? old.aceita`, preservando `GUIAR`/`ENFILEIRAR` numa lane que o
-                // servidor pode ter acabado de tornar somente-leitura. O caminho de quadro
-                // inteiro (`LaneState.init(loom:)`, linha ~275) já degrada valor ilegível para
-                // `nil` — o lado seguro — e este patch de lane única tinha de concordar com ele
-                // em vez de tratar "não sei ler isto" como "não mudou nada".
-                aceita: obj["aceita"] == nil
-                    ? old.aceita
-                    : (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:)),
-                // Mesma disciplina de `confidence`/`aceita`: `?? old.usd`, NÃO `?? 0`. Um frame
-                // `state` que omite `usd` é silêncio sobre o custo, não a afirmação de que ele
-                // zerou. 🚨 A razão ORIGINALMENTE escrita aqui — "o servidor omite a chave por
-                // padrão quando o valor não mudou desde o último `sessions`" — é FABRICADA: o
-                // servidor manda `usd` explicitamente em todo patch, hoje. A defesa `?? old.usd`
-                // continua certa (silêncio nunca pode virar zero, e um binário futuro pode voltar
-                // a omitir a chave), só a JUSTIFICATIVA estava errada e enganaria o próximo
-                // leitor a procurar um comportamento do servidor que não existe. A razão real:
-                // é defensivo por cautela, não porque o servidor hoje se comporta assim.
-                //
-                // 🚨 Este `?? old.usd` é a razão pela qual o número pode estar velho POR
-                // CONSTRUÇÃO: o servidor CONGELA o último custo conhecido quando perde a fonte
-                // exata, e o cliente faz o mesmo aqui. A dívida que ficava neste ponto (o chip
-                // não herdava `isStale` da lane, e o valor congelava sem indicador de
-                // expiração) está SALDADA em `SessionStore.chipDeCusto`, que marca o chip e o
-                // rótulo de VoiceOver quando a observação por trás do número venceu.
-                usd: (obj["usd"] as? Double) ?? old.usd,
-                // Mesma disciplina de `aceita`, e pelo mesmo motivo já pago quatro vezes neste
-                // ponto (`confidence`, `aceita`, `usd`): CHAVE AUSENTE é silêncio — preserva-se o
-                // que havia; CHAVE PRESENTE (mesmo `null`, mesmo vazio) é o servidor DIZENDO que
-                // não há mais mudança proposta — e aí `nil` é a resposta certa. Um `?? old.diff`
-                // cru manteria na tela o patch de um pedido já respondido; um `?? nil` cru
-                // apagaria o patch no primeiro patch de lane única depois do snapshot, que é
-                // exatamente como este campo morreria em silêncio de novo.
-                diff: obj["diff"] == nil
-                    ? old.diff
-                    : (obj["diff"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                approvalKind: obj["approvalKind"] == nil
-                    ? old.approvalKind
-                    : (obj["approvalKind"] as? String)
-                        .flatMap(SessionStep.ApprovalKind.init(rawValue:)),
-                // Mesma disciplina — e a MESMA distinção que `aceita` obrigou a fazer: chave
-                // AUSENTE (cockpit antigo, silêncio) preserva o valor antigo; chave PRESENTE com
-                // `null` (o servidor dizendo que perdeu a fonte exata) degrada para `nil`. Somar
-                // os dois no mesmo `?? old` manteria a voz de protocolo numa lane cuja evidência
-                // voltou a vir da tela — a fala continuaria em serifada sobre texto raspado.
-                loomdKind: obj["loomdKind"] == nil
-                    ? old.loomdKind
-                    : (obj["loomdKind"] as? String)
-            )
+                  let idx = lanes.firstIndex(where: { $0.sid == sid }),
+                  let mesclada = LaneSnapshot(loom: obj, mesclandoCom: lanes[idx])
+            else { return }
+            lanes[idx] = mesclada
         default:
             break   // data/scrollback belong to PTYClient; the board ignores terminal bytes.
         }

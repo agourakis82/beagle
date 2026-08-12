@@ -284,46 +284,87 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
 
     /// Decode one entry of a Loom `{t:"sessions"}` frame. Unknown/absent fields degrade
     /// honestly to `.unknown` + no evidence rather than to a confident default.
-    public init?(loom obj: [String: Any]) {
+    /// Decodifica uma lane do fio — e é o **ÚNICO** caminho de decodificação que existe.
+    ///
+    /// 🚨 Antes havia DOIS: este, para o quadro cheio `{t:"sessions"}`, e uma reconstrução
+    /// campo-a-campo dentro de `FleetStateClient` para o patch `{t:"state"}`. Os dois divergiam, e
+    /// divergiram **seis vezes** — `confidence`, `aceita`, `usd`, o congelamento do `usd`,
+    /// `diff`/`approvalKind`, `loomdKind` — sempre do mesmo jeito: o campo novo entrava aqui e
+    /// ninguém lembrava do outro lado. Nenhum formato de fio detecta isso: esquecer de LER um campo
+    /// é propriedade do código, não do encoding. A cura é não ter dois lugares para esquecer.
+    ///
+    /// `mesclandoCom` é o que unifica os dois casos, em vez de escondê-los:
+    ///   • `nil` (quadro cheio) — chave ausente cai no default HONESTO do campo;
+    ///   • uma lane (patch) — chave ausente é SILÊNCIO e preserva o valor antigo.
+    ///
+    /// E em todo campo com vocabulário fechado, CHAVE AUSENTE e VALOR ILEGÍVEL são casos
+    /// diferentes: ausente preserva, ilegível degrada para o lado seguro. Somar os dois no mesmo
+    /// `?? antigo` foi o defeito que manteve `GUIAR` numa lane que o servidor tornou
+    /// somente-leitura.
+    public init?(loom obj: [String: Any], mesclandoCom antigo: LaneSnapshot? = nil) {
         guard let sid = obj["sid"] as? String else { return nil }
         self.sid = sid
-        self.title = (obj["title"] as? String) ?? sid
+        self.title = (obj["title"] as? String) ?? antigo?.title ?? sid
+        // Estado ilegível degrada para `.unknown` nos DOIS casos: aqui o lado seguro é admitir
+        // ignorância, não preservar um estado que pode ter mudado.
         self.state = LaneState(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
-        self.detail = (obj["detail"] as? String) ?? ""
-        self.peek = (obj["peek"] as? [Any])?.compactMap { $0 as? String } ?? []
-        self.approve = ApproveAffordance(approveKey: obj["approveKey"] as? String)
-        // Absent field = not a shell. Guessing "shell" would draw a button the server refuses.
-        self.atShell = (obj["atShell"] as? Bool) ?? false
-        if let ms = obj["observedAt"] as? Double, ms > 0 {
-            self.observedAt = Date(timeIntervalSince1970: ms / 1000)
-        } else {
-            self.observedAt = nil
-        }
-        // Campo ausente OU valor desconhecido = `inferred`. Um cockpit antigo, que ainda não
-        // manda `confidence`, não pode fazer a Frota afirmar que raspagem de tela é medição.
-        self.confidence = Confidence(rawValue: (obj["confidence"] as? String) ?? "") ?? .inferred
-        // Ausente = não há pendência. Degradar para "tem pedido" desenharia um botão que não
-        // tem o que responder — e o servidor recusaria com 409.
-        self.pendingApproval = obj["pendingApproval"] != nil && !(obj["pendingApproval"] is NSNull)
-        // Ausente = o servidor não sabe o que esta lane aceita. `nil` aqui, NÃO um chute — a
-        // tela então não oferece gesto nenhum em vez de oferecer um errado.
-        self.aceita = (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))
-        // Ausente = zero: o servidor OMITE a chave quando não houve cobrança
-        // (`serde skip_serializing_if`), então a falta da chave não é "desconhecido".
-        self.usd = (obj["usd"] as? Double) ?? 0
-        // Ausente, `null` ou VAZIO = não há mudança proposta. Vazio degrada a `nil` de propósito:
-        // o cockpit já normaliza isso do lado dele (`loomd.mjs`), e concordar com ele aqui evita
-        // que a tela desenhe um bloco de diff sem uma linha dentro.
-        self.diff = (obj["diff"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        // Ausente OU vocabulário desconhecido = `nil`: um binário que ainda não sabe ler um tipo
-        // novo de aprovação fica CALADO sobre a natureza dela, em vez de rebaixá-la a `.other` e
-        // afirmar "o agente quer seguir" sobre algo que pode não se desfazer.
-        self.approvalKind = (obj["approvalKind"] as? String)
-            .flatMap(SessionStep.ApprovalKind.init(rawValue:))
-        // Ausente OU `null` = o servidor não declarou o último evento. `nil`, e a evidência cai
-        // para a voz de leitura — nunca chutar `agent_message`, que faria cromo de terminal ser
-        // lido como fala do agente.
-        self.loomdKind = obj["loomdKind"] as? String
+        self.detail = (obj["detail"] as? String) ?? antigo?.detail ?? ""
+        self.peek = (obj["peek"] as? [Any])?.compactMap { $0 as? String } ?? antigo?.peek ?? []
+        // Um patch que mantivesse a affordance ANTIGA deixaria um botão de aprovar numa lane que
+        // já passou para uma pergunta que precisa de resposta digitada.
+        self.approve = obj["approveKey"] == nil
+            ? (antigo?.approve ?? ApproveAffordance(approveKey: nil))
+            : ApproveAffordance(approveKey: obj["approveKey"] as? String)
+        // Chave ausente = não é shell. Chutar "shell" desenharia um botão que o servidor recusa.
+        self.atShell = (obj["atShell"] as? Bool) ?? antigo?.atShell ?? false
+        // `ms <= 0` é o vocabulário de "nunca observado" do servidor — vira `nil`, não uma data de
+        // 1970. O caminho de patch antes aceitava qualquer número e fabricava essa data.
+        self.observedAt = (obj["observedAt"] as? Double)
+            .flatMap { $0 > 0 ? Date(timeIntervalSince1970: $0 / 1000) : nil }
+            ?? antigo?.observedAt
+        // Um cockpit antigo, que ainda não manda `confidence`, não pode fazer a Frota afirmar que
+        // raspagem de tela é medição — daí o piso `.inferred` quando não há valor antigo.
+        //
+        // 🚨 ASSIMETRIA DELIBERADA com `aceita`, logo abaixo, e ela tem teste próprio
+        // (`testAStatePatchThatDeclaresConfidenceWins`): aqui valor ILEGÍVEL **preserva**, ali
+        // ilegível **degrada**. Não é descuido — os riscos têm formas opostas. Rebaixar uma lane
+        // medida a `inferred` por causa de um token que este binário ainda não conhece é uma FALSA
+        // DEMOÇÃO: apaga o contraste que a Frota existe para mostrar, sem que nada tenha mudado.
+        // Já preservar `aceita` OFERECE UM GESTO que o servidor pode ter acabado de revogar, e o
+        // botão falha na mão do operador. Quando errar de um lado custa contraste e do outro custa
+        // uma ação quebrada, os dois campos não podem ter a mesma regra.
+        self.confidence = Confidence(rawValue: (obj["confidence"] as? String) ?? "")
+            ?? antigo?.confidence ?? .inferred
+        // Ausente = não há pendência. Degradar para "tem pedido" desenharia um botão sem o que
+        // responder — e o servidor recusaria com 409.
+        self.pendingApproval = obj["pendingApproval"] == nil
+            ? (antigo?.pendingApproval ?? false)
+            : !(obj["pendingApproval"] is NSNull)
+        // Afirmação sobre CAPACIDADE ATUAL: ilegível vira `nil` (a tela não oferece gesto nenhum)
+        // em vez de preservar um `GUIAR` que o servidor pode ter acabado de revogar.
+        self.aceita = obj["aceita"] == nil
+            ? antigo?.aceita
+            : (obj["aceita"] as? String).flatMap(Aceita.init(rawValue:))
+        // FATO DO PASSADO: silêncio nunca pode virar zero — um gasto já ocorrido não desaparece
+        // porque o servidor calou. E ausência de chave no quadro cheio É zero, porque o servidor
+        // omite `usd` quando não houve cobrança (`serde skip_serializing_if`).
+        self.usd = (obj["usd"] as? Double) ?? antigo?.usd ?? 0
+        // Vazio degrada a `nil` de propósito: o cockpit já normaliza isso do lado dele, e concordar
+        // com ele evita a tela desenhar um bloco de diff sem uma linha dentro.
+        self.diff = obj["diff"] == nil
+            ? antigo?.diff
+            : (obj["diff"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // Vocabulário desconhecido = `nil`: um binário que ainda não sabe ler um tipo novo de
+        // aprovação fica CALADO sobre a natureza dela, em vez de rebaixá-la a `.other` e prometer
+        // reversibilidade por git a um `rm -rf`.
+        self.approvalKind = obj["approvalKind"] == nil
+            ? antigo?.approvalKind
+            : (obj["approvalKind"] as? String).flatMap(SessionStep.ApprovalKind.init(rawValue:))
+        // `null` explícito é o servidor admitindo que perdeu a fonte exata — a evidência volta a
+        // ser lida como leitura de máquina. Não pode virar `?? antigo`.
+        self.loomdKind = obj["loomdKind"] == nil
+            ? antigo?.loomdKind
+            : (obj["loomdKind"] as? String)
     }
 }
 
