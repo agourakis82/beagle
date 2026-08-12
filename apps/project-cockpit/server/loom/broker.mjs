@@ -130,12 +130,25 @@ export class Broker {
     const exact = this._loomdLanes().get(sid) || null;
     // O patch de lane única PRECISA carregar `confidence`: um cliente que faz `?? old` num campo
     // ausente congelaria o rótulo antigo, e uma lane que perdeu a fonte exata continuaria
-    // desenhada como medida.
+    // desenhada como medida. `aceita` e `usd` têm o mesmo risco e a mesma cura: os dois ramos
+    // mandam os dois campos SEMPRE, explícitos — nunca omitidos.
+    //
+    // 🚨 O ramo `inferred` manda `aceita: null`, não o último valor visto. `aceita` só existe
+    // porque o loomd DECLAROU a lane num dos três conjuntos (codex/acp/tails) — perder a
+    // contraparte no loomd é perder a única fonte que sabia responder isso, não um sinal de que
+    // a capacidade mudou nem de que continua a mesma. `null` já é o vocabulário do "não sei"
+    // deste campo (é o que `loomdCard` manda para uma lane ainda não declarada) — reaproveitá-lo
+    // aqui é honesto: dizemos "não sabemos mais", em vez de arriscar um botão GUIAR sobrevivendo
+    // numa lane que virou somente-leitura, ou o inverso. `usd` manda 0, pela mesma regra que o
+    // loomd já usa para omitir a chave: 0 é "sem custo conhecido", e sem loomd não há custo
+    // conhecido — não é um chute, é o valor que o próprio contrato usa para dizer isso.
     const msg = exact
       ? { t: "state", sid, state: exact.state, detail: exact.detail, confidence: EXACT,
-          approveKey: null, atShell: false, observedAt: exact.observedAt }
+          approveKey: null, atShell: false, observedAt: exact.observedAt,
+          aceita: exact.aceita ?? null, usd: Number(exact.usd) || 0 }
       : { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", confidence: INFERRED,
-          approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null };
+          approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null,
+          aceita: null, usd: 0 };
     for (const c of this._clients) this._send(c, msg);
   }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }

@@ -292,6 +292,49 @@ test("🚨 o truth publica os NOMES das lanes, não só a contagem", () => {
   assert.equal(t.lanes, 2, "a contagem continua, para quem só quer o número");
 });
 
+// ─── `aceita` e `usd`: o que a lane aceita, e o que ela custou ──────────────────────────────
+
+test("`aceita` chega no card tal como o loomd declarou", () => {
+  const c = loomdCard(lane({ aceita: "somente_leitura" }));
+  assert.equal(c.aceita, "somente_leitura");
+});
+
+test("sem `usd` no JSON do loomd, o card diz zero — não undefined nem NaN", () => {
+  const c = loomdCard(lane());
+  assert.equal(c.usd, 0);
+  assert.notEqual(c.usd, undefined);
+  assert.ok(!Number.isNaN(c.usd));
+});
+
+test("🚨 `aceita` NÃO é derivado do nome da lane — mesmo prefixo, capacidades opostas", () => {
+  // claude-1 (tail, só leitura) e claude-4 (ACP, dirigível): se `loomdCard` chutasse pelo sid,
+  // as duas sairiam iguais. O servidor é quem sabe; o card só repassa.
+  const tail = loomdCard(lane({ lane: "claude-1", aceita: "somente_leitura" }));
+  const acp = loomdCard(lane({ lane: "claude-4", aceita: "enfileira" }));
+  assert.equal(tail.aceita, "somente_leitura");
+  assert.equal(acp.aceita, "enfileira");
+  assert.notEqual(tail.aceita, acp.aceita);
+});
+
+test("`aceita` ausente vira null, nunca um palpite", () => {
+  assert.equal(loomdCard(lane()).aceita, null);
+});
+
+test("a fusão preserva `aceita` e `usd` quando há contraparte do loomd", () => {
+  const fundido = fuseFleet(
+    [card("loom-1", { source: "loomd" })],
+    new Map([["loom-1", loomdCard(lane({ aceita: "redireciona", usd: 1.5 }))]]),
+  );
+  const c = fundido.find((x) => x.sid === "loom-1");
+  assert.equal(c.aceita, "redireciona");
+  assert.equal(c.usd, 1.5);
+});
+
+test("uma lane só de capture-pane não ganha `aceita` inventado — sem contraparte, sem capacidade declarada", () => {
+  const out = fuseFleet([card("claude-1")], new Map());
+  assert.equal(out[0].aceita, undefined, "capture-pane não sabe o que a lane aceita; inventar seria pior que omitir");
+});
+
 test("sem loomd, o roster é vazio — e vazio não é 'não sei'", () => {
   // O cliente distingue: `mode` diz se a leitura vale. Um roster vazio com mode=absent significa
   // "não há informação", e o cliente tem que cair no seu fallback em vez de esvaziar a lista.

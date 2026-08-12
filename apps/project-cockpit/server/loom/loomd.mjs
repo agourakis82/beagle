@@ -123,6 +123,19 @@ export function loomdCard(l, readAtMs) {
     turns: Number(l?.turns) || 0,
     session: l?.session ? String(l.session) : null,
     atShell: false,
+    // O que ESTA lane aceita (`Aceita` em trama.rs) — decide o rótulo do botão ANTES do clique
+    // (GUIAR onde redireciona, ENFILEIRAR onde enfileira) e se a tela oferece caixa de texto
+    // (não, em lane só de leitura: `/prompt` devolve 404 lá). 🚨 REPASSADO tal como o servidor
+    // mandou — nunca deduzido do nome da lane. `claude-1` (tail, só leitura) e `claude-4` (ACP,
+    // dirigível) têm o mesmo prefixo e capacidades opostas; adivinhar por sid é exatamente o
+    // defeito que este campo existe para matar. Ausente (lane ainda não declarada) → null, nunca
+    // um palpite.
+    aceita: l?.aceita ?? null,
+    // Custo acumulado da lane, em USD. O loomd OMITE a chave quando é zero (ver trama.rs:
+    // "US$ 0,00" na tela é ruído, e zero é o estado da imensa maioria das lanes) — então ausente
+    // aqui é conhecidamente zero, não "desconhecido". `Number(undefined) || 0` cobre os dois: a
+    // chave ausente e um valor que não parseia como número.
+    usd: Number(l?.usd) || 0,
     // O frescor do card é a hora da NOSSA leitura. Ver o comentário de loomdCard.
     observedAt: Number(readAtMs) || null,
     // A hora do último evento da lane continua disponível — como informação, não como frescor.
@@ -178,6 +191,12 @@ export function fuseFleet(entries, loomdLanes) {
       approvalKind: l.approvalKind,
       currentTurn: l.currentTurn,
       turns: l.turns,
+      // O que a lane aceita e o custo acumulado — do loomd, sem normalizar. Uma lane sem
+      // contraparte no loomd (branch acima, `if (!l) ...`) não ganha `aceita`/`usd` aqui: ela é
+      // só `capture-pane`, que não sabe o que a lane aceita nem o que ela custou, e inventar um
+      // valor ali seria pior que a ausência.
+      aceita: l.aceita,
+      usd: l.usd,
       approveKey: null,          // aprovação por RPC, não por tecla — ver loomdCard
       // Idem: o frescor vem da leitura do loomd, não do último evento da lane.
       observedAt: l.observedAt ?? e.observedAt,

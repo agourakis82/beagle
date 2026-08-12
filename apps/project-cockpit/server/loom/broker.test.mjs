@@ -173,6 +173,27 @@ test("o patch de lane única também carrega `confidence` — senão o rótulo c
   assert.equal(exact.state, "idle", "o veredito do protocolo, não o do stream");
 });
 
+test("o patch de lane única carrega `aceita` e `usd` — exact do loomd, inferred explicitamente `null`/0", () => {
+  const loomd = new Map([["codex-1", exactCard("codex-1", { state: "idle", loomdKind: "idle", aceita: "redireciona", usd: 2.25 })]]);
+  const broker = new Broker({ sessionFactory: fakeSession, laneStates: fakeLaneStates({ loomd }) });
+  broker.addSeed(fakeSession("claude-1", "claude-1"));
+  broker.addSeed(fakeSession("codex-1", "codex-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  sock.recv({ t: "kill", sid: "claude-1" });        // sem contraparte no loomd → ramo inferred
+  sock.recv({ t: "kill", sid: "codex-1" });          // com contraparte → ramo exact
+  const patches = sock.sent.filter((m) => m.t === "state");
+
+  const inferido = patches.find((m) => m.sid === "claude-1");
+  assert.equal(inferido.aceita, null, "sem a fonte exata, dizemos que não sabemos mais — não congelamos um palpite antigo");
+  assert.equal(inferido.usd, 0);
+
+  const exato = patches.find((m) => m.sid === "codex-1");
+  assert.equal(exato.aceita, "redireciona");
+  assert.equal(exato.usd, 2.25);
+});
+
 // ─── Heartbeat: sockets meio-abertos não disparam `close` — o tick tem de reapar sozinho ────
 
 test("heartbeat: tick on a live socket sends a ping and marks it awaiting pong", () => {
