@@ -21,7 +21,92 @@ await ensureDeviceTokensSchema(pool);
 await ensureEmaSchema(pool);
 
 const app = express();
-app.use(express.json({ limit: "16mb" }));
+
+// ── INSTRUMENTAÇÃO DO INGEST ────────────────────────────────────────────────
+// Existe para responder uma pergunta concreta: vale trocar JSON por Apache Arrow
+// no transporte? A fila do relógio pode ter milhões de amostras, e cada linha JSON
+// custa ~172,8 bytes — o uuid sozinho são 36 caracteres, e type/unit repetem a
+// mesma string milhões de vezes.
+//
+// Já medido (lote de 5.000, que é o uploadChunkSize real do app):
+//   JSON hoje ........ 172,8 B/linha        JSON+deflate .... 36,1 B/linha (4,8x)
+//   colunar/Arrow .... 23,0 B/linha (7,5x)  piso (só o uuid)  16,0 B/linha
+//   JSON.parse de um lote ... 2,9 ms  →  0,6 s para UM MILHÃO de amostras
+//
+// Ou seja: Arrow economizaria 0,6 s de CPU por milhão. O que falta saber é quanto
+// o BANCO custa — se o upsert dominar, nada disso importa e o alvo é outro.
+//
+// O parse acontece DENTRO do express.json, antes do handler. Por isso os carimbos
+// ficam em volta do middleware: medir tudo junto seria não medir nada.
+const marco = () => Number(process.hrtime.bigint() / 1000n) / 1000; // ms
+
+app.use((req, _res, next) => { req._t0 = marco(); next(); });
+app.use(express.json({
+  limit: "16mb",
+  verify: (req, _res, buf) => { req._bytes = buf.length; req._tLido = marco(); },
+}));
+
+/// Resumo rolante em memória. Zera quando o pod reinicia, e tudo bem — isto é uma
+/// investigação, não observabilidade permanente.
+const perfil = {
+  desde: new Date().toISOString(),
+  requisicoes: 0, linhas: 0, bytes: 0, comprimidas: 0,
+  ms: { leitura: 0, parse: 0, validacao: 0, banco: 0, total: 0 },
+  picos: { bytes: 0, linhas: 0, total_ms: 0, banco_ms: 0 },
+  cliente: { encode_ms: 0, comprimir_ms: 0, amostras: 0 },
+};
+
+function anotar(req, medidas, linhas) {
+  perfil.requisicoes += 1;
+  perfil.linhas += linhas;
+  perfil.bytes += req._bytes || 0;
+  if (req.get("content-encoding")) perfil.comprimidas += 1;
+  for (const k of Object.keys(perfil.ms)) perfil.ms[k] += medidas[k] || 0;
+  perfil.picos.bytes = Math.max(perfil.picos.bytes, req._bytes || 0);
+  perfil.picos.linhas = Math.max(perfil.picos.linhas, linhas);
+  perfil.picos.total_ms = Math.max(perfil.picos.total_ms, medidas.total || 0);
+  perfil.picos.banco_ms = Math.max(perfil.picos.banco_ms, medidas.banco || 0);
+
+  // O telefone manda o que só ele sabe: quanto gastou codificando e comprimindo.
+  const t = req.get("x-beagle-client-timing") || "";
+  const num = (re) => { const m = re.exec(t); return m ? Number(m[1]) : null; };
+  const enc = num(/encode_ms=([\d.]+)/);
+  if (enc !== null) {
+    perfil.cliente.encode_ms += enc;
+    perfil.cliente.comprimir_ms += num(/comprimir_ms=([\d.]+)/) || 0;
+    perfil.cliente.amostras += 1;
+  }
+
+  const porLinha = linhas ? ((req._bytes || 0) / linhas).toFixed(1) : "0";
+  console.log(
+    `[physiome] ingest linhas=${linhas} bytes=${req._bytes || 0} bytes_por_linha=${porLinha} ` +
+    `leitura=${medidas.leitura.toFixed(1)}ms parse=${medidas.parse.toFixed(1)}ms ` +
+    `validacao=${medidas.validacao.toFixed(1)}ms banco=${medidas.banco.toFixed(1)}ms ` +
+    `total=${medidas.total.toFixed(1)}ms encoding=${req.get("content-encoding") || "nenhum"}` +
+    `${t ? ` cliente[${t}]` : ""}`
+  );
+}
+
+/// Onde eu leio o veredito: média por requisição, bytes por linha, e a fatia do
+/// banco. É o número que decide entre Arrow, compressão, ou mexer no banco.
+app.get("/api/physiome/ingest/perfil", (_req, res) => {
+  const n = perfil.requisicoes || 1;
+  const t = perfil.ms.total || 1;
+  res.json({
+    ...perfil,
+    media_por_requisicao: Object.fromEntries(
+      Object.entries(perfil.ms).map(([k, v]) => [k, +(v / n).toFixed(2)])
+    ),
+    fatia_do_tempo_pct: Object.fromEntries(
+      Object.entries(perfil.ms).filter(([k]) => k !== "total")
+        .map(([k, v]) => [k, +((v / t) * 100).toFixed(1)])
+    ),
+    bytes_por_linha: perfil.linhas ? +(perfil.bytes / perfil.linhas).toFixed(1) : 0,
+    linhas_por_segundo: +(perfil.linhas / (t / 1000)).toFixed(0),
+    cliente_encode_ms_medio: perfil.cliente.amostras
+      ? +(perfil.cliente.encode_ms / perfil.cliente.amostras).toFixed(2) : null,
+  });
+});
 
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
 
@@ -33,8 +118,10 @@ function authed(req) {
 
 app.post("/api/physiome/ingest", async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
+  const tEntrada = marco();
   try {
     const { health_samples, weather_obs, received, rejected } = validateBatch(req.body || {});
+    const tValidado = marco();
     // OPTIONAL: override the geocoded street-address `place` with the user's own label,
     // if the coordinate falls inside a synced labeled_places radius. Fail-soft — a places
     // lookup error must never block health/weather ingest.
@@ -64,6 +151,19 @@ app.post("/api/physiome/ingest", async (req, res) => {
     if (rejected.health || rejected.weather) {
       console.warn(`[physiome] ingest dropped invalid samples: health=${rejected.health}/${received.health} weather=${rejected.weather}/${received.weather}`);
     }
+
+    // leitura = tirar o corpo do socket (e inflar, quando vem comprimido);
+    // parse = JSON.parse dentro do express.json — a ÚNICA parte que Arrow eliminaria.
+    // banco = o upsert. Separados porque a decisão depende de qual domina.
+    const tGravado = marco();
+    anotar(req, {
+      leitura:   (req._tLido || tEntrada) - (req._t0 || tEntrada),
+      parse:     tEntrada - (req._tLido || tEntrada),
+      validacao: tValidado - tEntrada,
+      banco:     tGravado - tValidado,
+      total:     tGravado - (req._t0 || tEntrada),
+    }, (health_samples?.length || 0) + (weather_obs?.length || 0));
+
     res.json({ ok: true, ingested: { health, weather }, received, rejected });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
