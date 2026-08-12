@@ -412,6 +412,49 @@ public final class SessionStore {
         }
     }
 
+    // MARK: - Dinheiro, num app escrito em português
+
+    /// O ÚNICO produtor de string de dinheiro do app — chip, rodapé e VoiceOver passam por aqui.
+    ///
+    /// 🚨 O defeito que esta função existe para fechar: `String(format: "US$ %.2f", …)` é
+    /// INSENSÍVEL A LOCALE. `%f` emite ponto sempre, então o chip imprimia "US$ 12.35" na mesma
+    /// coluna, logo abaixo do literal "< US$ 0,01" — dois separadores decimais diferentes lado a
+    /// lado na mesma tela. A interface inteira é em português ("guiar o turno em curso…"); a
+    /// vírgula é a forma certa e o ponto era o defeito, não o contrário.
+    ///
+    /// 🚨 Locale EXPLÍCITO `pt_BR`, NUNCA `Locale.current`. Com `.current` o mesmo teste passa
+    /// nesta máquina e falha noutra, e um teste que depende do ambiente não prova nada. Não é
+    /// preferência do sistema: o app não é multilíngue, o idioma dele é uma decisão do produto.
+    ///
+    /// Agrupamento de milhar LIGADO — `NumberFormatter` dá "US$ 1.234,56" de graça, que o `%.2f`
+    /// não dava, e o chip mede o acumulado da lane, que cresce o dia inteiro até chegar lá. Em
+    /// pt-BR o ponto é o separador de MILHAR legítimo; ele não reabre o defeito, que era o ponto
+    /// no lugar do separador DECIMAL. É por isso que o teste de consistência olha o ÚLTIMO
+    /// separador da string, não a ausência de todo ponto.
+    ///
+    /// `.decimal` com o prefixo literal "US$ ", e não `.currency`: o estilo de moeda depende do
+    /// código de moeda e da tabela do ICU para decidir entre "US$", "$" e "USD" — o prefixo
+    /// literal é o que já está na tela e não muda debaixo do app numa atualização do sistema.
+    ///
+    /// O formatador nasce a cada chamada de propósito: `NumberFormatter` é classe mutável e não
+    /// `Sendable`, e um `static let` compartilhado neste alvo (modo Swift 6, StrictConcurrency)
+    /// seria estado global não isolado. São poucas strings por quadro; o custo não aparece.
+    static func moeda(_ usd: Double, casas: Int) -> String {
+        let f = NumberFormatter()
+        f.locale = Locale(identifier: "pt_BR")
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = casas
+        f.maximumFractionDigits = casas
+        f.usesGroupingSeparator = true
+        guard let numero = f.string(from: usd as NSNumber) else {
+            // Inalcançável para um `Double` finito. Se acontecesse, o caminho de recuo não pode
+            // trazer o ponto de volta — é exatamente o defeito que esta função conserta.
+            let cru = String(format: "%.\(casas)f", usd)
+            return "US$ " + cru.replacingOccurrences(of: ".", with: ",")
+        }
+        return "US$ " + numero
+    }
+
     // MARK: - O rodapé do turno
 
     /// O rodapé do turno, em texto. `nil` = sem rodapé (nem duração, nem uso).
@@ -430,7 +473,8 @@ public final class SessionStore {
         if let d = duracao { partes.append(rodapeDur(d)) }
         if let u = uso {
             partes.append(contextoDoRodape(u.proporcao))
-            if u.usd > 0 { partes.append(String(format: "US$ %.4f", u.usd)) }
+            // Quatro casas: o rodapé mede UM turno, e a quarta casa É o dado. Ver `moeda`.
+            if u.usd > 0 { partes.append(moeda(u.usd, casas: 4)) }
         }
         return partes.isEmpty ? nil : partes.joined(separator: " · ")
     }
@@ -475,8 +519,11 @@ public final class SessionStore {
     /// centavo") sem gastar quatro dígitos no card.
     public static func custoDoChip(_ usd: Double) -> String? {
         guard usd > 0 else { return nil }
-        if usd < 0.01 { return "< US$ 0,01" }
-        return String(format: "US$ %.2f", usd)
+        // 🚨 O limiar é DERIVADO do mesmo formatador, não digitado. Como literal ele era a
+        // única string certa por acidente de digitação — e se o formato mudasse, ficaria
+        // para trás em silêncio, que é como o ponto e a vírgula foram parar na mesma tela.
+        if usd < 0.01 { return "< " + moeda(0.01, casas: 2) }
+        return moeda(usd, casas: 2)
     }
 
     /// O trecho ", custo US$ 0,42" a ANEXAR num `accessibilityLabel` que já fala presença e

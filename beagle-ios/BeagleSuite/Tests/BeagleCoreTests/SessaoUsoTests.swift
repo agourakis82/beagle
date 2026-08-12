@@ -221,7 +221,10 @@ final class SessaoUsoTests: XCTestCase {
         let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728)
         let texto = try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 12, uso: uso))
         XCTAssertTrue(texto.contains("US$"), "custo > 0 tem de aparecer")
-        XCTAssertTrue(texto.contains("0.3728"))
+        // Ajustado: afirmava "0.3728" — o ponto do `%.4f` insensível a locale. As quatro
+        // casas seguem sendo o contrato do rodapé; só o separador mudou para vírgula.
+        XCTAssertTrue(texto.contains("0,3728"), texto)
+        XCTAssertFalse(texto.contains("0.3728"), "app em pt-BR: ponto decimal é o defeito")
     }
 
     func testRodapeComCustoZeroNaoMostraUSD() {
@@ -370,12 +373,16 @@ final class SessaoUsoTests: XCTestCase {
     /// `>= 0,01`: duas casas — é dinheiro, e é como dinheiro se lê.
     func testCustoDoChipComValorMostraOUSD() {
         let texto = try! XCTUnwrap(SessionStore.custoDoChip(0.42))
-        XCTAssertTrue(texto.contains("0.42") || texto.contains("0,42"), texto)
+        // Ajustado: o `||` aceitava as duas formas e foi o que deixou o defeito viver.
+        XCTAssertTrue(texto.contains("0,42"), texto)
+        XCTAssertFalse(texto.contains("0.42"), texto)
     }
 
     func testCustoDoChipAcimaDeUmCentavoUsaDuasCasas() {
         let texto = try! XCTUnwrap(SessionStore.custoDoChip(12.3456))
-        XCTAssertTrue(texto.contains("12.35") || texto.contains("12,35"), texto)
+        // Ajustado: idem — de "12.35 OU 12,35" para vírgula exigida e ponto proibido.
+        XCTAssertTrue(texto.contains("12,35"), texto)
+        XCTAssertFalse(texto.contains("12.35"), texto)
     }
 
     /// 🚨 O ramo que a rodada de conserto existe para prender: `0,0042` NÃO pode virar
@@ -386,6 +393,55 @@ final class SessaoUsoTests: XCTestCase {
         let texto = try! XCTUnwrap(SessionStore.custoDoChip(0.0042))
         XCTAssertFalse(texto.contains("0.00") || texto.contains("0,00"),
                         "abaixo de um centavo não pode afirmar zero: \(texto)")
+        // Acrescentado: o limiar é uma string de dinheiro como as outras e obedece à
+        // mesma vírgula. Era a única certa por acidente de digitação; agora é derivada.
+        XCTAssertTrue(texto.contains(","), texto)
+        XCTAssertEqual(texto, "< US$ 0,01", texto)
+    }
+
+    /// 🚨 O limiar não pode ser um literal paralelo ao formatador: um centavo escrito à mão
+    /// e um centavo formatado têm de ser a MESMA string, senão o dia em que o formato mudar
+    /// o limiar fica para trás calado — que é exatamente como "< US$ 0,01" e "US$ 12.35"
+    /// foram parar um em cima do outro na mesma coluna da tela.
+    func testLimiarDeUmCentavoEhDerivadoDoMesmoFormatador() {
+        // 0,01 NÃO é `< 0,01`, então este caminho devolve o centavo formatado, sem limiar.
+        let umCentavo = try! XCTUnwrap(SessionStore.custoDoChip(0.01))
+        XCTAssertEqual(SessionStore.custoDoChip(0.0042), "< " + umCentavo,
+                        "o limiar tem de sair do mesmo formatador, não de um literal")
+    }
+
+    /// Agrupamento de milhar: `NumberFormatter` em pt_BR dá "US$ 1.234,56", que o `%.2f`
+    /// não dava e que passa a importar conforme o acumulado da lane cresce. O ponto aqui é
+    /// separador de MILHAR — legítimo em pt-BR — e a vírgula segue sendo a decimal.
+    func testCustoDoChipAgrupaMilharNaFormaBrasileira() {
+        XCTAssertEqual(SessionStore.custoDoChip(1234.5678), "US$ 1.234,57")
+    }
+
+    /// 🚨 O teste que prende a CONSISTÊNCIA, e a razão desta rodada existir: os três
+    /// caminhos de dinheiro (chip, rodapé, VoiceOver) aparecem na mesma tela, e um quarto
+    /// call-site que voltasse a `String(format:)` traria o ponto decimal de volta ao lado
+    /// da vírgula. A asserção é sobre o ÚLTIMO separador da string, não sobre a ausência de
+    /// todo ponto — em "US$ 1.234,56" o ponto é o milhar, e proibi-lo proibiria o
+    /// agrupamento correto junto com o defeito.
+    func testNenhumaStringDeDinheiroUsaPontoComoSeparadorDecimal() {
+        var produzidas: [String] = []
+        for usd in [0.0042, 0.01, 0.42, 12.3456, 1234.5678, 987654.321] {
+            produzidas.append(try! XCTUnwrap(SessionStore.custoDoChip(usd)))
+            produzidas.append(SessionStore.custoParaAcessibilidade(usd))
+            let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: usd)
+            produzidas.append(try! XCTUnwrap(SessionStore.rodapeDoTurno(duracao: 12, uso: uso)))
+        }
+        for s in produzidas {
+            XCTAssertTrue(s.contains("US$"), "amostra sem dinheiro, o teste não provaria nada: \(s)")
+            XCTAssertEqual(separadorDecimalDe(s), ",",
+                            "separador decimal errado numa string de dinheiro: \(s)")
+        }
+    }
+
+    /// O separador decimal de uma string de dinheiro é o ÚLTIMO "," ou "." dela — o que vem
+    /// antes pode ser agrupamento de milhar.
+    private func separadorDecimalDe(_ s: String) -> Character? {
+        s.last { $0 == "," || $0 == "." }
     }
 
     /// `usd` vem do JSON no caminho `sessions` — a lane carrega o que o loomd já somou.
@@ -435,7 +491,9 @@ final class SessaoUsoTests: XCTestCase {
     func testCustoParaAcessibilidadeContemOValorQuandoPositivo() {
         let trecho = SessionStore.custoParaAcessibilidade(0.42)
         XCTAssertFalse(trecho.isEmpty, "custo positivo tem de anunciar algo")
-        XCTAssertTrue(trecho.contains("0.42") || trecho.contains("0,42"), trecho)
+        // Ajustado: idem. Reusa `custoDoChip`, então tem de herdar a vírgula sem esforço.
+        XCTAssertTrue(trecho.contains("0,42"), trecho)
+        XCTAssertFalse(trecho.contains("0.42"), trecho)
     }
 
     func testCustoParaAcessibilidadeAbaixoDeUmCentavoNaoArredondaParaZero() {
