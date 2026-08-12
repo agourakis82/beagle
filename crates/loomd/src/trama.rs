@@ -267,16 +267,22 @@ impl Trama {
     ///
     /// `Unknown` de propósito, e é o oposto de um chute otimista: significa "supervisionada, nada
     /// observado ainda". O primeiro evento real substitui — `reduce` não deixa `Unknown` apagar
-    /// estado conhecido, e aqui o caminho é o inverso: só cria se não existe.
+    /// estado conhecido, e aqui o restante do `LaneState` segue a mesma regra: só é criado do
+    /// zero se a lane ainda não existe.
     ///
-    /// Anota também o que a lane ACEITA (`Aceita`) — a capacidade é
-    /// registrada junto da declaração, então nunca há janela em que a lane apareça no board sem
-    /// a tela saber se um botão nela funciona.
+    /// 🚨 `aceita`, porém, é escrito **mesmo quando a lane já existe** (`and_modify`), e só
+    /// esse campo. A rehidratação do diário em `Trama::open` já recria a entrada da lane (com
+    /// `aceita: None`) antes de `main()` chamar `declarar_com` — em produção a lane SEMPRE já
+    /// existe quando isto roda. Um `or_insert_with` puro seria silenciosamente inútil aqui: o
+    /// `/v2/state` ficaria com `aceita: null` para a frota inteira, porque a entrada "já existia"
+    /// e o closure nunca roda. `and_modify` tocando só `aceita` resolve isto sem reescrever a
+    /// `LaneState` inteira — o que zeraria `usd`/`turns` acumulados a cada declaração.
     pub fn declarar_com(&self, lane: &str, aceita: Option<Aceita>) {
         let mut g = self.inner.lock().unwrap();
         let agora = crate::event::now_ms();
         g.lanes
             .entry(lane.to_string())
+            .and_modify(|st| st.aceita = aceita)
             .or_insert_with(|| LaneState {
                 lane: lane.to_string(),
                 kind: Kind::Unknown,
@@ -965,6 +971,49 @@ mod tests {
         assert!(st.pending_approval.is_some());
     }
 
+    #[test]
+    fn declarar_com_grava_aceita_em_lane_ja_rehidratada() {
+        // 🚨 MEDIDO em produção (10-ago-2026): as 6 lanes subiram com `aceita: None` no
+        // `/v2/state` — `claude-1/2/3`, `claude-4`, `codex-4`, `loom-1`, todas. A causa é a
+        // ORDEM real de `main()`: `Trama::open` relê o jsonl e rehidrata a lane (via `append`,
+        // com `aceita: None`) ANTES de `declarar_com` ser chamado. Um `or_insert_with` puro só
+        // age quando a chave não existe — e em produção ela já existe, então a declaração não
+        // fazia nada. Este teste reproduz essa ordem: faz a lane existir primeiro (um `append`,
+        // exatamente o que a rehidratação faz), só depois declara.
+        let t = Trama::open(arquivo_novo("declarar-com-lane-rehidratada"));
+        t.append(ev("codex-4", Kind::SessionStarted));
+        assert!(
+            t.state()
+                .into_iter()
+                .find(|l| l.lane == "codex-4")
+                .unwrap()
+                .aceita
+                .is_none(),
+            "antes de declarar, aceita ainda é None"
+        );
+
+        t.declarar_com("codex-4", Some(Aceita::Redireciona));
+
+        let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
+        assert_eq!(
+            st.aceita,
+            Some(Aceita::Redireciona),
+            "declarar_com tem de gravar aceita mesmo numa lane que já existia"
+        );
+    }
+
+    #[test]
+    fn declarar_com_duas_vezes_vale_a_ultima() {
+        // É declaração, não primeira-escrita-ganha: se a segunda subida do launcher observar
+        // outro conjunto (codex/ACP/tail), o `/v2/state` tem de refletir o valor mais recente.
+        let t = Trama::open(arquivo_novo("declarar-com-duas-vezes"));
+        t.declarar_com("codex-4", Some(Aceita::Redireciona));
+        t.declarar_com("codex-4", Some(Aceita::SomenteLeitura));
+
+        let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
+        assert_eq!(st.aceita, Some(Aceita::SomenteLeitura));
+    }
+
     // ─── Custo (Task 6a): o chip da Frota lê `usd` daqui ──────────────────────────────────────
 
     fn usage(lane: &str, custo: f64) -> AgentEvent {
@@ -990,6 +1039,31 @@ mod tests {
         t.append(usage("codex-1", 0.25));
         t.append(ev("codex-1", Kind::TurnEnded));
         assert_eq!(t.state()[0].usd, 0.25);
+    }
+
+    #[test]
+    fn declarar_com_nao_zera_custo_nem_turnos_acumulados() {
+        // A propriedade que o conserto de `aceita` não pode quebrar: um `and_modify` que
+        // reescrevesse a `LaneState` inteira (em vez de tocar só `aceita`) zeraria `usd` e
+        // `turns` a cada declaração — trocaria o defeito medido por um pior, porque o número
+        // errado ficaria plausível (a lane continuaria aparecendo, só que mais barata do que é).
+        let t = Trama::open(arquivo_novo("declarar-preserva-custo"));
+        t.append(ev("codex-4", Kind::TurnStarted));
+        t.append(usage("codex-4", 0.42));
+        t.append(ev("codex-4", Kind::TurnEnded));
+
+        t.declarar_com("codex-4", Some(Aceita::Redireciona));
+
+        let st = t.state().into_iter().find(|l| l.lane == "codex-4").unwrap();
+        assert_eq!(
+            st.usd, 0.42,
+            "declarar_com não pode zerar o custo acumulado"
+        );
+        assert_eq!(
+            st.turns, 1,
+            "declarar_com não pode zerar a contagem de turnos"
+        );
+        assert_eq!(st.aceita, Some(Aceita::Redireciona));
     }
 
     #[test]
