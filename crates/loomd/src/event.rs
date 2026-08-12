@@ -39,6 +39,16 @@ pub enum Kind {
     AwaitingInput,
     ApprovalAnswered,
     Idle,
+    /// O NOME que o agente deu ao que está fazendo (`ai-title` do transcript do Claude Code).
+    ///
+    /// 🚨 Kind PRÓPRIO, e não `SessionStarted` como antes: aquele já significa outra coisa e o
+    /// mesmo kind acabava carregando duas espécies de texto — o título nas lanes de transcrição e
+    /// `"sessao ACP <uuid>"` nas lanes ACP, que é um IDENTIFICADOR. Um consumidor não tinha como
+    /// distinguir, e a tela não podia escolher a voz certa para cada um.
+    ///
+    /// Não é fronteira de turno, não é estado, e por isso NÃO sobrescreve o `kind` da lane
+    /// (ver `reduce`): é metadado sobre o que ela persegue, e vai para `title`.
+    Titled,
     /// Custo e janela de contexto do turno. Chega sem ser pedido (`usage_update`) e não existia
     /// em nenhum outro lugar da plataforma. Escopo aqui é persistir e expor por `/turns`;
     /// desenhar na tela é outra fatia.
@@ -414,7 +424,7 @@ pub fn from_transcript_line(lane: &str, l: &serde_json::Value) -> Option<AgentEv
         // próprio comentário citava. Ver `chaves_do_transcript_sao_as_reais`.
         "ai-title" => {
             let t = l.get("aiTitle").and_then(|x| x.as_str())?;
-            Some(AgentEvent::new(lane, Kind::SessionStarted, Confidence::Exact).detail(t))
+            Some(AgentEvent::new(lane, Kind::Titled, Confidence::Exact).detail(t))
         }
         "last-prompt" => {
             let p = l.get("lastPrompt").and_then(|x| x.as_str())?;
@@ -661,7 +671,12 @@ mod tests {
         // que é o que a Frota usava.
         let l: serde_json::Value = serde_json::from_str(LINHA_AI_TITLE).unwrap();
         let e = from_transcript_line("claude-2", &l).expect("ai-title e informacao");
-        assert_eq!(e.kind, Kind::SessionStarted);
+        assert_eq!(
+            e.kind,
+            Kind::Titled,
+            "kind PRÓPRIO: `SessionStarted` carregava título nas lanes de transcrição e um UUID \
+             de sessão nas lanes ACP, e nenhum consumidor conseguia distinguir os dois"
+        );
         assert_eq!(
             e.confidence,
             Confidence::Exact,

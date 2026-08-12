@@ -102,6 +102,9 @@ pub struct LaneState {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aceita: Option<Aceita>,
     pub turns: u32,
+    /// O nome que o agente deu ao que persegue. `None` = ele nunca nomeou.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Custo acumulado da lane, em USD. Soma dos custos POR TURNO, onde o custo de um turno é o
     /// último `Usage` com valor — não a soma dos `Usage`, porque 15 de 16 vêm nulos e um
     /// fechamento zerado não pode apagar o preço que o turno já tinha.
@@ -250,6 +253,7 @@ impl Trama {
                 streaming_text: None,
                 aceita: None,
                 turns: 0,
+                title: None,
                 usd: 0.0,
                 turno_usd: None,
                 viu_turn_started: false,
@@ -326,6 +330,7 @@ impl Trama {
                 streaming_text: None,
                 aceita,
                 turns: 0,
+                title: None,
                 usd: 0.0,
                 turno_usd: None,
                 viu_turn_started: false,
@@ -451,7 +456,7 @@ fn urgency(k: Kind) -> u8 {
         // atenção — atenção é o que ele acabou de dar.
         Kind::UserPrompt => 3,
         Kind::TurnEnded | Kind::Idle => 3,
-        Kind::SessionStarted => 4,
+        Kind::SessionStarted | Kind::Titled => 4,
         Kind::SessionEnded => 5,
         // Custo de turno: informativo, nunca pede atenção do operador.
         Kind::Usage => 6,
@@ -488,6 +493,7 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
         streaming_text: None,
         aceita: None,
         turns: 0,
+        title: None,
         usd: 0.0,
         turno_usd: None,
         viu_turn_started: false,
@@ -599,7 +605,17 @@ fn reduce(lanes: &mut HashMap<String, LaneState>, e: &AgentEvent) {
 
     // `Unknown` NÃO sobrescreve um estado conhecido: um evento que ainda não sabemos ler não
     // deve apagar o que sabemos. Ele fica na trama; só não muda o veredicto.
-    if e.kind != Kind::Unknown && e.kind != Kind::Delta {
+    // `Titled` é metadado, não veredicto: vai para `title` e deixa `kind`/`detail` como estão.
+    // Sobrescrevê-los faria o card trocar a fala do agente pelo título a cada nomeação.
+    if e.kind == Kind::Titled {
+        if let Some(t) = &e.detail {
+            st.title = Some(t.clone());
+        }
+    }
+
+    // `Unknown` NÃO sobrescreve um estado conhecido: um evento que ainda não sabemos ler não
+    // deve apagar o que sabemos. Ele fica na trama; só não muda o veredicto.
+    if e.kind != Kind::Unknown && e.kind != Kind::Delta && e.kind != Kind::Titled {
         st.kind = e.kind;
         st.detail = e.detail.clone();
     }
@@ -1109,6 +1125,25 @@ mod tests {
         t.append(usage("codex-1", 0.25));
         t.append(ev("codex-1", Kind::TurnEnded));
         perto(t.state()[0].usd, 0.25);
+    }
+
+    /// 🚨 O título NOMEIA a lane; não é veredicto sobre ela. Se `Titled` sobrescrevesse
+    /// `kind`/`detail`, o card trocaria a fala do agente pelo título a cada nomeação — e o
+    /// Claude Code nomeia a cada turno, então o operador veria a evidência sumir sozinha.
+    #[test]
+    fn titulo_nomeia_a_lane_sem_sequestrar_o_card() {
+        let t = Trama::open(arquivo_novo("titulo-nao-sequestra"));
+        t.append(ev("claude-1", Kind::AgentMessage).detail("Parei de chutar."));
+        t.append(ev("claude-1", Kind::Titled).detail("Decide whether to land PR #1672"));
+
+        let st = &t.state()[0];
+        assert_eq!(st.title.as_deref(), Some("Decide whether to land PR #1672"));
+        assert_eq!(st.kind, Kind::AgentMessage, "o veredicto do card não pode virar `titled`");
+        assert_eq!(
+            st.detail.as_deref(),
+            Some("Parei de chutar."),
+            "a evidência que o operador estava lendo continua na tela"
+        );
     }
 
     #[test]
