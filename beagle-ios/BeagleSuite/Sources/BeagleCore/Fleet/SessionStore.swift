@@ -601,6 +601,103 @@ public final class SessionStore {
                            velho: velho)
     }
 
+    // MARK: - A periferia: o que a faixa TRABALHANDO mostra de cada lane
+
+    /// O que UMA linha da faixa periférica exibe.
+    ///
+    /// 🚨 Periferia não se lê, se CONFERE. A parte de cima da Frota pede decisão; esta existe
+    /// para o olho confirmar que nada mais precisa dele — e visão periférica registra movimento,
+    /// cor e posição, não texto. Medido no retrato de 10-ago-2026: nove linhas quase idênticas,
+    /// nove prévias cortadas no meio da palavra (`(13m…`, `for 2m 1…`, `nao cons…`) e nove
+    /// idades repetindo "9 seg". Nenhum daqueles nove números era notícia, e cada um custava
+    /// uma sacada de olho.
+    ///
+    /// Por isso todo campo aqui é opcional e o valor comum é `nil`: o padrão desta faixa é
+    /// CALAR. Quem sobrevive tem de pagar o próprio custo.
+    public struct LinhaPeriferica: Equatable, Sendable {
+        /// A lane está TRABALHANDO — tem presença, e o desenho lhe dá corpo (fundo, prévia,
+        /// nome inteiro). `false` = está em repouso e RECUA para uma ficha muda.
+        ///
+        /// É este bit que separa os dois tratamentos, e é de propósito que ele mora aqui e não
+        /// dentro da `View`: a distinção que mais importa na faixa fica assertável sem SwiftUI.
+        public let ativa: Bool
+        /// A última linha do agente, já cortada em FRONTEIRA DE PALAVRA. `nil` = não mostrar
+        /// prévia nenhuma — e `nil` é o caso comum, porque só lane ativa ganha prévia.
+        public let previa: String?
+        /// A idade a desenhar. `nil` = leitura fresca, e leitura fresca não é notícia.
+        public let idade: Date?
+        /// A palavra de estado. `nil` = o estado é um dos dois normais desta faixa
+        /// (`trabalhando`/`ocioso`), que o desenho já separa sem gastar texto.
+        public let presenca: String?
+    }
+
+    /// Quantos caracteres a prévia pode ocupar.
+    ///
+    /// Medido, não escolhido por gosto: na coluna mais estreita da grade sobram ~220pt depois da
+    /// lâmpada, do nome e das folgas, e a prévia é monoespaçada de 11pt (~6,6pt por caractere) —
+    /// ou seja ~33 caracteres antes de o SwiftUI truncar por conta própria. E o truncamento do
+    /// SwiftUI é justamente o corte no meio da palavra que esta fatia veio consertar: ele conta
+    /// pixels, não palavras.
+    public nonisolated static let orcamentoDaPrevia = 33
+
+    /// A prévia curta, ou NADA. Nunca um fragmento cortado no meio da palavra.
+    ///
+    /// 🚨 O caso que decide o desenho desta função: quando a PRIMEIRA palavra já estoura o
+    /// orçamento, não existe prévia honesta. Mostrar metade dela é o defeito, não a solução —
+    /// então devolve `nil` e a linha fica sem prévia. "Ou a prévia termina em fronteira de
+    /// palavra, ou não existe."
+    public nonisolated static func previaCurta(_ texto: String,
+                                               limite: Int = orcamentoDaPrevia) -> String? {
+        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return nil }
+        guard t.count > limite else { return t }
+        // A janela reserva um caractere para a reticência, que também ocupa coluna.
+        let janela = t.prefix(limite - 1)
+        guard let fim = janela.lastIndex(where: { $0.isWhitespace }) else { return nil }
+        let cortado = String(janela[..<fim]).trimmingCharacters(in: .whitespaces)
+        return cortado.isEmpty ? nil : cortado + "…"
+    }
+
+    /// A decisão da faixa periférica para UMA lane. PURA, e é esse o ponto: as três regras abaixo
+    /// são de SUBTRAÇÃO, e subtração é exatamente o que um retrato em PNG não consegue afirmar
+    /// (um pixel ausente e um pixel esquecido são o mesmo pixel). Mesma disciplina de
+    /// `custoDoChip`, `rotuloDeGuiar`, `semCaixa` e `rodapeDoTurno` — a view só escolhe COMO
+    /// desenhar o que aqui se decidiu.
+    ///
+    /// 1. **Prévia só para quem trabalha.** O que uma lane OCIOSA "estava dizendo" é a coisa
+    ///    menos acionável da tela: ninguém age sobre a última frase de quem parou. Seis prévias
+    ///    de lanes paradas transformavam a faixa inteira em textura cinza.
+    /// 2. **Idade só quando é notícia.** Nove "9 seg" dizem "está tudo bem" e competem com o
+    ///    conteúdo para não informar nada; a informação é a leitura VELHA. O limiar disso JÁ
+    ///    EXISTE (`LaneSnapshot.isStale`) e é reaproveitado, não reinventado — um painel, um
+    ///    relógio, pela mesma razão de `chipDeCusto`.
+    /// 3. **A palavra de estado só quando não é `trabalhando`/`ocioso`.** Esses dois são os
+    ///    estados normais desta faixa, e o desenho os separa (presença × recuo). Escrever a
+    ///    palavra seria pedir LEITURA justamente para a distinção que tem de sobreviver ao olho
+    ///    de canto. `ausente`, `encerrado` e `não observado` continuam escritos: aí a palavra É
+    ///    a notícia.
+    /// 4. **Prévia e idade nunca aparecem juntas.** Não é economia de espaço (embora tenha
+    ///    saído de uma: com as duas na mesma linha o SwiftUI espremia a prévia e a cortava no
+    ///    meio da palavra outra vez, agora por pixel em vez de por caractere). É a mesma
+    ///    doutrina de verdade do resto do painel: a prévia de uma leitura VENCIDA é uma
+    ///    afirmação sobre o presente que o painel não pode sustentar — "está fazendo X" com
+    ///    cinco minutos de atraso. Quando a leitura envelheceu, a NOTÍCIA é o silêncio da lane,
+    ///    não a última frase dela.
+    public nonisolated static func linhaPeriferica(_ lane: LaneSnapshot,
+                                                   agora: Date = Date()) -> LinhaPeriferica {
+        let ativa = lane.state == .running
+        let velho = lane.isStale(now: agora)
+        // Os dois estados NORMAIS desta faixa. Qualquer outro (ausente, encerrado, nunca
+        // observado) é anomalia, e anomalia se escreve.
+        let normal = lane.state == .running || lane.state == .idle
+        return LinhaPeriferica(
+            ativa: ativa,
+            previa: ativa && !velho ? previaCurta(lane.detail) : nil,
+            idade: velho ? lane.observedAt : nil,
+            presenca: normal ? nil : lane.presenceLabel
+        )
+    }
+
     // MARK: - O que o card de aprovação DIZ que está sendo aprovado
 
     /// A prova que o card mostra para quem tem de decidir. Três casos, e o terceiro é o que

@@ -285,14 +285,23 @@ public struct FrotaView: View {
     /// Agora: uma LINHA por lane, em colunas que se adaptam à largura. O cartão continua
     /// existindo — mas só na prateleira, onde há uma decisão a tomar. Peso visual passa a
     /// significar "isto te pede algo", em vez de "isto é uma lane".
+    ///
+    /// 🚨 E a faixa tem DOIS andares, não um. Medido no retrato de 10-ago-2026: nove linhas
+    /// iguais, das quais três eram lanes trabalhando e seis estavam paradas — a distinção que
+    /// mais importa aqui era invisível, porque todas pagavam o mesmo preço em área, opacidade e
+    /// texto. Agora quem trabalha tem PRESENÇA (linha com fundo, prévia e a barra de identidade)
+    /// e quem está em repouso RECUA para uma ficha muda. A regra do que cada uma exibe é pura e
+    /// mora em `SessionStore.linhaPeriferica`; aqui só se escolhe como desenhá-la.
     private var restSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text(fleet.shelf.isEmpty ? "A FROTA" : "TRABALHANDO")
+                Text("TRABALHANDO")
                     .font(.system(.caption, weight: .semibold))
                     .tracking(1.4)
                     .foregroundStyle(.white.opacity(0.5))
-                Text("\(trabalhando.count)")
+                // 🚨 O número conta as ATIVAS, não a faixa inteira. Antes ele dizia 9 debaixo de
+                // um título que prometia "trabalhando" e só três de fato trabalhavam.
+                Text("\(ativas.count)")
                     .font(.system(.caption2, weight: .semibold).monospacedDigit())
                     .foregroundStyle(.white.opacity(0.35))
                 Spacer()
@@ -300,21 +309,55 @@ public struct FrotaView: View {
             if fleet.rest.isEmpty && fleet.shelf.isEmpty {
                 emptyState
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 620), spacing: 8)],
-                          alignment: .leading, spacing: 8) {
-                    ForEach(trabalhando) { lane in
+                // 🚨 O mínimo de 340 NÃO é gosto: é dele que `SessionStore.orcamentoDaPrevia`
+                // tira os 33 caracteres. Baixar este número sem baixar aquele traz de volta o
+                // corte no meio da palavra — agora por pixel, que nenhum teste de string pega.
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 620), spacing: 6)],
+                          alignment: .leading, spacing: 6) {
+                    ForEach(ativas) { lane in
                         LaneRow(lane: lane,
                                 busy: acting == lane.sid,
                                 onOpen: { onOpenLane(lane.sid) })
                     }
                 }
+                if !emRepouso.isEmpty { fileiraEmRepouso }
                 if !naoObservadas.isEmpty { grupoNaoObservado }
             }
         }
     }
 
-    /// As lanes com estado de verdade — as que ele realmente opera.
-    private var trabalhando: [LaneSnapshot] { fleet.rest.filter { $0.state != .unknown } }
+    /// As lanes que estão DE FATO trabalhando. `SessionStore.linhaPeriferica(_:).ativa` é a
+    /// mesma regra que decide o conteúdo da linha — um predicado, não dois que podem divergir.
+    private var ativas: [LaneSnapshot] {
+        fleet.rest.filter { SessionStore.linhaPeriferica($0).ativa }
+    }
+
+    /// Paradas, encerradas, ausentes: observadas, sem pedir nada. Ocupam UMA fileira de fichas
+    /// no lugar de seis linhas com prévia, estado e idade que ninguém aciona.
+    private var emRepouso: [LaneSnapshot] {
+        fleet.rest.filter { $0.state != .unknown && !SessionStore.linhaPeriferica($0).ativa }
+    }
+
+    /// 🚨 O rótulo fica na CALHA à esquerda, não numa linha própria: uma linha só para dizer
+    /// "em repouso" custava ~23pt de altura numa faixa cujo defeito medido era justamente
+    /// empurrar tudo para baixo. Aqui ele é uma palavra, uma vez — em vez da mesma palavra
+    /// repetida dentro de cada uma das seis linhas, que era o estado anterior.
+    private var fileiraEmRepouso: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("em repouso · \(emRepouso.count)")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.3))
+                .frame(width: 96, alignment: .leading)
+                .padding(.top, 3)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 280), spacing: 4)],
+                      alignment: .leading, spacing: 2) {
+                ForEach(emRepouso) { lane in
+                    LaneChip(lane: lane, onOpen: { onOpenLane(lane.sid) })
+                }
+            }
+        }
+        .padding(.top, 2)
+    }
 
     /// `unknown` = anunciada e nunca observada. No retrato eram QUATRO cartões `t560-*` com o mesmo
     /// peso visual de uma lane esperando aprovação, cada um repetindo a mesma frase de rodapé.
@@ -323,13 +366,15 @@ public struct FrotaView: View {
 
     private var grupoNaoObservado: some View {
         DisclosureGroup {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 620), spacing: 8)],
-                      alignment: .leading, spacing: 8) {
+            // Fichas, pelo mesmo motivo do repouso: uma lane nunca observada é a coisa mais
+            // quieta da tela, e já estava escondida atrás de um disclosure.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 280), spacing: 4)],
+                      alignment: .leading, spacing: 2) {
                 ForEach(naoObservadas) { lane in
-                    LaneRow(lane: lane, busy: false, onOpen: { onOpenLane(lane.sid) })
+                    LaneChip(lane: lane, onOpen: { onOpenLane(lane.sid) })
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, 6)
         } label: {
             Text("\(naoObservadas.count) anunciadas e nunca observadas")
                 .font(.caption).foregroundStyle(.white.opacity(0.45))
@@ -814,67 +859,82 @@ private struct LaneCard: View {
 }
 
 
-/// UMA LINHA por lane. O contrário do cartão: aqui não há decisão a tomar, há estado a varrer.
+/// UMA LINHA para quem TRABALHA. O contrário do cartão: aqui não há decisão a tomar, há estado
+/// a varrer — e varrer é olhar de canto, não ler.
 ///
 /// Ordem da esquerda para a direita segue a pergunta que ele faz ao olhar: *quem* (lâmpada+nome),
-/// *como está* (estado), *fazendo o quê* (a última linha do agente), *desde quando* (idade).
-/// A idade fica à direita, em dígitos tabulares, para as linhas alinharem em coluna.
+/// *fazendo o quê* (a última linha do agente, cortada em fronteira de palavra).
+///
+/// 🚨 O que SUMIU daqui, e por quê:
+/// • a palavra `trabalhando`, repetida em toda linha — nesta fileira ela é sempre a mesma, e o
+///   que é sempre igual não distingue nada. Volta sozinha quando o estado é anomalia
+///   (`ausente`, `encerrado`), aí sim como notícia;
+/// • a idade FRESCA — nove "9 seg" alinhados dizem "está tudo bem" gastando nove sacadas de olho;
+/// • o prévio cortado no meio da palavra — agora é `SessionStore.previaCurta`, que prefere não
+///   mostrar nada a mostrar um fragmento.
+///
+/// Nada disso é decidido aqui: `SessionStore.linhaPeriferica` decide, esta view desenha.
 private struct LaneRow: View {
     let lane: LaneSnapshot
     let busy: Bool
     let onOpen: () -> Void
     @State private var hover = false
 
+    private var linha: SessionStore.LinhaPeriferica { SessionStore.linhaPeriferica(lane) }
+
     var body: some View {
         HStack(spacing: 8) {
             Circle().fill(hue).frame(width: 7, height: 7)
-                .opacity(lane.state == .unknown ? 0.35 : 1)
 
             Text(lane.sid)
                 .font(.system(size: 12, weight: .semibold, design: .default))
-                .foregroundStyle(.white.opacity(lane.state == .unknown ? 0.5 : 0.92))
+                .foregroundStyle(.white.opacity(0.92))
                 .lineLimit(1)
                 .frame(minWidth: 74, alignment: .leading)
 
-            Text(lane.presenceLabel)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.white.opacity(0.42))
-                .lineLimit(1)
-                .frame(minWidth: 62, alignment: .leading)
+            if let presenca = linha.presenca {
+                Text(presenca)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+            }
 
             // O que o agente está de fato fazendo. É A informação da linha, então ganha o espaço
             // que sobra — e não pode ser menor nem mais fraca que o nome, que ele já sabe de cor.
-            Text(lane.detail.isEmpty ? "—" : lane.detail)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.white.opacity(lane.state == .unknown ? 0.28 : 0.62))
-                .lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let previa = linha.previa {
+                Text(previa)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.62))
+                    .lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Spacer(minLength: 0)
+            }
 
             if busy { ProgressView().controlSize(.mini) }
 
-            if let at = lane.observedAt {
+            // A idade só CHEGA aqui quando envelheceu — então é notícia, e se desenha como
+            // notícia: mais clara que a prévia, não mais apagada. E sem largura fixa: não há
+            // mais uma coluna de números a alinhar, porque na maioria dos dias não há números.
+            if let at = linha.idade {
                 Text(at, style: .relative)
                     .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .lineLimit(1).frame(width: 52, alignment: .trailing)
-            } else {
-                Text("—").font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.22))
-                    .frame(width: 52, alignment: .trailing)
+                    .foregroundStyle(.white.opacity(0.58))
+                    .lineLimit(1)
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.white.opacity(hover ? 0.07 : 0.035))
+                .fill(Color.white.opacity(hover ? 0.08 : 0.045))
         )
         .overlay(
             // A identidade entra por uma barra na borda, nunca por preenchimento: 12 linhas
             // tingidas viram um arco-íris e param de significar qualquer coisa.
             RoundedRectangle(cornerRadius: 8)
-                .fill(hue.opacity(lane.state == .unknown ? 0.15 : 0.5))
+                .fill(hue.opacity(0.5))
                 .frame(width: 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -888,22 +948,92 @@ private struct LaneRow: View {
         // `.accessibilityLabel` explícito, e sem o custo aqui VoiceOver nunca ouve o número
         // nesta linha densa — mesmo que a linha não o desenhe visualmente, é a única forma de
         // um leitor de tela saber o custo desta lane sem abrir o card.
+        //
+        // 🚨 O rótulo diz a presença SEMPRE, mesmo quando o desenho a omite: quem ouve a tela
+        // não tem visão periférica, e a economia que faz sentido para o olho de canto seria
+        // apagamento puro para VoiceOver.
         .accessibilityLabel(
             "\(lane.sid), \(lane.presenceLabel), \(lane.confidenceLabel)"
             + SessionStore.custoParaAcessibilidade(lane)
         )
     }
 
-    private var hue: Color {
-        switch lane.family {
-        case .claude: return Color(red: 1.00, green: 0.76, blue: 0.34)
-        case .codex:  return Color(red: 0.28, green: 0.86, blue: 0.82)
-        case .kimi:   return Color(red: 0.72, green: 0.56, blue: 1.00)
-        case .grok:   return Color(red: 0.72, green: 0.90, blue: 0.32)
-        case .glm:    return Color(red: 0.44, green: 0.66, blue: 1.00)
-        case .repo:   return Color(red: 0.85, green: 0.72, blue: 0.50)
-        case .other:  return Color(white: 0.75)
+    private var hue: Color { corDaFamilia(lane.family) }
+}
+
+/// UMA FICHA para quem está em REPOUSO. O terceiro nível de peso da Frota, depois do cartão
+/// (decisão) e da linha (trabalho).
+///
+/// 🚨 Aqui a subtração é quase total: ficam a lâmpada e o nome, e mais nada — sem fundo, sem
+/// barra de identidade, sem prévia, sem idade fresca. O que uma lane parada "estava dizendo" é
+/// a coisa menos acionável da tela, e seis dessas frases lado a lado eram a maior mancha de
+/// texto de uma faixa cujo trabalho é NÃO chamar atenção. O que sobra é posição e cor, que é o
+/// que a visão periférica de fato registra.
+///
+/// Um estado anômalo (`ausente`, `encerrado`) e uma leitura vencida ainda falam — e falam mais
+/// alto justamente porque ao redor delas ninguém está falando.
+private struct LaneChip: View {
+    let lane: LaneSnapshot
+    let onOpen: () -> Void
+    @State private var hover = false
+
+    private var linha: SessionStore.LinhaPeriferica { SessionStore.linhaPeriferica(lane) }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(corDaFamilia(lane.family).opacity(0.5))
+                .frame(width: 5, height: 5)
+
+            Text(lane.sid)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(hover ? 0.85 : 0.5))
+                .lineLimit(1)
+
+            if let presenca = linha.presenca {
+                Text(presenca)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .lineLimit(1)
+            }
+
+            // `fixedSize`: uma idade cortada ("5 min e 11…") é pior que nenhuma — vira um
+            // número que não se pode ler. Quem cede espaço é o nome, que ele sabe de cor.
+            if let at = linha.idade {
+                Text(at, style: .relative)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            Spacer(minLength: 0)
         }
+        .padding(.vertical, 2)
+        .padding(.horizontal, 2)
+        .contentShape(Rectangle())
+        .onTapGesture { if lane.hasTerminal { onOpen() } }
+        .onHover { hover = $0 }
+        .help(lane.hasTerminal ? "Abrir o terminal de \(lane.sid)" : lane.noTerminalReason)
+        .accessibilityElement(children: .combine)
+        // Mesma razão do `LaneRow`: o desenho pode calar, o rótulo não.
+        .accessibilityLabel(
+            "\(lane.sid), \(lane.presenceLabel), \(lane.confidenceLabel)"
+            + SessionStore.custoParaAcessibilidade(lane)
+        )
+    }
+}
+
+/// A cor de identidade da família, num lugar só. Hue carrega IDENTIDADE, e identidade que muda
+/// de tom entre o cartão, a linha e a ficha deixa de ser identidade.
+private func corDaFamilia(_ family: LaneFamily) -> Color {
+    switch family {
+    case .claude: return Color(red: 1.00, green: 0.76, blue: 0.34)
+    case .codex:  return Color(red: 0.28, green: 0.86, blue: 0.82)
+    case .kimi:   return Color(red: 0.72, green: 0.56, blue: 1.00)
+    case .grok:   return Color(red: 0.72, green: 0.90, blue: 0.32)
+    case .glm:    return Color(red: 0.44, green: 0.66, blue: 1.00)
+    case .repo:   return Color(red: 0.85, green: 0.72, blue: 0.50)
+    case .other:  return Color(white: 0.75)
     }
 }
 
