@@ -127,3 +127,31 @@ Connect e snippet por variante.
 | texto cortado depois da 2ª linha | `resize()` **reverte** `textAutoResize` para `FIXED` — chame `resize` **antes** |
 | `FILL can only be set on children of auto-layout frames` | o **pai** tem de ser auto-layout; `createFrame` simples não serve |
 | glifos invisíveis, `width == 0` | fonte listada mas não renderizável — **medir `t.width > 0`** depois de escrever |
+
+## Dívidas quitadas — 12-ago-2026
+
+**`turns` da lane ACP reportava 0 para sempre.** Medido no diário: `claude-4` tinha **7**
+`user_prompt` e **zero** `turn_started`, e o contador só olhava `TurnStarted` — que lane ACP nunca
+emite. O operador mandara sete pedidos e a tela dizia zero. A regra ingênua (contar em
+`TurnStarted | UserPrompt`) **dobraria** nas lanes de codex, que emitem os dois adjacentes; o
+conserto **adapta ao vocabulário da lane** — se ela já emitiu `TurnStarted`, conta por ele; se nunca,
+conta por `UserPrompt` — com uma guarda para o caso em que um `UserPrompt` chega **antes** do primeiro
+`TurnStarted` e o turno seria contado duas vezes. t560 `9ec1c3e6`, 110 testes, 3 mutações vermelhas
+por asserção.
+
+**Provado ao vivo** depois do rebuild: `claude-4` foi de `turns: 0` para `turns: 7`, e `codex-4` (1) e
+`loom-1` (14) não se moveram.
+
+**O chip de custo não marcava dado velho.** Era, nas palavras da review, *"o número mais perigoso de
+estar errado sem aviso"* — e ficou pior quando o servidor passou a **congelar** o último custo ao
+perder a fonte exata: o valor podia estar velho **por construção**, sem prazo. Agora o chip marca, a
+decisão sai de função pura, e o rótulo de acessibilidade fala a idade. Mac `73926bfa`, 178 XCTest, 3
+mutações vermelhas por asserção.
+
+A marca escolhida foi o sufixo **`· antigo`** mais a laranja que o `observationAge` já usa duas linhas
+acima — e o implementador **recusou** minha sugestão de usar `BeagleTheme.truthStale`, com medição:
+sobre este vidro escuro ele fica *mais apagado* que o branco a 60%, o que deixaria o número **menos**
+legível em vez de mais suspeito. Opacidade menor não é sinal; é ruído mais fraco.
+
+Segue aberta apenas a dívida do `isAbsent`, que deduz capacidade de **prosa** em português — e a frase
+vem do `LanePoller` do project-cockpit (Node), não do `loomd`, então consertar é outra fatia.
