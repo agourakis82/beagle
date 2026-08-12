@@ -517,6 +517,11 @@ private struct LaneCard: View {
             // O custo, ao lado do estado — mesma fonte que o rodapé da Sessão soma (o loomd).
             // Só aparece quando > 0: "US$ 0,00" em todo card é ruído que treina o olho a ignorar
             // a linha, e aí o número que importa também deixa de ser lido.
+            // ⚠️ DÍVIDA: este chip NÃO herda `isStale`/`confidence` da lane — se o transporte
+            // cair, o número fica parado sem sinal visual, ao contrário de `observationAge`
+            // logo abaixo (que já resolve isto para outros campos via `lane.isStale(...)`/
+            // `confidenceLabel`). É o número mais perigoso de estar errado sem aviso: o
+            // operador decide continuar ou parar uma lane cara com base nele.
             if let custo = SessionStore.custoDoChip(lane.usd) {
                 Text(custo)
                     .font(.caption2)

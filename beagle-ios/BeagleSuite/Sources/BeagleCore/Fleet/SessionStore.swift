@@ -402,12 +402,21 @@ public final class SessionStore {
     /// 🚨 Zero NÃO se mostra: "US$ 0,00" em todo chip treina o olho a ignorar a linha, e aí o
     /// número que importa também deixa de ser lido. O servidor omite a chave quando é zero.
     ///
-    /// Formato IGUAL ao do rodapé do turno (`String(format: "US$ %.4f", …)`) — dois formatos
-    /// para o mesmo tipo de número na mesma tela é o defeito de fundo que esta fatia existe
-    /// para matar. O número já vem SOMADO do servidor (loomd); esta função só formata.
+    /// 🚨 NÃO usa o `%.4f` do rodapé do turno — de propósito. O rodapé mede UM TURNO (centavos
+    /// de centavo: a quarta casa É o dado). O chip mede o ACUMULADO da lane, que cresce o dia
+    /// inteiro — com `%.4f` ele vira "US$ 12,3456" num card estreito, quatro casas que ninguém
+    /// lê empurrando o dígito que importa para fora do campo visual. A coerência entre os dois
+    /// números é de PRINCÍPIO (custo zero não aparece; nada arredonda para zero), não de string
+    /// de formato — copiar o `%.4f` aqui seria coerência de forma às custas da de fundo.
+    ///
+    /// `>= 0,01`: duas casas, como dinheiro se lê. `> 0` e `< 0,01`: NÃO arredonda para zero —
+    /// duas casas sozinhas trariam de volta o "US$ 0,0000"/"contexto 0%" que esta fatia já
+    /// consertou duas vezes; um limiar explícito diz a verdade ("gastou algo, menos de um
+    /// centavo") sem gastar quatro dígitos no card.
     public static func custoDoChip(_ usd: Double) -> String? {
         guard usd > 0 else { return nil }
-        return String(format: "US$ %.4f", usd)
+        if usd < 0.01 { return "< US$ 0,01" }
+        return String(format: "US$ %.2f", usd)
     }
 
     // MARK: - Um pedido, uma resposta

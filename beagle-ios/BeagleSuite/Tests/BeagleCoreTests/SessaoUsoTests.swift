@@ -270,15 +270,34 @@ final class SessaoUsoTests: XCTestCase {
 
     // MARK: - Custo do chip da Frota (Task 6b) — o servidor já somou, o Swift só lê
 
-    /// `custoDoChip` usa o MESMO formato que o rodapé do turno (`String(format: "US$ %.4f", …)`)
-    /// — dois formatos para o mesmo tipo de número na mesma tela é o defeito de fundo desta fatia.
+    /// 🚨 O chip NÃO usa o `%.4f` do rodapé do turno — de propósito. O rodapé mede um turno
+    /// (a quarta casa é o dado); o chip mede o acumulado da lane, que cresce o dia inteiro, e
+    /// quatro casas nesse número empurrariam o dígito que importa para fora do card. A
+    /// coerência entre os dois é de PRINCÍPIO (zero não aparece; nada arredonda para zero), não
+    /// de string de formato.
     func testCustoDoChipZeroEhNil() {
         XCTAssertNil(SessionStore.custoDoChip(0), "zero é ruído — o servidor já omite a chave")
     }
 
+    /// `>= 0,01`: duas casas — é dinheiro, e é como dinheiro se lê.
     func testCustoDoChipComValorMostraOUSD() {
         let texto = try! XCTUnwrap(SessionStore.custoDoChip(0.42))
-        XCTAssertTrue(texto.contains("0.42"), texto)
+        XCTAssertTrue(texto.contains("0.42") || texto.contains("0,42"), texto)
+    }
+
+    func testCustoDoChipAcimaDeUmCentavoUsaDuasCasas() {
+        let texto = try! XCTUnwrap(SessionStore.custoDoChip(12.3456))
+        XCTAssertTrue(texto.contains("12.35") || texto.contains("12,35"), texto)
+    }
+
+    /// 🚨 O ramo que a rodada de conserto existe para prender: `0,0042` NÃO pode virar
+    /// "US$ 0,00" — duas casas sozinhas trariam de volta o "US$ 0,0000"/"contexto 0%" que esta
+    /// fatia já consertou duas vezes. Um número que arredonda para zero mente com mais
+    /// confiança que um campo vazio.
+    func testCustoDoChipAbaixoDeUmCentavoNaoArredondaParaZero() {
+        let texto = try! XCTUnwrap(SessionStore.custoDoChip(0.0042))
+        XCTAssertFalse(texto.contains("0.00") || texto.contains("0,00"),
+                        "abaixo de um centavo não pode afirmar zero: \(texto)")
     }
 
     /// `usd` vem do JSON no caminho `sessions` — a lane carrega o que o loomd já somou.
