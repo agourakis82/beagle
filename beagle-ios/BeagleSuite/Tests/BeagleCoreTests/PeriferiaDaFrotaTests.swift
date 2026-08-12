@@ -120,6 +120,65 @@ final class PeriferiaDaFrotaTests: XCTestCase {
         XCTAssertEqual(linha.presenca, "não observado")
     }
 
+    // MARK: - Quantas colunas: a última fileira o mais cheia possível
+
+    /// 🚨 O caso do retrato: QUATRO lanes trabalhando. Com três colunas fixas saía `3 + 1` e a
+    /// quarta ficava órfã, sozinha numa fileira com um vão largo à direita.
+    ///
+    /// O teto é 3 porque é o que a janela de 1180pt comporta sem furar `larguraMinimaDaColuna`
+    /// (4 × 340 + 3 × 6 = 1378 > 1148 disponíveis). Dentro desse teto, 2 + 2 é a única divisão
+    /// sem vão nenhum.
+    func testQuatroLanesNaJanelaRealViram2Mais2() {
+        XCTAssertEqual(SessionStore.colunasParaPeriferia(4, teto: 3), 2)
+    }
+
+    /// 🚨 A tabela inteira, caso a caso, no teto que cada linha pressupõe.
+    ///
+    /// As duas primeiras colunas de `teto` NÃO são um detalhe de implementação: são a
+    /// reconciliação de dois casos que, sem elas, se contradizem. `n = 4` com espaço para
+    /// quatro colunas é uma fileira cheia de quatro — vazio zero, órfão nenhum, e a regra
+    /// escolhe isso. `n = 4` com espaço para três é 2 + 2, porque 3 deixaria o órfão. Quem
+    /// decide qual dos dois vale é o PISO de largura, nunca o gosto.
+    func testATabelaDeColunas() {
+        // (n, teto, esperado)
+        let casos: [(Int, Int, Int)] = [
+            (1, 4, 1),   // um item nunca merece duas colunas — e não sobra vão
+            (2, 4, 2),   // fileira cheia
+            (3, 4, 3),   // fileira cheia
+            (4, 3, 2),   // 2 + 2 — o caso do retrato
+            (4, 4, 4),   // com espaço para quatro, uma fileira cheia de quatro também não tem órfão
+            (5, 4, 3),   // 3 + 2: última com dois, sem órfão
+            (7, 4, 4),   // 4 + 3 — 3 fixas dariam 3+3+1
+            (9, 4, 3)    // fileira cheia
+        ]
+        for (n, teto, esperado) in casos {
+            XCTAssertEqual(SessionStore.colunasParaPeriferia(n, teto: teto), esperado,
+                           "n=\(n), teto=\(teto)")
+        }
+    }
+
+    /// Faixa vazia não quebra e não pede uma grade de zero colunas.
+    func testZeroItensNaoQuebra() {
+        XCTAssertEqual(SessionStore.colunasParaPeriferia(0), 1)
+        XCTAssertEqual(SessionStore.colunasParaPeriferia(0, teto: 1), 1)
+    }
+
+    /// 🚨 O piso de largura MANDA na contagem, e é isso que mantém a fronteira de palavra de pé:
+    /// a largura que `c` colunas exigem nunca deixa uma coluna abaixo dos 340pt de onde
+    /// `orcamentoDaPrevia` tira os 33 caracteres.
+    func testALarguraExigidaHonraOPisoDaColuna() {
+        for c in 1...4 {
+            let exigida = SessionStore.larguraExigida(colunas: c)
+            let porColuna = (exigida - Double(c - 1) * SessionStore.espacoEntreColunas) / Double(c)
+            XCTAssertEqual(porColuna, SessionStore.larguraMinimaDaColuna, accuracy: 0.001,
+                           "c=\(c) espremeria a coluna abaixo do piso")
+        }
+        // Quatro colunas NÃO cabem na janela de 1180 (16pt de folga de cada lado): é por isso
+        // que o retrato tem teto 3.
+        XCTAssertGreaterThan(SessionStore.larguraExigida(colunas: 4), 1180 - 32)
+        XCTAssertLessThanOrEqual(SessionStore.larguraExigida(colunas: 3), 1180 - 32)
+    }
+
     // MARK: - A palavra de estado só quando é anomalia
 
     func testEstadosNormaisNaoGastamPalavra() {

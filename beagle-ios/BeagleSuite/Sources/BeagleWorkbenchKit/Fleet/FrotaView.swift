@@ -309,21 +309,59 @@ public struct FrotaView: View {
             if fleet.rest.isEmpty && fleet.shelf.isEmpty {
                 emptyState
             } else {
-                // 🚨 O mínimo de 340 NÃO é gosto: é dele que `SessionStore.orcamentoDaPrevia`
-                // tira os 33 caracteres. Baixar este número sem baixar aquele traz de volta o
-                // corte no meio da palavra — agora por pixel, que nenhum teste de string pega.
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 340, maximum: 620), spacing: 6)],
-                          alignment: .leading, spacing: 6) {
-                    ForEach(ativas) { lane in
-                        LaneRow(lane: lane,
-                                busy: acting == lane.sid,
-                                onOpen: { onOpenLane(lane.sid) })
-                    }
-                }
+                faixaDeTrabalho
                 if !emRepouso.isEmpty { fileiraEmRepouso }
                 if !naoObservadas.isEmpty { grupoNaoObservado }
             }
         }
+    }
+
+    /// A faixa de quem trabalha, em tantas colunas quantas deixem a ÚLTIMA FILEIRA mais cheia.
+    ///
+    /// 🚨 O defeito medido no retrato de 11-ago-2026: quatro lanes trabalhando numa grade que
+    /// só sabia contar 3 saíam `3 + 1`, e a quarta (`kimi-cli2`) ficava sozinha com um vão
+    /// largo à direita. Um órfão de layout chama atenção numa faixa cujo trabalho é justamente
+    /// NÃO chamar atenção. A contagem de colunas agora é decidida (`colunasParaPeriferia`), não
+    /// herdada do que a largura por acaso comportava.
+    ///
+    /// 🚨 A escada desce o TETO, não a contagem. Baixar 4 → 3 → 2 seria errado: com quatro
+    /// lanes, três colunas CABEM na janela de 1180 e trazem de volta exatamente o órfão. O que
+    /// se pergunta a cada degrau é "se coubessem no máximo `t` colunas, quantas seriam as
+    /// melhores?" — e o `ViewThatFits` escolhe o primeiro degrau que cabe de fato.
+    ///
+    /// 🚨 E é assim que o PISO ganha da coluna extra: cada degrau declara a largura que exige
+    /// (`larguraExigida`), que nunca deixa uma coluna abaixo de `larguraMinimaDaColuna` — o
+    /// mesmo 340 de onde `orcamentoDaPrevia` tira os 33 caracteres. Se a coluna a mais não
+    /// couber sem furar o piso, ela simplesmente não acontece, e a fronteira de palavra fica
+    /// de pé.
+    private var faixaDeTrabalho: some View {
+        let escada = [4, 3, 2].map { SessionStore.colunasParaPeriferia(ativas.count, teto: $0) }
+        return ViewThatFits(in: .horizontal) {
+            grade(colunas: escada[0])
+            grade(colunas: escada[1])
+            grade(colunas: escada[2])
+            grade(colunas: 1)
+        }
+    }
+
+    private func grade(colunas c: Int) -> some View {
+        let n = max(c, 1)
+        return LazyVGrid(
+            columns: Array(repeating: GridItem(.flexible(minimum: SessionStore.larguraMinimaDaColuna,
+                                                         maximum: 620),
+                                               spacing: SessionStore.espacoEntreColunas),
+                           count: n),
+            alignment: .leading, spacing: 6) {
+                ForEach(ativas) { lane in
+                    LaneRow(lane: lane,
+                            busy: acting == lane.sid,
+                            onOpen: { onOpenLane(lane.sid) })
+                }
+            }
+            // A largura que ESTA contagem exige, dita como ideal para o `ViewThatFits` medir.
+            // Só vale na medição (proposta indefinida); no desenho a proposta é definida e este
+            // modificador é transparente.
+            .frame(idealWidth: SessionStore.larguraExigida(colunas: n))
     }
 
     /// As lanes que estão DE FATO trabalhando. `SessionStore.linhaPeriferica(_:).ativa` é a

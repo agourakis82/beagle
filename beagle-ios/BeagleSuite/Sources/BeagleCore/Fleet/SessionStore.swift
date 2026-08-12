@@ -640,6 +640,59 @@ public final class SessionStore {
     /// pixels, não palavras.
     public nonisolated static let orcamentoDaPrevia = 33
 
+    /// A largura mínima de UMA coluna da faixa, em pontos.
+    ///
+    /// 🚨 Este número é o PISO, não uma preferência: é dele que `orcamentoDaPrevia` tira os 33
+    /// caracteres (~220pt sobrando depois da lâmpada e do nome, ~6,6pt por caractere na
+    /// monoespaçada de 11pt). Espremer a coluna abaixo disto traz de volta o corte no meio da
+    /// palavra — agora por PIXEL, onde nenhum teste de string chega. Por isso a contagem de
+    /// colunas se curva ao piso, e nunca o contrário.
+    public nonisolated static let larguraMinimaDaColuna: Double = 340
+
+    /// A folga horizontal entre colunas da faixa. Vive aqui, e não só na `View`, porque entra na
+    /// conta de quantas colunas cabem.
+    public nonisolated static let espacoEntreColunas: Double = 6
+
+    /// A largura que `c` colunas EXIGEM. Abaixo dela, `c` colunas não são honestas.
+    public nonisolated static func larguraExigida(colunas c: Int) -> Double {
+        guard c > 0 else { return 0 }
+        return Double(c) * larguraMinimaDaColuna + Double(c - 1) * espacoEntreColunas
+    }
+
+    /// Quantas colunas para `n` itens, de modo que a última fileira fique o mais cheia possível.
+    ///
+    /// 🚨 Um ÓRFÃO — fileira final com um item só e um vão largo à direita — chama atenção numa
+    /// faixa cujo trabalho é justamente não chamar atenção. Medido no retrato de 11-ago-2026:
+    /// com quatro lanes trabalhando e três colunas fixas, `kimi-cli2` sobrava sozinha numa
+    /// fileira própria. Três colunas nunca foram uma decisão de design; eram o que a largura
+    /// dava. Aqui a contagem passa a ser DECIDIDA.
+    ///
+    /// A regra: entre as candidatas, escolhe a que minimiza o vazio da última fileira
+    /// (`(c - n % c) % c`); no empate, prefere MAIS colunas — mais denso, faixa mais baixa.
+    ///
+    /// 🚨 `teto` não é enfeite: é quantas colunas a LARGURA disponível comporta sem furar
+    /// `larguraMinimaDaColuna`. É ele que reconcilia os dois casos que parecem brigar —
+    /// com espaço para quatro, `n = 4` vira uma fileira cheia de quatro (vazio zero, sem
+    /// órfão); com espaço para três, a mesma `n = 4` vira 2 + 2, porque 3 deixaria o órfão.
+    /// A fronteira de palavra ganha da coluna extra, sempre: quem escolhe o `teto` é o piso.
+    public nonisolated static func colunasParaPeriferia(_ n: Int, teto: Int = 4) -> Int {
+        // Zero itens não quebra (a faixa nem desenha) e um item nunca merece duas colunas.
+        guard n > 1 else { return 1 }
+        let alto = min(max(teto, 1), 4)
+        guard alto >= 2 else { return 1 }
+        var melhor = 2
+        var menorVazio = Int.max
+        for c in 2...alto {
+            let vazio = (c - n % c) % c
+            // `<=` e não `<`: varrendo em ordem crescente, o empate fica com a MAIOR contagem.
+            if vazio <= menorVazio {
+                menorVazio = vazio
+                melhor = c
+            }
+        }
+        return melhor
+    }
+
     /// A prévia curta, ou NADA. Nunca um fragmento cortado no meio da palavra.
     ///
     /// 🚨 O caso que decide o desenho desta função: quando a PRIMEIRA palavra já estoura o
