@@ -380,7 +380,21 @@ public final class FleetStateClient {
                 // não herdava `isStale` da lane, e o valor congelava sem indicador de
                 // expiração) está SALDADA em `SessionStore.chipDeCusto`, que marca o chip e o
                 // rótulo de VoiceOver quando a observação por trás do número venceu.
-                usd: (obj["usd"] as? Double) ?? old.usd
+                usd: (obj["usd"] as? Double) ?? old.usd,
+                // Mesma disciplina de `aceita`, e pelo mesmo motivo já pago quatro vezes neste
+                // ponto (`confidence`, `aceita`, `usd`): CHAVE AUSENTE é silêncio — preserva-se o
+                // que havia; CHAVE PRESENTE (mesmo `null`, mesmo vazio) é o servidor DIZENDO que
+                // não há mais mudança proposta — e aí `nil` é a resposta certa. Um `?? old.diff`
+                // cru manteria na tela o patch de um pedido já respondido; um `?? nil` cru
+                // apagaria o patch no primeiro patch de lane única depois do snapshot, que é
+                // exatamente como este campo morreria em silêncio de novo.
+                diff: obj["diff"] == nil
+                    ? old.diff
+                    : (obj["diff"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                approvalKind: obj["approvalKind"] == nil
+                    ? old.approvalKind
+                    : (obj["approvalKind"] as? String)
+                        .flatMap(SessionStep.ApprovalKind.init(rawValue:))
             )
         default:
             break   // data/scrollback belong to PTYClient; the board ignores terminal bytes.

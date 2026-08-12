@@ -179,6 +179,24 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
     /// OMITE a chave `usd` do JSON quando não houve cobrança (`serde skip_serializing_if`) — a
     /// ausência da chave não é "desconhecido", é "zero".
     public let usd: Double
+    /// O unified diff da mudança que esta lane está pedindo para aplicar. `nil` = não há mudança
+    /// proposta (ou o servidor não a mandou); string vazia NUNCA chega aqui — vazio é um texto
+    /// ("propôs um diff em branco") e ausente é outra coisa, então o parser degrada vazio a `nil`.
+    ///
+    /// 🚨 Este campo existe porque o dado ATRAVESSAVA Rust e Node e morria aqui. O loomd emite
+    /// `last_diff` (`Option<String>`), o cockpit repassa `diff` (`loomd.mjs`), e o `LaneSnapshot`
+    /// não tinha onde guardá-lo — então o card que PEDE DECISÃO mostrava o cromo cru do agente
+    /// ("Press enter to confirm or esc to cancel") e dois cards de lanes diferentes ficavam
+    /// idênticos. Não é que ninguém desenhou o card: ele não tinha o que mostrar.
+    public let diff: String?
+    /// O QUE está sendo aprovado — comando ou patch —, dito pelo servidor (`pending_kind` no
+    /// loomd, `approvalKind` no cockpit). `nil` = o servidor não declarou; a tela então não
+    /// afirma natureza nenhuma, em vez de chutar "patch" e prometer reversibilidade por git a
+    /// um `rm -rf`.
+    ///
+    /// Reaproveita `SessionStep.ApprovalKind` (mesmo vocabulário, mesmos rótulos, mesma regra de
+    /// reversibilidade) em vez de um enum paralelo: dois tipos para o mesmo fato divergem.
+    public let approvalKind: SessionStep.ApprovalKind?
 
     public var id: String { sid }
     public var family: LaneFamily { LaneFamily.of(sid) }
@@ -225,7 +243,9 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         confidence: Confidence = .inferred,
         pendingApproval: Bool = false,
         aceita: Aceita? = nil,
-        usd: Double = 0
+        usd: Double = 0,
+        diff: String? = nil,
+        approvalKind: SessionStep.ApprovalKind? = nil
     ) {
         self.sid = sid; self.title = title; self.state = state; self.detail = detail
         self.peek = peek; self.approve = approve; self.atShell = atShell
@@ -238,6 +258,10 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         // Default `0` pela mesma razão de `aceita: nil`: quem constrói sem dizer o custo não o
         // conhece, e o servidor trata "não sei" e "zero" como a mesma coisa (chave omitida).
         self.usd = usd
+        // Defaults `nil` pela mesma razão de `aceita: nil`: quem constrói sem dizer o que está
+        // sendo aprovado não sabe — e a tela cala em vez de inventar.
+        self.diff = diff
+        self.approvalKind = approvalKind
     }
 
     /// True when the observation is too old to present as current. The card must then show it
@@ -276,6 +300,15 @@ public struct LaneSnapshot: Sendable, Identifiable, Equatable {
         // Ausente = zero: o servidor OMITE a chave quando não houve cobrança
         // (`serde skip_serializing_if`), então a falta da chave não é "desconhecido".
         self.usd = (obj["usd"] as? Double) ?? 0
+        // Ausente, `null` ou VAZIO = não há mudança proposta. Vazio degrada a `nil` de propósito:
+        // o cockpit já normaliza isso do lado dele (`loomd.mjs`), e concordar com ele aqui evita
+        // que a tela desenhe um bloco de diff sem uma linha dentro.
+        self.diff = (obj["diff"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        // Ausente OU vocabulário desconhecido = `nil`: um binário que ainda não sabe ler um tipo
+        // novo de aprovação fica CALADO sobre a natureza dela, em vez de rebaixá-la a `.other` e
+        // afirmar "o agente quer seguir" sobre algo que pode não se desfazer.
+        self.approvalKind = (obj["approvalKind"] as? String)
+            .flatMap(SessionStep.ApprovalKind.init(rawValue:))
     }
 }
 

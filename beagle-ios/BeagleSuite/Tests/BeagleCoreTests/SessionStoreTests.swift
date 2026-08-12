@@ -256,4 +256,64 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(vazioObservado.loomdRoster, FleetEndpoint.loomdLanes,
                        "observado mas vazio também cai na semente — nunca uma lista vazia")
     }
+
+    // MARK: - O card de aprovação DIZ o que está sendo aprovado
+
+    private func laneEsperando(detail: String = "Press enter to confirm or esc to cancel",
+                               diff: String? = nil,
+                               kind: SessionStep.ApprovalKind? = nil) -> LaneSnapshot {
+        LaneSnapshot(sid: "loom-1", title: "loom-1", state: .waiting, detail: detail,
+                     confidence: .exact, pendingApproval: true, diff: diff, approvalKind: kind)
+    }
+
+    /// Havendo patch, é o patch que se mostra. O `detail` de uma lane com diff é justamente a
+    /// linha de cromo do agente ("Press enter…"), e preferi-lo manteria o defeito com um campo
+    /// novo por baixo, sem uso.
+    func testComDiffOCardMostraODiff() {
+        let patch = "diff --git a/x b/x\n@@ -0,0 +1 @@\n+oi\n"
+        let p = SessionStore.pedidoDoCard(laneEsperando(diff: patch, kind: .patch))
+        XCTAssertEqual(p.prova, .diff(patch))
+        XCTAssertFalse(p.vazio)
+    }
+
+    /// Sem patch (aprovar um COMANDO não gera diff), a evidência do agente é o que se tem — e é
+    /// honesta: veio dele, não foi inventada aqui.
+    func testSemDiffMasComDetalheOCardMostraODetalhe() {
+        let p = SessionStore.pedidoDoCard(laneEsperando(detail: "rm -rf target", kind: .command))
+        XCTAssertEqual(p.prova, .texto("rm -rf target"))
+    }
+
+    /// Sem nada, o card não afirma nada. Encher a área com cromo é o que ele fazia antes.
+    func testSemDiffESemDetalheOCardNaoAfirmaNada() {
+        let p = SessionStore.pedidoDoCard(laneEsperando(detail: ""))
+        XCTAssertEqual(p.prova, .nenhuma)
+        XCTAssertNil(p.rotulo, "sem tipo declarado não se afirma natureza nenhuma")
+        XCTAssertTrue(p.vazio)
+    }
+
+    /// 🚨 O teste que PRENDE o conserto. Na frota real duas lanes esperando aprovação
+    /// produziam cards IDÊNTICOS — a mesma frase "Press enter to confirm or esc to cancel" —,
+    /// e para decidir o operador tinha de sair da tela. Tipos diferentes têm de produzir
+    /// rótulos diferentes, e a promessa sobre desfazer tem de acompanhá-los.
+    func testDuasLanesComTiposDiferentesProduzemRotulosDIFERENTES() throws {
+        let mesmoDetalhe = "Press enter to confirm or esc to cancel"
+        let a = SessionStore.pedidoDoCard(laneEsperando(detail: mesmoDetalhe, kind: .patch))
+        let b = SessionStore.pedidoDoCard(laneEsperando(detail: mesmoDetalhe, kind: .command))
+        let rotuloA = try XCTUnwrap(a.rotulo)
+        let rotuloB = try XCTUnwrap(b.rotulo)
+        XCTAssertNotEqual(rotuloA, rotuloB, "dois pedidos opostos não podem ler igual")
+        XCTAssertTrue(rotuloA.contains(SessionStep.ApprovalKind.patch.label))
+        XCTAssertTrue(rotuloB.contains(SessionStep.ApprovalKind.command.label))
+        // Patch se desfaz por git; comando não — e o card diz isso ANTES do toque.
+        XCTAssertEqual(a.reversivel, true)
+        XCTAssertEqual(b.reversivel, false)
+    }
+
+    /// Sem tipo declarado o card fica CALADO sobre a natureza, mas ainda mostra a prova que tem.
+    func testSemTipoDeclaradoNaoHaRotuloMasAindaHaProva() {
+        let p = SessionStore.pedidoDoCard(laneEsperando(detail: "algo aconteceu"))
+        XCTAssertNil(p.rotulo)
+        XCTAssertNil(p.reversivel)
+        XCTAssertEqual(p.prova, .texto("algo aconteceu"))
+    }
 }

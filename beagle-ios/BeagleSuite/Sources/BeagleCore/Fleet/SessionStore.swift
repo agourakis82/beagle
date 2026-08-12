@@ -601,6 +601,69 @@ public final class SessionStore {
                            velho: velho)
     }
 
+    // MARK: - O que o card de aprovação DIZ que está sendo aprovado
+
+    /// A prova que o card mostra para quem tem de decidir. Três casos, e o terceiro é o que
+    /// separa esta função de um `??` encadeado: quando não há NADA, ela não afirma nada.
+    public enum ProvaDoPedido: Equatable, Sendable {
+        /// A mudança proposta, em unified diff. O melhor que existe: o operador vê o que aprova.
+        case diff(String)
+        /// A evidência em texto — a frase do agente. É o que se tem quando não há patch (aprovar
+        /// um COMANDO não gera diff nenhum), e é honesta: veio do agente, não foi inventada aqui.
+        case texto(String)
+        /// Não há prova. O card cala em vez de encher a área com cromo do agente.
+        case nenhuma
+    }
+
+    /// O que o card de aprovação da Frota mostra. PURA, e é esse o ponto: a decisão de "o que se
+    /// vê antes de aprovar" é a coisa mais importante desta tela, e enquanto morasse dentro de
+    /// uma `View` não haveria como afirmá-la sem SwiftUI. Mesma disciplina de `custoDoChip`,
+    /// `rotuloDeGuiar` e `semCaixa` — a view só escolhe COMO desenhar o que aqui se decidiu.
+    ///
+    /// 🚨 O defeito que isto fecha: o card mostrava `lane.detail` cru, que na frota real é
+    /// "Press enter to confirm or esc to cancel" — cromo do agente, em inglês, numa interface em
+    /// português, e IDÊNTICO entre duas lanes pedindo coisas opostas. Para decidir, o operador
+    /// tinha de sair da tela. O dado para dizer o que era já existia no loomd (`pending_kind`,
+    /// `last_diff`) e no cockpit (`approvalKind`, `diff`); só não existia no modelo Swift.
+    public struct PedidoDoCard: Equatable, Sendable {
+        /// O QUE está sendo aprovado, em uma frase. `nil` quando o servidor não declarou o tipo —
+        /// e aí o card não afirma natureza nenhuma (não é "seguir": é silêncio).
+        public let rotulo: String?
+        /// A reversibilidade, que decide se ele lê o detalhe ou só aprova. `nil` pelo mesmo
+        /// motivo de `rotulo`: sem tipo declarado não há promessa a fazer sobre desfazer.
+        public let reversivel: Bool?
+        public let prova: ProvaDoPedido
+
+        /// Não há uma palavra a dizer sobre este pedido. A view usa isto para não abrir um bloco
+        /// vazio (um `VStack` com `spacing` fixo abre buraco mesmo sem conteúdo dentro).
+        public var vazio: Bool { rotulo == nil && prova == .nenhuma }
+    }
+
+    /// 🚨 O DIFF GANHA DO DETALHE quando os dois existem. Não é preferência estética: o `detail`
+    /// de uma lane que traz patch é justamente a linha de cromo ("Press enter…"), e o patch é a
+    /// única coisa que responde à pergunta que o card faz. Preferir o texto aí seria manter o
+    /// defeito de sempre, agora com um campo novo por baixo, sem uso.
+    /// `nonisolated` porque é PURA — mesma disciplina de `FleetStateClient.approveTransport`:
+    /// uma decisão que só pode ser consultada de dentro do main actor não é testável como
+    /// decisão, e é justamente para ser assertável sem SwiftUI que ela mora aqui.
+    public nonisolated static func pedidoDoCard(_ lane: LaneSnapshot) -> PedidoDoCard {
+        let prova: ProvaDoPedido
+        if let d = lane.diff, !d.isEmpty {
+            prova = .diff(d)
+        } else if !lane.detail.isEmpty {
+            prova = .texto(lane.detail)
+        } else {
+            prova = .nenhuma
+        }
+        // O rótulo vem do tipo que o SERVIDOR declarou, e do `label` que `ApprovalKind` já expõe
+        // (o mesmo que a `PedidoView` da Sessão usa) — nenhuma string nova inventada aqui.
+        return PedidoDoCard(
+            rotulo: lane.approvalKind.map { "O agente quer \($0.label)" },
+            reversivel: lane.approvalKind?.reversible,
+            prova: prova
+        )
+    }
+
     // MARK: - Um pedido, uma resposta
 
     /// Quantos LUGARES na trilha ofereceriam Aplicar/Recusar para o pedido pendente deste turno.

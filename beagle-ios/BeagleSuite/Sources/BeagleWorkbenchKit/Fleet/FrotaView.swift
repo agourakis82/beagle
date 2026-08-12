@@ -479,7 +479,14 @@ private struct LaneCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             header
-            if !lane.detail.isEmpty { evidence }
+            // A lane que PEDE DECISÃO mostra o que está sendo decidido; as demais mostram a
+            // evidência de sempre. A escolha do QUE mostrar é pura e mora em
+            // `SessionStore.pedidoDoCard`; aqui só se escolhe como desenhá-la.
+            if lane.state == .waiting {
+                if !pedido.vazio { decisao }
+            } else if !lane.detail.isEmpty {
+                evidence
+            }
             if !lane.peek.isEmpty && lane.state != .waiting { peekWell }
             // A lane that does not exist in tmux gets no controls at all — there is nothing
             // there to press a key at.
@@ -607,6 +614,59 @@ private struct LaneCard: View {
             }
         }
         .font(.system(.caption2, weight: .medium).monospacedDigit())
+    }
+
+    /// O que este card está pedindo para aprovar — decidido fora daqui, em
+    /// `SessionStore.pedidoDoCard` (pura, assertável sem SwiftUI).
+    private var pedido: SessionStore.PedidoDoCard { SessionStore.pedidoDoCard(lane) }
+
+    /// 🚨 O card que pede decisão passou a DIZER o que está sendo aprovado.
+    ///
+    /// Antes ele mostrava `lane.detail` cru — na frota real, "Press enter to confirm or esc to
+    /// cancel": cromo do agente, em inglês, numa interface em português, e IDÊNTICO em duas
+    /// lanes pedindo coisas opostas. Para decidir, o operador tinha de sair da tela. O dado
+    /// existia: atravessava o loomd (`pending_kind`/`last_diff`) e o cockpit
+    /// (`approvalKind`/`diff`) e morria no modelo Swift, que não tinha onde guardá-lo.
+    ///
+    /// O diff é desenhado pelo MESMO `DiffView` da Sessão — não há um segundo renderizador de
+    /// patch neste projeto, e não é para haver.
+    private var decisao: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if let rotulo = pedido.rotulo {
+                HStack(spacing: 6) {
+                    Text(rotulo)
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+                    // A reversibilidade é dita ANTES do toque, com a mesma frase que a Sessão já
+                    // usa: patch se desfaz por git, comando não — e é essa diferença que decide
+                    // se ele lê o que está embaixo ou só aprova.
+                    if let reversivel = pedido.reversivel {
+                        Text(reversivel ? "reversível por git" : "não se desfaz")
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Capsule().fill(Color.white.opacity(0.10)))
+                            .foregroundStyle(reversivel ? Color.white.opacity(0.7) : Color.orange)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            switch pedido.prova {
+            case .diff(let patch):
+                // Fundo opaco pela mesma regra do resto da tela: vidro é chrome, e um patch é
+                // conteúdo — nunca se lê código através de blur.
+                DiffView(patch: patch)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.35)))
+            case .texto:
+                // Sem patch (aprovar um COMANDO não gera diff), a evidência do agente é o que se
+                // tem — e é o MESMO poço de sempre, não um segundo desenho.
+                evidence
+            case .nenhuma:
+                EmptyView()
+            }
+        }
     }
 
     /// The agent's own words — the reason this card is on the shelf. Serif, because it is

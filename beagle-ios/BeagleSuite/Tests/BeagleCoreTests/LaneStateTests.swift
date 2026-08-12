@@ -167,6 +167,42 @@ final class LaneActionTests: XCTestCase {
 /// Aprovação por RPC — a lane servida pelo loomd não tem tecla, tem um pedido a responder.
 final class AprovacaoPorRPCTests: XCTestCase {
 
+    // MARK: - O que está sendo aprovado (o dado que atravessava Rust e Node e morria aqui)
+
+    /// 🚨 O diff vem do JSON do quadro `sessions`. Até esta fatia o `LaneSnapshot` não tinha
+    /// onde guardá-lo: o loomd emitia `last_diff`, o cockpit repassava `diff`, e o campo morria
+    /// no modelo Swift — então o card que pede DECISÃO mostrava "Press enter to confirm or esc
+    /// to cancel" e dois cards de lanes diferentes ficavam idênticos.
+    func testODiffVemDoJSONNoCaminhoSessions() throws {
+        let patch = "diff --git a/alvo.txt b/alvo.txt\n@@ -0,0 +1 @@\n+oi\n"
+        let s = try XCTUnwrap(LaneSnapshot(loom: [
+            "sid": "loom-1", "title": "loom-1", "state": "waiting",
+            "detail": "Press enter to confirm or esc to cancel",
+            "diff": patch, "approvalKind": "patch",
+            "confidence": "exact", "observedAt": 1_700_000_000_000.0,
+        ]))
+        XCTAssertEqual(s.diff, patch, "o patch INTEIRO, para a tela poder desenhá-lo")
+        XCTAssertEqual(s.approvalKind, .patch)
+    }
+
+    /// Ausente, `null` e VAZIO são todos "não há mudança proposta" — vazio degrada a `nil` de
+    /// propósito, senão a tela abriria um bloco de diff sem uma linha dentro.
+    func testDiffAusenteNuloOuVazioNaoViraUmPatchEmBranco() throws {
+        XCTAssertNil(LaneSnapshot(loom: ["sid": "a", "state": "waiting"])?.diff)
+        XCTAssertNil(LaneSnapshot(loom: ["sid": "a", "state": "waiting", "diff": NSNull()])?.diff)
+        XCTAssertNil(LaneSnapshot(loom: ["sid": "a", "state": "waiting", "diff": ""])?.diff)
+    }
+
+    /// Tipo ausente ou fora do vocabulário deste binário = silêncio, NUNCA `.other`. Rebaixar
+    /// aqui faria o card afirmar "o agente quer seguir" sobre algo que pode não se desfazer.
+    func testTipoDeAprovacaoAusenteOuDesconhecidoNaoViraUmChute() throws {
+        XCTAssertNil(LaneSnapshot(loom: ["sid": "a", "state": "waiting"])?.approvalKind)
+        XCTAssertNil(LaneSnapshot(loom: ["sid": "a", "state": "waiting",
+                                         "approvalKind": "detonar"])?.approvalKind)
+        XCTAssertEqual(LaneSnapshot(loom: ["sid": "a", "state": "waiting",
+                                           "approvalKind": "command"])?.approvalKind, .command)
+    }
+
     func testPendenciaTipadaEDecodificadaEAusenciaNaoInventaPedido() {
         // Ausente = não há pendência. Degradar para "tem pedido" desenharia um botão sem nada
         // para responder, e o servidor devolveria 409.

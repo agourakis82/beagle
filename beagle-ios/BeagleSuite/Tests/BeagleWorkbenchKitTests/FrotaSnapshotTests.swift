@@ -25,9 +25,16 @@ final class FrotaSnapshotTests: XCTestCase {
     @MainActor
     private func render(_ view: some View, size: CGSize, name: String) throws {
         _ = size.height  // a altura vem do conteúdo: recortar aqui esconderia o que estoura
+        // 🚨 `.dark` explícito, como `SessionSnapshotTests` já fazia. A Frota escapava disto
+        // porque suas cores eram todas cravadas escuras (`.white.opacity`, `.black.opacity`);
+        // desde que o card de aprovação passou a embutir o `DiffView`, ele traz cores do
+        // `BeagleTheme`, que resolvem por APARÊNCIA do processo — e num `swift test` headless a
+        // aparência é clara, então o patch saía sobre um bloco branco dentro de um card escuro.
+        // O app é escuro; o retrato tem de retratar o app, não o processo que o rasteriza.
         let renderer = ImageRenderer(content: view
             .frame(width: size.width, alignment: .top)
-            .environment(\.farolFlatGlass, true))
+            .environment(\.farolFlatGlass, true)
+            .environment(\.colorScheme, .dark))
         renderer.scale = 2
         guard let img = renderer.nsImage,
               let tiff = img.tiffRepresentation,
@@ -68,6 +75,40 @@ final class FrotaSnapshotTests: XCTestCase {
                   detail: "thread anotada não existe mais no store; o próximo turno abre uma nova",
                   peek: [], approve: .answerNeeded,
                   observedAt: now.addingTimeInterval(-3), confidence: .exact, pendingApproval: true),
+            // 🚨 As duas lanes de protocolo que PEDEM DECISÃO — a razão de este retrato existir
+            // depois desta fatia. Antes, um card de aprovação mostrava "Press enter to confirm or
+            // esc to cancel" e dois pedidos OPOSTOS liam idêntico. Aqui o contraste é o dado:
+            // uma traz patch (reversível por git, e o diff aparece desenhado), a outra traz
+            // comando (não se desfaz, e a evidência em texto é o que se tem). Sem um caso com
+            // diff na fixture, o conserto não apareceria no PNG e ninguém conseguiria vê-lo.
+            .init(sid: "codex-4", title: "codex-4", state: .waiting,
+                  detail: "Press enter to confirm or esc to cancel",
+                  peek: [], approve: .answerNeeded,
+                  observedAt: now.addingTimeInterval(-4), confidence: .exact,
+                  pendingApproval: true,
+                  diff: """
+                  diff --git a/stdlib/epistemic/knowledge.sio b/stdlib/epistemic/knowledge.sio
+                  index 1a2b3c4..5d6e7f8 100644
+                  --- a/stdlib/epistemic/knowledge.sio
+                  +++ b/stdlib/epistemic/knowledge.sio
+                  @@ -142,7 +142,9 @@ fn combine(a: Knowledge[T], b: Knowledge[T]) -> Knowledge[T] {
+                       let w_a = 1.0 / (a.sigma * a.sigma)
+                       let w_b = 1.0 / (b.sigma * b.sigma)
+                  -    let mu = (a.mu * w_a + b.mu * w_b) / (w_a + w_b)
+                  +    if w_a + w_b == 0.0 { return Knowledge.unknown() }
+                  +    let mu = (a.mu * w_a + b.mu * w_b) / (w_a + w_b)
+                  +    // GUM 6.2: a variância combinada nunca excede a menor das duas
+                       let sigma = sqrt(1.0 / (w_a + w_b))
+                       Knowledge { mu, sigma }
+                   }
+                  """,
+                  approvalKind: .patch),
+            .init(sid: "claude-4", title: "claude-4", state: .waiting,
+                  detail: "rm -rf /workspace/.wt/claude-4/target",
+                  peek: [], approve: .answerNeeded,
+                  observedAt: now.addingTimeInterval(-5), confidence: .exact,
+                  pendingApproval: true,
+                  approvalKind: .command),
             .init(sid: "claude-1", title: "claude-1", state: .running,
                   detail: "✻ Effecting… (13m 43s · ↓ 6.6k tokens)",
                   peek: ["● Running 3 shell commands · 1m 45s"],

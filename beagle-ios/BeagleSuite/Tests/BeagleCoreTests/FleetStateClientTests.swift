@@ -92,6 +92,62 @@ final class FleetStateClientTests: XCTestCase {
         XCTAssertEqual(c.lanes.first { $0.sid == "claude-1" }?.confidence, .inferred)
     }
 
+    // MARK: - O que está sendo aprovado sobrevive ao patch de lane única
+
+    /// Um cliente cuja lane medida já trouxe diff e tipo de aprovação no quadro `sessions`.
+    private func clienteComPedido() -> FleetStateClient {
+        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        c.handle("""
+        {"t":"sessions","sessions":[
+          {"sid":"loom-1","title":"loom-1","state":"waiting",
+           "detail":"Press enter to confirm or esc to cancel",
+           "diff":"diff --git a/x b/x\\n@@ -0,0 +1 @@\\n+oi\\n","approvalKind":"patch",
+           "confidence":"exact","observedAt":1000}
+        ]}
+        """)
+        return c
+    }
+
+    /// 🚨 A regressão que já aconteceu QUATRO vezes neste mesmo ponto (`confidence`, `aceita`,
+    /// `usd` — e agora `diff`): o frame `state` remonta a lane a partir de campos avulsos, e
+    /// tudo que ele esquecer de copiar some sem erro e sem log. Um frame que NÃO menciona o
+    /// diff é silêncio sobre a mudança proposta, não a revogação dela.
+    func testUmPatchSemDiffPRESERVAOPatchAnterior() throws {
+        let c = clienteComPedido()
+        let antes = try XCTUnwrap(c.lanes.first { $0.sid == "loom-1" }?.diff)
+        c.handle(#"{"t":"state","sid":"loom-1","state":"waiting","detail":"ainda esperando"}"#)
+        let lane = try XCTUnwrap(c.lanes.first { $0.sid == "loom-1" })
+        XCTAssertEqual(lane.detail, "ainda esperando", "o patch precisa ter sido aplicado de fato")
+        XCTAssertEqual(lane.diff, antes, "o silêncio sobre o diff não pode apagar o diff")
+    }
+
+    /// Mesma disciplina para o TIPO: sem ele o card volta a não saber dizer o que está aprovando.
+    func testUmPatchSemTipoDeAprovacaoPRESERVAOTipoAnterior() throws {
+        let c = clienteComPedido()
+        c.handle(#"{"t":"state","sid":"loom-1","state":"waiting","detail":"ainda esperando"}"#)
+        XCTAssertEqual(c.lanes.first { $0.sid == "loom-1" }?.approvalKind, .patch)
+    }
+
+    /// A outra metade da regra, e a que impede o `?? old` cru: chave PRESENTE é o servidor
+    /// DIZENDO que não há mais pedido — e aí manter o patch na tela seria mostrar a mudança de
+    /// um pedido já respondido.
+    func testUmPatchQueDECLARAAAusenciaDoPedidoLimpaOCard() throws {
+        let c = clienteComPedido()
+        c.handle(#"{"t":"state","sid":"loom-1","state":"running","diff":null,"approvalKind":null}"#)
+        let lane = try XCTUnwrap(c.lanes.first { $0.sid == "loom-1" })
+        XCTAssertNil(lane.diff)
+        XCTAssertNil(lane.approvalKind)
+    }
+
+    /// E um patch que TRAZ diff novo troca o anterior — senão o card ficaria preso no primeiro.
+    func testUmPatchComDiffNovoSubstituiOAnterior() throws {
+        let c = clienteComPedido()
+        c.handle(#"{"t":"state","sid":"loom-1","state":"waiting","diff":"diff --git a/y b/y\n","approvalKind":"command"}"#)
+        let lane = try XCTUnwrap(c.lanes.first { $0.sid == "loom-1" })
+        XCTAssertEqual(lane.diff, "diff --git a/y b/y\n")
+        XCTAssertEqual(lane.approvalKind, .command)
+    }
+
     // MARK: - A queda da fonte medida, do frame até a propriedade que a tela lê
 
     /// Frame `sessions` com a fonte VIVA e a lane medida presente.

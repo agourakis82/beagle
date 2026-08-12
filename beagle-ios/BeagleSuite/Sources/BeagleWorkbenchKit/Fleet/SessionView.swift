@@ -611,7 +611,12 @@ private struct Trilho<Conteudo: View>: View {
 
 /// O diff, colorido por linha. Sem biblioteca: unified diff é linha a linha, e um parser de 20
 /// linhas que se entende inteiro vale mais que uma dependência para isto.
-private struct DiffView: View {
+///
+/// 🚨 `internal`, não `private`: é o ÚNICO renderizador de patch do projeto, e a `FrotaView`
+/// passou a precisar dele para o card de aprovação (que antes mostrava o cromo cru do agente).
+/// Um segundo desenho de patch na Frota seria a duplicação que a review anterior já matou aqui
+/// ao tirar deste tipo todos os parâmetros de aprovação.
+struct DiffView: View {
     let patch: String
     /// 🚨 SÓ o patch — nunca um botão. `PedidoView` é o único lugar que responde a um pedido de
     /// aprovação (ver `SessionStore.lugaresDeResposta`); um `DiffView` que também desenhasse
