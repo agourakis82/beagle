@@ -6,7 +6,15 @@
 const SOCK = (s) => `/tmp/tmux-1000/${s}`;
 const TMUX_LIST_FORMAT = "#{session_name}|#{session_attached}|#{session_activity}|#{window_name}";
 /// How many rows of scrollback a "peek" reads. Enough for a state verdict + a quoted question.
-export const PEEK_LINES = 25;
+///
+/// 🚨 25 NÃO BASTAVA — medido ao vivo em 13-ago-2026 na codex-2/codex-3: o diálogo de comando do
+/// Codex ("Would you like to run the following command?" · Thread · Environment · Reason · o
+/// próprio comando · as 3 opções · o rodapé) passa de 40 linhas de tela com o `$ comando` e a
+/// `Reason:` só ocupando UMA linha — e a frase que diz se é comando ou edição fica no TOPO do
+/// bloco, bem acima do rodapé "Press enter to confirm". Com 25, o classificador só via o rodapé
+/// e nunca a frase — `approvalKind` saía `null` mesmo com evidência real na tela, só fora da
+/// janela. 40 é folga, não ciência: cobre o bloco medido com uma linha de comando de sobra.
+export const PEEK_LINES = 40;
 /// Record separator for the batched fleet peek. Chosen to not occur in terminal output.
 export const PEEK_DELIM = "@@LANE:";
 /// Record separator for the batched receipt read.

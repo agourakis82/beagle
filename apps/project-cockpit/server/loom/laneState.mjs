@@ -68,7 +68,10 @@ const SELECTION = /^\s*[❯>]\s*\d+\.\s+\S/m;
 /// "not deduced" discipline the rest of this module holds to.
 const APPROVAL_KIND = [
   { kind: "patch", re: /make this edit|Allow the edit|\bcreate\b/i },
-  { kind: "command", re: /run this command|Allow (this|the) command|Do you want to (proceed|continue)/i },
+  // "run the following command" + "Would you like to run" são o fraseado MEDIDO do Codex
+  // (codex-2/codex-3, 13-ago-2026) — diferente do "Allow this command"/"run this command" do
+  // Claude Code. As duas famílias convivem na mesma regra porque as DUAS dizem "command".
+  { kind: "command", re: /run this command|run the following command|Would you like to run|Allow (this|the) command|Do you want to (proceed|continue)/i },
 ];
 
 function approvalKindOf(text) {
@@ -214,9 +217,14 @@ export function classifyLane({
     const dialogLine = tail.slice().reverse().find((l) => APPROVAL.some((re) => re.test(l)) || /^\s*[❯>]\s*\d+\./.test(l));
     detail = (dialogLine || last).trim().slice(0, 240);
     approveKey = /\(y\/n\)|\[y\/N\]|\[Y\/n\]/i.test(tailText) ? "y" : "enter";
-    // Read over the whole tail, not just the matched dialog line: the descriptive phrase
-    // ("I'll update the deployment manifest") often sits one line above the button prompt.
-    approvalKind = approvalKindOf(tailText);
+    // 🚨 Sobre TODAS as linhas normalizadas, não só o `tail` de 14 — medido ao vivo (Codex,
+    // 13-ago-2026): a frase que diz comando-ou-edição ("Would you like to run the following
+    // command?") fica no TOPO de um diálogo que passa de 14 linhas de conteúdo, bem acima do
+    // rodapé "Press enter to confirm" que ANCORA `awaitingInput`. Limitar esta busca ao mesmo
+    // `tail` das outras heurísticas (calibradas para não confundir chrome com conteúdo) faria
+    // `approvalKind` sair `null` com evidência real na tela, só fora da janela — o mesmo defeito
+    // que motivou alargar `PEEK_LINES`.
+    approvalKind = approvalKindOf(lines.join("\n"));
   } else if (!working && question && atPrompt) {
     state = "waiting";
     detail = question.slice(0, 240);   // quote the question itself, never the line above it

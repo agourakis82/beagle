@@ -98,6 +98,28 @@ const CLAUDE_COMMAND_APPROVAL = `
 ╰──────────────────────────────────────────────────╯
 `;
 
+// Codex, capturado AO VIVO em codex-2 (13-ago-2026, tmux capture-pane -S -60). Fraseado
+// diferente do Claude Code, e a frase que decide comando-vs-edição fica ~14 linhas ACIMA do
+// rodapé "Press enter to confirm" — foi por isso que approvalKindOf passou a olhar `lines`
+// inteiro em vez de só o `tail` de 14, e PEEK_LINES subiu de 25 para 40.
+const CODEX_COMMAND_APPROVAL = `
+  Would you like to run the following command?
+
+  Thread: Agent (019ffb22)
+
+  Environment: local
+
+  Reason: Posso consultar o estado e os checks do PR 1716 no GitHub?
+
+  $ gh pr view 1716 --repo Sounio-lang/sounio --json number,title
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with \`gh pr view\` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel or o to open thread
+`;
+
 test("working: `esc to interrupt` is the cross-family in-flight signal", () => {
   assert.equal(classifyLane({ text: CLAUDE_WORKING }).state, "running");
   assert.equal(classifyLane({ text: CODEX_WORKING }).state, "running");
@@ -133,6 +155,13 @@ test("approvalKind: a run-this-command dialog reads as `command`", () => {
   const r = classifyLane({ text: CLAUDE_COMMAND_APPROVAL });
   assert.equal(r.state, "waiting");
   assert.equal(r.approvalKind, "command");
+});
+
+test("approvalKind: Codex's real command dialog (measured live) reads as `command` even though the descriptive phrase sits well above the 14-line tail", () => {
+  const r = classifyLane({ text: CODEX_COMMAND_APPROVAL });
+  assert.equal(r.state, "waiting");
+  assert.equal(r.approvalKind, "command");
+  assert.match(r.detail, /Press enter to confirm/);
 });
 
 test("approvalKind: a bare numbered menu with no descriptive text stays null — never guessed", () => {
