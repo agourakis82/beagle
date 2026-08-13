@@ -624,18 +624,19 @@ public struct ChatScreen: View {
             isStreaming: store.isStreaming,
             onSend: send,
             voice: voice,
-            // O chip PT/EN sobreviveu à fusão: o localeID atravessa VoiceTurnController ->
-            // startRecording(localeID:) ate o reconhecedor. Sem isso o botao ficaria
-            // desenhado e mudo.
-            dictationLocaleID: dictationLocaleID,
-            onToggleLocale: { dictationLocaleID = dictationLocaleID.hasPrefix("en") ? "pt_BR" : "en_US" },
             // Só o turno FALADO carrega tom. Digitado envia nil, e nil significa
             // "não falei" — não "falei normal".
             onVoiceCommit: { falado in
                 store.sinalDeVozDoTurno = voice.sinalDoUltimoTurno
                 turnoVeioDeVoz = true
                 sendText(falado)
-            }
+            },
+            // O chip PT/EN sobreviveu à fusão: o localeID atravessa VoiceTurnController →
+            // startRecording(localeID:) até o reconhecedor. Sem isso o botão ficaria
+            // desenhado e mudo. A ordem aqui segue a da DECLARAÇÃO em ChatComposer —
+            // Swift exige, e foi o último erro que o build pegou.
+            dictationLocaleID: dictationLocaleID,
+            onToggleLocale: { dictationLocaleID = dictationLocaleID.hasPrefix("en") ? "pt_BR" : "en_US" }
         )
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.bottom, BeagleSpacing.sm)
