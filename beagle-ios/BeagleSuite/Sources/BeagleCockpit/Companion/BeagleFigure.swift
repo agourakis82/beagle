@@ -23,8 +23,8 @@ struct BeagleFigure: View {
     /// When the companion is actively listening/answering — the dog lifts, ears perk, the
     /// tail wags a little more. Wire to `store.isStreaming`.
     var listening: Bool = false
-    /// User's real respiratory rate (breaths/min, from PhysioStore); nil → calm resting default.
-    var breathRate: Double? = nil
+    /// Ritmo declarado da respiração; `.neutral` quando o Physiome está mudo.
+    var breath: PresenceBreath = .neutral
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -94,7 +94,7 @@ struct BeagleFigure: View {
 
         // Slow continuous clocks.
         // Shared motion brain — the same CompanionMotion (tested) that will drive the splat.
-        let pose = CompanionMotion(flowState: state, listening: listening, breathRate: breathRate).pose(at: t)
+        let pose = CompanionMotion(flowState: state, listening: listening, breath: breath).pose(at: t)
         let breath = 1 + 0.018 * pose.breath                      // belly rise/fall
         let wag = CGFloat(pose.tailWag) * 0.5                     // normalized wag → vector tail range
         let earSway = sin(t * 2 * .pi / 6.0) * 0.04               // cosmetic idle ear drift

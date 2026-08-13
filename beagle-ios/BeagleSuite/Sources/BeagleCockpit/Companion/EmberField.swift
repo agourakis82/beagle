@@ -2,67 +2,66 @@
 //  EmberField.swift
 //  BeagleCockpit
 //
-//  The ember field the dog sits in — the ambient half of the presence.
+//  O campo de brasa em que o bicho vive — a metade ambiente da presença.
 //
-//  Ported from the Figma composition (file dgN7JrAPdQnvKzccdBrlW5, page "Presença").
-//  The palette is read from the loop posters themselves, NOT from BeagleTheme: the
-//  presence runs hotter than the brand. Fire #FF6A33, ember #FF9A5A, deep #8C2A18.
+//  Portado da composição do Figma (arquivo dgN7JrAPdQnvKzccdBrlW5, página "Presença").
+//  A paleta foi lida dos PRÓPRIOS pôsteres dos laços, não do BeagleTheme: a presença
+//  corre mais quente que a marca. Fogo #FF6A33, brasa #FF9A5A, profundo #8C2A18.
 //
-//  Three decisions carried over from the Figma work, each for a measured reason:
+//  Três decisões que vieram de medição, não de gosto:
 //
-//  1. The lights composite in .screen, not .normal. Light adds; paint covers. Three
-//     overlapping radials in screen read as one field with a hot core instead of
-//     three discs stacked on each other.
+//  1. As luzes compõem em .screen, não .normal. Luz soma; tinta cobre. Três radiais
+//     sobrepostas em screen leem como UM campo com um núcleo quente, em vez de três
+//     discos empilhados.
 //
-//  2. The base is #07070B, not black. Pure black on OLED switches pixels off, and
-//     the field loses the sense of depth it needs — there is nothing for the glow
-//     to fall off into.
+//  2. A base é #07070B, não preto puro. Preto puro em OLED desliga o pixel, e o campo
+//     perde a profundidade — não sobra nada para o brilho cair dentro.
 //
-//  3. There is grain. A dark radial gradient on an OLED panel bands visibly, and
-//     banding is exactly what makes a screen look cheap at 4am. The noise is drawn
-//     ONCE into a rasterized layer (.drawingGroup) — it does not re-render per
-//     frame, so it costs nothing after the first pass.
+//  3. Tem grão. Gradiente escuro em painel OLED faz banda visível, e banda é o que faz
+//     uma tela parecer barata às quatro da manhã. O ruído é desenhado UMA VEZ numa
+//     camada rasterizada (.drawingGroup) — não redesenha por quadro.
 //
-//  On battery: the animation ticks at 12fps, not 60. Nothing here needs smoothness
-//  — it is a breath, not a transition. This runs for entire night shifts.
+//  Sobre bateria: anima a 12fps, não 60. Nada aqui precisa de suavidade — é respiração,
+//  não transição. Isto roda plantões inteiros.
 //
 
 import SwiftUI
+import BeagleCore
 
 public struct EmberField: View {
 
-    /// Beats per minute driving the breath. `nil` → a resting cadence.
-    private let breathRate: Double?
-    /// 0…1 — how present the field is. The chat dims it; the greeter opens it up.
+    /// Ritmo declarado da respiração. `.neutral` → cadência de repouso.
+    private let breath: PresenceBreath
+    /// 0…1 — quanto o campo se faz presente. O chat o rebaixa; a tela vazia o abre.
     private let intensity: Double
 
-    public init(breathRate: Double? = nil, intensity: Double = 1.0) {
-        self.breathRate = breathRate
+    public init(breath: PresenceBreath = .neutral, intensity: Double = 1.0) {
+        self.breath = breath
         self.intensity = max(0, min(1, intensity))
     }
 
-    // Read off the loop posters, not the theme.
+    // Lidas dos pôsteres dos laços, não do tema.
     private static let fire  = Color(red: 1.00, green: 0.42, blue: 0.20)
     private static let ember = Color(red: 1.00, green: 0.60, blue: 0.35)
     private static let deep  = Color(red: 0.55, green: 0.16, blue: 0.09)
     private static let floor = Color(red: 0.027, green: 0.027, blue: 0.043)
 
-    /// Where the dog's heart sits in the frame — every light is anchored to it.
+    /// Onde fica o coração do bicho no quadro — toda luz é ancorada nele.
     private static let heart = UnitPoint(x: 0.52, y: 0.34)
 
-    /// Breaths per second. A resting adult is ~13/min; we follow the pulse when we
-    /// have one, at a quarter of its rate, because breath is slower than heartbeat.
+    /// Respirações por segundo. Quando há pulso medido, seguimos um quarto dele —
+    /// respiração é mais lenta que batimento. Sem medida, o período neutro do
+    /// PresenceBreath (6s), que é o mesmo que a aurora usa.
     private var breathHz: Double {
-        let bpm = breathRate ?? 52
+        guard let bpm = breath.bpm else { return 1.0 / PresenceBreath.neutralPeriod }
         return max(0.10, min(0.40, bpm / 4.0 / 60.0))
     }
 
     public var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 12.0, paused: false)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            // Sine in 0…1. The core swells and settles; nothing else moves.
-            let breath = (sin(t * breathHz * 2 * .pi) + 1) / 2
-            let swell = 0.88 + 0.12 * breath
+            let wave = (sin(t * breathHz * 2 * .pi) + 1) / 2
+            let swell = 0.88 + 0.12 * wave
 
             ZStack {
                 EmberField.floor
@@ -72,13 +71,14 @@ public struct EmberField: View {
                       at: UnitPoint(x: 0.20, y: 0.18))
                 light(EmberField.deep,  radius: 0.88,         opacity: 0.32)
 
-                // The core: tight, bright, the point the light is born from.
-                light(EmberField.fire, radius: 0.17 * swell, opacity: 0.72 * (0.85 + 0.15 * breath))
+                // O núcleo: apertado, aceso, o ponto de onde a luz nasce.
+                light(EmberField.fire, radius: 0.17 * swell,
+                      opacity: 0.72 * (0.85 + 0.15 * wave))
 
                 vignette
                 grain
             }
-            .compositingGroup()      // required, or .screen leaks onto whatever is behind
+            .compositingGroup()   // sem isto o .screen vaza sobre o que estiver atrás
             .opacity(intensity)
         }
         .allowsHitTesting(false)
@@ -103,24 +103,24 @@ public struct EmberField: View {
         .blendMode(.screen)
     }
 
-    /// Closes the edges so the eye is pushed to the heart. Long falloff — a short
-    /// one draws a visible ring, which is worse than no vignette at all.
+    /// Fecha as bordas e empurra o olho ao coração. Queda longa — queda curta desenha
+    /// um anel visível, que é pior do que não ter vinheta.
     private var vignette: some View {
         RadialGradient(
             stops: [
-                .init(color: .clear,                     location: 0.00),
-                .init(color: .clear,                     location: 0.50),
-                .init(color: Color.black.opacity(0.72),  location: 1.00),
+                .init(color: .clear,                    location: 0.00),
+                .init(color: .clear,                    location: 0.50),
+                .init(color: Color.black.opacity(0.72), location: 1.00),
             ],
             center: EmberField.heart, startRadius: 0, endRadius: 620
         )
         .blendMode(.multiply)
     }
 
-    /// Drawn once and rasterized. Kills the banding a dark gradient shows on OLED.
+    /// Desenhado uma vez e rasterizado. Mata a banda que gradiente escuro mostra em OLED.
     private var grain: some View {
         Canvas { ctx, size in
-            // Deterministic — a fixed seed, so the texture never shimmers between frames.
+            // Semente fixa — a textura não pode cintilar entre quadros.
             var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
             func next() -> Double {
                 seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17
@@ -143,8 +143,8 @@ public struct EmberField: View {
     }
 }
 
-#Preview("Ember field") {
-    EmberField(breathRate: 52)
+#Preview("Campo de brasa") {
+    EmberField(breath: .neutral)
         .frame(width: 393, height: 852)
         .background(Color.black)
 }

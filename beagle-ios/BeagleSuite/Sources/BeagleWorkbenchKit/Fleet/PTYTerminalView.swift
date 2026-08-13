@@ -9,7 +9,7 @@ public typealias _PlatformViewRepresentable = UIViewRepresentable
 public typealias _PlatformViewRepresentable = NSViewRepresentable
 #endif
 
-/// Bridges a SwiftTerm `TerminalView` to a `PTYClient` (P0 `/pty`).
+/// Bridges a SwiftTerm `TerminalView` to a `PTYClient` (Loom `/ws/loom`).
 public struct PTYTerminalView: _PlatformViewRepresentable {
     private let client: PTYClient
 
@@ -42,7 +42,7 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
             tv.nativeBackgroundColor = UIColor(red: 0.106, green: 0.078, blue: 0.149, alpha: 1)
             tv.nativeForegroundColor = UIColor(white: 0.92, alpha: 1)
             #endif
-            // PTY output -> terminal (main actor; PTYClient is @MainActor)
+            // Lane output -> terminal (main actor; PTYClient is @MainActor)
             client.onBytes = { [weak tv] bytes in
                 tv?.feed(byteArray: bytes[...])
             }
@@ -50,12 +50,12 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
             return tv
         }
 
-        // PTY input: terminal -> /pty stdin
+        // Terminal input -> Loom `input` frame
         public func send(source: TerminalView, data: ArraySlice<UInt8>) {
             client.send(Data(data))
         }
 
-        // Resize: terminal -> /pty resize frame
+        // Resize: terminal -> Loom `resize` frame
         public func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             client.resize(cols: newCols, rows: newRows)
         }

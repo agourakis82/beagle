@@ -25,7 +25,12 @@ import AppKit
 public extension Color {
     /// Resolve to `light` in light appearance, `dark` in dark appearance.
     init(light: Color, dark: Color) {
-        #if canImport(UIKit)
+        #if os(watchOS)
+        // O watchOS não tem aparência clara: a tela é sempre escura, e
+        // UIColor(dynamicProvider:) não existe lá. Resolver para `dark` não é
+        // perda — é a única aparência que o relógio tem.
+        self = dark
+        #elseif canImport(UIKit)
         self.init(uiColor: UIColor { trait in
             trait.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
         })

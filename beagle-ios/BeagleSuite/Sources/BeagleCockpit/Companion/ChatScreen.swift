@@ -14,9 +14,10 @@ import BeagleCore
 
 public struct ChatScreen: View {
     let store: ConversationStore   // @Observable — SwiftUI tracks property reads in body
-    /// User's real respiratory rate (breaths/min, from PhysioStore/HealthKit) so the companion
-    /// breathes at the user's pace; nil → calm resting default.
-    let breathRate: Double?
+    /// Ritmo declarado da respiração (PhysioStore/HealthKit). `.neutral` quando o
+    /// Physiome está mudo — e aí a presença respira visivelmente mais raso, em vez
+    /// de fingir um ritmo.
+    let breath: PresenceBreath
     /// Live geomagnetic snapshot for AuroraPresence. nil → calm placeholder; the
     /// store keeps refreshing in the background so this updates naturally.
     let weather: SpaceWeatherStore.Snapshot?
@@ -48,9 +49,23 @@ public struct ChatScreen: View {
     var onOpenCapture: (() -> Void)?
     /// Opens SleepView — last night's HealthKit sleep data (the real "análise do sono").
     var onOpenSleep: (() -> Void)?
+    /// Opens the Frota (Mission Control: who needs you). Same trap as Work — it existed only in
+    /// the iPad sidebar, i.e. unreachable on the device he actually carries.
+    var onOpenFrota: (() -> Void)?
+    /// Opens the Oficina (is it green / what broke / where am I).
+    var onOpenOficina: (() -> Void)?
     @State private var draft = ""
     /// Dictation language, toggled by the composer's PT/EN chip. Persisted; pt_BR default.
     @AppStorage("dictationLocaleID") private var dictationLocaleID = "pt_BR"
+    /// Última vez que o usuário mexeu em alguma coisa. `nil` → ainda não mexeu nesta
+    /// sessão, e nesse caso a presença NÃO adormece (abrir o app e ficar lendo não é
+    /// abandono).
+    @State private var lastInteraction: Date?
+    /// Relógio grosso (30s) só para a ociosidade poder virar `adormecido` sem que nada
+    /// mais na tela mude. Não é um timer de animação.
+    @State private var idleTick = Date()
+    /// The voice turn. Owned by the screen so a composer redraw never drops a live recording.
+    @State private var voice = VoiceTurnController()
     @State private var appeared = false
     /// Live dictation for the composer mic (was a dead `onVoice: {}` stub). @Observable +
     /// @MainActor; the transcript streams into `draft` while recording. Set up once via .task.
@@ -73,9 +88,12 @@ public struct ChatScreen: View {
     /// Accessibility: when the user turns on Reduce Transparency, glass falls back to a
     /// solid material so text/controls stay legible (iOS 27's contrast guidance).
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    /// A hold whose release event never arrives (incoming call, backgrounding) would leave the
+    /// microphone open. Leaving the foreground closes the turn.
+    @Environment(\.scenePhase) private var scenePhase
 
     public init(store: ConversationStore,
-                breathRate: Double? = nil,
+                breath: PresenceBreath = .neutral,
                 weather: SpaceWeatherStore.Snapshot? = nil,
                 posture: CognitivePosture? = nil,
                 onOpenSettings: (() -> Void)? = nil,
@@ -87,9 +105,11 @@ public struct ChatScreen: View {
                 onOpenWork: (() -> Void)? = nil,
                 onOpenCapture: (() -> Void)? = nil,
                 onOpenSleep: (() -> Void)? = nil,
-                onOpenSynthesize: (() -> Void)? = nil) {
+                onOpenSynthesize: (() -> Void)? = nil,
+                onOpenFrota: (() -> Void)? = nil,
+                onOpenOficina: (() -> Void)? = nil) {
         self.store = store
-        self.breathRate = breathRate
+        self.breath = breath
         self.weather = weather
         self.posture = posture
         self.onOpenSettings = onOpenSettings
@@ -102,6 +122,56 @@ public struct ChatScreen: View {
         self.onOpenCapture = onOpenCapture
         self.onOpenSleep = onOpenSleep
         self.onOpenSynthesize = onOpenSynthesize
+        self.onOpenFrota = onOpenFrota
+        self.onOpenOficina = onOpenOficina
+    }
+
+    /// Estado da presença. Toda a regra vive em `PresenceResolver` (puro, testado em
+    /// BeagleCoreTests); aqui só se colhem as entradas.
+    ///
+    /// `composerFocused` é aproximado por "há rascunho digitado": o foco de teclado
+    /// mora dentro do ChatComposer e não é exposto para cá. Vale mais errar para
+    /// menos (não ficar em `ouvindo` com o composer vazio) do que instrumentar o
+    /// composer inteiro neste corte.
+    /// O céu só conta se foi MEDIDO e ainda vale.
+    ///
+    /// `SpaceWeatherStore.latest` é nil até a primeira leitura, então ausência é
+    /// distinguível. Mas `SkyBand.from` devolve `.calm` com Kp e Dst nulos — passar
+    /// a banda direto faria "não sei" virar "calmo", e a presença estaria afirmando
+    /// algo sobre o céu sem ter olhado.
+    ///
+    /// O poller roda a cada 30min; 3h de folga cobre uma falha de rede sem deixar
+    /// tempestade de ontem animando o bicho hoje.
+    private var ceuMedido: SkyBand? {
+        guard let w = weather else { return nil }
+        guard idleTick.timeIntervalSince(w.ts) < 3 * 60 * 60 else { return nil }
+        return w.band
+    }
+
+    /// O que ele deixou. Tipo PRÓPRIO, nunca `store.messages` — a parede da
+    /// síntese é estrutural: não existe caminho de código que transforme isto em
+    /// turno de conversa.
+    @State private var chegada = ArrivalStore()
+    @State private var voz = CompanionVoice()
+    @State private var chegadaAberta = false
+    /// O turno atual começou por FALA. É isto que decide se ele responde em voz.
+    ///
+    /// Se ele falou, quer ouvir — está andando, com a tela longe dos olhos, e foi
+    /// essa a queixa que abriu o desenho. Se ele digitou, falar sozinho seria
+    /// intromissão: quem digita está olhando.
+    @State private var turnoVeioDeVoz = false
+
+    private var presenceState: PresenceState {
+        PresenceResolver(
+            isStreaming: store.isStreaming,
+            isVoiceListening: voice.isListening,
+            composerFocused: !draft.isEmpty,
+            isActive: scenePhase == .active,
+            lastInteraction: lastInteraction,
+            ultimaFalaDele: store.messages.last(where: { $0.role == .user })?.content,
+            hora: Calendar.current.component(.hour, from: idleTick),
+            ceu: ceuMedido
+        ).state(now: idleTick)
     }
 
     public var body: some View {
@@ -137,6 +207,39 @@ public struct ChatScreen: View {
             if ProcessInfo.processInfo.arguments.contains("--demo-chat") {
                 store.seedDemoConversation()
             }
+            // Warm the on-device speech assets now so the first hold doesn't eat the first
+            // three words. Fire-and-forget and time-boxed inside the controller.
+            voice.prewarm()
+
+            // O que ele deixou. Em Task separada de propósito: a síntese leva
+            // dezenas de segundos e NUNCA pode atrasar a tela abrir. Se falhar,
+            // falha calada — a chegada é um presente, não um requisito.
+            Task { await chegada.buscarSeForHora() }
+        }
+        .onChange(of: store.isStreaming) { antes, agora in
+            // Fim do turno: se ele FALOU, ele ouve de volta.
+            guard antes, !agora, turnoVeioDeVoz else { return }
+            turnoVeioDeVoz = false
+            guard let ultima = store.messages.last,
+                  ultima.role == .assistant,
+                  !ultima.content.isEmpty else { return }
+            Task { await voz.falar(ultima.content, id: ultima.id.uuidString) }
+        }
+        .onDisappear {
+            // Sair da tela cala a boca. Áudio tocando numa tela que ele fechou é
+            // o app falando sozinho.
+            voz.parar()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { voice.handleResignActive() }
+            if phase == .active { lastInteraction = .now; idleTick = .now }
+        }
+        .onChange(of: draft) { _, _ in lastInteraction = .now }
+        .onChange(of: store.messages.count) { _, _ in lastInteraction = .now }
+        // 30s é grosso de propósito: só existe para a ociosidade poder virar
+        // `adormecido`. Nada de animação depende disto.
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now in
+            idleTick = now
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.55)) { appeared = true }
@@ -151,7 +254,7 @@ public struct ChatScreen: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture, onOpenSleep: onOpenSleep, onOpenSynthesize: onOpenSynthesize)
+                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture, onOpenSleep: onOpenSleep, onOpenSynthesize: onOpenSynthesize, onOpenFrota: onOpenFrota, onOpenOficina: onOpenOficina)
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
             }
@@ -167,14 +270,23 @@ public struct ChatScreen: View {
             HStack(spacing: BeagleSpacing.sm) {
                 topBarButton("line.3.horizontal") { activeSheet = .history }
                 Spacer(minLength: BeagleSpacing.sm)
-                Text(store.currentConversationTitle)
-                    .font(BeagleFont.subheadline.font.weight(.semibold))
-                    .foregroundStyle(BeagleTheme.companionInk)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    // Legibility over the variable aurora — a soft dark halo keeps the title
-                    // readable whether it floats over bright green or deep night.
-                    .shadow(color: .black.opacity(0.45), radius: 4, y: 0.5)
+                VStack(spacing: 2) {
+                    Text(store.currentConversationTitle)
+                        .font(BeagleFont.subheadline.font.weight(.semibold))
+                        .foregroundStyle(BeagleTheme.companionInk)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        // Legibility over the variable aurora - a soft dark halo keeps the title
+                        // readable whether it floats over bright green or deep night.
+                        .shadow(color: .black.opacity(0.45), radius: 4, y: 0.5)
+                    // The Agora block distilled to three words: day-part, hour, readiness (when
+                    // HealthKit has a signal). Same vocabulary the server puts in the model
+                    // own Agora block - never invents a state the model was not given.
+                    Text(agoraStrip)
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .shadow(color: .black.opacity(0.45), radius: 4, y: 0.5)
+                }
                 Spacer(minLength: BeagleSpacing.sm)
                 topBarButton("square.and.pencil") {
                     withAnimation(.easeOut(duration: 0.25)) { store.newConversation() }
@@ -186,6 +298,20 @@ public struct ChatScreen: View {
             .opacity(topBarHidden ? 0 : 1)
             .offset(y: topBarHidden ? -72 : 0)
             .blur(radius: topBarHidden ? 6 : 0)
+
+            // Tempo · corpo · céu. Fica logo abaixo da barra e some junto com ela
+            // quando você lê para a frente — as duas são cromo, e cromo se dissolve
+            // no conteúdo.
+            //
+            // Isto NÃO é a antiga tira de corpo que foi retirada daqui: aquela era
+            // permanente acima do compositor. Esta nasce recolhida — em repouso é só
+            // um traço — e só se abre para quem a procura. É a regra do contrato:
+            // "a faixa é porta", e o estado se revela por gesto.
+            FaixaDeEstado(breath: breath, sky: weather?.band)
+                .opacity(topBarHidden ? 0 : 1)
+                .offset(y: topBarHidden ? -72 : 0)
+                .animation(.easeOut(duration: 0.22), value: topBarHidden)
+
             Spacer()
         }
     }
@@ -243,16 +369,13 @@ public struct ChatScreen: View {
             // é a brasa que o bicho espalha, ancorada onde fica o coração dele.
             // Sem ela o bicho flutua sobre um retângulo chapado — foi exatamente o
             // que fez a primeira versão do desenho parecer pobre.
-            EmberField(
-                breathRate: breathRate,
-                intensity: empty ? 1.0 : 0.62
-            )
-            .animation(.easeOut(duration: 0.6), value: empty)
+            EmberField(breath: breath, intensity: empty ? 1.0 : 0.62)
+                .animation(.easeOut(duration: 0.6), value: empty)
 
             // Atrás: a aurora continua (foi construída de propósito e ele gosta dela),
             // mas rebaixada a cenário do cenário para não virar sopa visual.
             AuroraPresence(
-                breathRate: breathRate,
+                breath: breath,
                 weather: weather,
                 isStreaming: store.isStreaming,
                 size: empty ? .greeter : .header
@@ -264,10 +387,7 @@ public struct ChatScreen: View {
             // dentro de PrimordialPresence.
             PrimordialPresence(
                 state: presenceState,
-                // `breathRate` aqui e Double? (bpm); PrimordialPresence quer o tipo
-                // PresenceBreath, que carrega tambem a frescura da medida. A fabrica
-                // ja existe e trata bpm ausente — melhor que inventar um valor.
-                breath: PresenceBreath.from(bpm: breathRate, observedAt: nil),
+                breath: breath,
                 sky: weather?.band ?? .calm
             )
             .opacity(empty ? 0.95 : 0.55)
@@ -363,17 +483,92 @@ public struct ChatScreen: View {
 
     // MARK: - Conversation (flat content above the mesh)
 
+    /// A CHEGADA — item 7 do desenho: "quando há material, ao abrir o app ele já
+    /// disse algo".
+    ///
+    /// Visualmente distinta da carta de propósito. A fala em resposta tem serifa e
+    /// a marca âmbar no início do turno; isto é um bloco recuado, com filete e uma
+    /// etiqueta que diz QUANDO foi dito. A diferença não é decorativa: sem ela,
+    /// algo escrito antes dele chegar leria como resposta ao que ele acabou de
+    /// dizer — e ele confiaria numa réplica que nunca houve.
+    @ViewBuilder
+    private var aChegada: some View {
+        if chegada.temAlgoADizer {
+            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                HStack(spacing: BeagleSpacing.xxs) {
+                    Text("ENQUANTO VOCÊ NÃO ESTAVA")
+                        .font(.system(size: 9.5, weight: .semibold))
+                        .tracking(1.3)
+                        .foregroundStyle(MessageBubble.marcaAmbar.opacity(0.85))
+                    Spacer(minLength: 0)
+                    Button {
+                        withAnimation(BeagleMotion.snappy) { chegada.dispensar() }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .padding(6)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Dispensar")
+                }
+                MarkdownText(
+                    text: chegadaAberta ? chegada.textoCompleto : chegada.texto,
+                    inkColor: BeagleTheme.companionInk.opacity(0.92),
+                    bodyFont: .system(.callout, design: .serif),
+                    lineSpacingPt: 5.5
+                )
+                if chegada.temMais {
+                    Button {
+                        withAnimation(BeagleMotion.snappy) { chegadaAberta.toggle() }
+                    } label: {
+                        Text(chegadaAberta ? "menos" : "o resto")
+                            .font(BeagleFont.caption2.font)
+                            .foregroundStyle(MessageBubble.marcaAmbar.opacity(0.9))
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.leading, BeagleSpacing.sm)
+            .padding(.trailing, BeagleSpacing.xs)
+            .padding(.vertical, BeagleSpacing.sm)
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(MessageBubble.marcaAmbar.opacity(0.5))
+                    .frame(width: 2)
+            }
+            .frame(maxWidth: 620, alignment: .leading)
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: BeagleSpacing.lg) {
+                    aChegada
                     ForEach(store.messages) { message in
                         MessageBubble(
                             message: message,
                             isLast: message.id == store.messages.last?.id,
-                            onRegenerate: { Task { await store.regenerateLastResponse() } }
+                            onRegenerate: { Task { await store.regenerateLastResponse() } },
+                            voz: voz
                         )
                         .id(message.id)
+                    }
+                    // Presence LAYER — a murmur about the wait, not a line of his letter.
+                    // Lives outside the message list so server-authored text never renders
+                    // in serif as his voice (desenho 2026-08-02, item 5).
+                    if store.isStreaming, let note = store.presenceNote, !note.isEmpty {
+                        Text(note)
+                            .font(BeagleFont.footnote.font.italic())
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.leading, BeagleSpacing.xs)
+                            .transition(.opacity)
                     }
                     // clearance so the floating composer never covers the last line
                     Color.clear.frame(height: 72).id(Self.bottomAnchor)
@@ -384,10 +579,10 @@ public struct ChatScreen: View {
                 .animation(.easeOut(duration: 0.25), value: store.messages.count)
             }
             .defaultScrollAnchor(.bottom)   // recent messages hug the composer; void goes up top
-            // `.immediately` e nao `.interactively`: o modo interativo faz o teclado
-            // seguir o dedo, e num chat a lista ja esta no fim — o gesto vira
-            // rolagem e o teclado nunca sai. Ele relatou que nao conseguia LER a
-            // conversa, que e metade do uso.
+            // `.immediately` e não `.interactively`: o modo interativo faz o teclado
+            // seguir o dedo, e num chat a lista já está no fim — o gesto vira rolagem
+            // e o teclado nunca sai. Rolar tem que fechar, ponto. Ele relatou que não
+            // conseguia LER a conversa, que é metade do uso.
             .scrollDismissesKeyboard(.immediately)
             // Direction-based chrome melt: finger up (offset grows → reading forward) hides the
             // top bar; finger down (offset shrinks → going back) reveals it. Anchor-agnostic.
@@ -439,10 +634,19 @@ public struct ChatScreen: View {
             depth: $depth,
             isStreaming: store.isStreaming,
             onSend: send,
-            onVoice: { toggleVoice() },
-            isRecording: speech.isRecording,
+            voice: voice,
+            // O chip PT/EN sobreviveu à fusão: o localeID atravessa VoiceTurnController ->
+            // startRecording(localeID:) ate o reconhecedor. Sem isso o botao ficaria
+            // desenhado e mudo.
             dictationLocaleID: dictationLocaleID,
-            onToggleLocale: { dictationLocaleID = dictationLocaleID.hasPrefix("en") ? "pt_BR" : "en_US" }
+            onToggleLocale: { dictationLocaleID = dictationLocaleID.hasPrefix("en") ? "pt_BR" : "en_US" },
+            // Só o turno FALADO carrega tom. Digitado envia nil, e nil significa
+            // "não falei" — não "falei normal".
+            onVoiceCommit: { falado in
+                store.sinalDeVozDoTurno = voice.sinalDoUltimoTurno
+                turnoVeioDeVoz = true
+                sendText(falado)
+            }
         )
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.bottom, BeagleSpacing.sm)
@@ -485,6 +689,42 @@ public struct ChatScreen: View {
         .padding(.horizontal, BeagleSpacing.xl)
     }
 
+    // MARK: - Agora strip (top bar)
+
+    /// Day-part word for the top bar. Same hour buckets as BodyStory.salutation so the
+    /// greeting and the strip never disagree about what time of day it is.
+    private var periodWord: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12:  return "manhã"
+        case 12..<18: return "tarde"
+        case 18..<24: return "noite"
+        default:      return "madrugada"
+        }
+    }
+
+    private var hourString: String {
+        "\(Calendar.current.component(.hour, from: Date()))h"
+    }
+
+    /// Same readiness word the server puts in the model's ## Agora block
+    /// (temporal-context.mjs readinessPtBR) — derived from store.physioSummary, NOT
+    /// posture, so the strip never contradicts what the model was just told. nil when
+    /// there's no HealthKit signal to derive it from (never invents a state).
+    private var stateWord: String? {
+        switch store.physioSummary?.readiness {
+        case .restored: return "recuperado"
+        case .steady: return "estável"
+        case .strained: return "tenso"
+        case .unavailable, .none: return nil
+        }
+    }
+
+    private var agoraStrip: String {
+        var parts = [periodWord, hourString]
+        if let stateWord { parts.append(stateWord) }
+        return parts.joined(separator: " · ")
+    }
+
     /// Body-as-story snapshot. Reads the wired store (flow ← HRV); `--demo` injects a
     /// realistic body state so the attuned greeting renders without live HealthKit (sim).
     private var physioSnapshot: PhysioSnapshot {
@@ -501,8 +741,14 @@ public struct ChatScreen: View {
 
     // MARK: - Send
 
-    private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func send() { sendText(draft) }
+
+    /// The single funnel for a turn, typed or spoken. Extracted so the voice commit inherits
+    /// the Fundo escalation and the voiceModel routing instead of quietly duplicating them.
+    private func sendText(_ raw: String) {
+        // Quem chegou aqui pelo teclado não quer ser interrompido por áudio.
+        if !draft.isEmpty { turnoVeioDeVoz = false }
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         // SOTA-chat #5: fire the light send haptic for any committed send (chat turn or Fundo).
         sendTick &+= 1
@@ -552,6 +798,11 @@ struct ConversationDrawer: View {
     var onOpenCapture: (() -> Void)?
     var onOpenSleep: (() -> Void)?
     var onOpenSynthesize: (() -> Void)?
+    /// Opens the Frota (Mission Control: who needs you). Same trap as Work — it existed only in
+    /// the iPad sidebar, i.e. unreachable on the device he actually carries.
+    var onOpenFrota: (() -> Void)?
+    /// Opens the Oficina (is it green / what broke / where am I).
+    var onOpenOficina: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var reloadToken = 0
 
@@ -648,6 +899,18 @@ struct ConversationDrawer: View {
                     if onOpenData != nil {
                         Button { dismiss(); onOpenData?() } label: {
                             Label("Dados", systemImage: "chart.xyaxis.line")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
+                    if onOpenFrota != nil {
+                        Button { dismiss(); onOpenFrota?() } label: {
+                            Label("Frota", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                    }
+                    if onOpenOficina != nil {
+                        Button { dismiss(); onOpenOficina?() } label: {
+                            Label("Oficina", systemImage: "wrench.and.screwdriver")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
                     }

@@ -60,7 +60,7 @@ struct CompanionMotionTests {
 
     @Test func breathIsPeriodicAtBreathRate() {
         // 15 breaths/min → 4.0s period; breath should return to ~same phase after one period.
-        let m = CompanionMotion(flowState: "FLOW", breathRate: 15)
+        let m = CompanionMotion(flowState: "FLOW", breath: .measured(bpm: 15, at: Date()))
         let a = m.pose(at: 0).breath
         let b = m.pose(at: 4.0).breath
         #expect(abs(a - b) < 0.02)

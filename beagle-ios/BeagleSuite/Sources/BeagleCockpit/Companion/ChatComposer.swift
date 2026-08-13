@@ -85,13 +85,18 @@ struct ChatComposer: View {
     @Binding var depth: ChatDepth
     var isStreaming: Bool
     var onSend: () -> Void
-    var onVoice: () -> Void
-    /// Live dictation state: while true the trailing control becomes a Stop button (a growing
-    /// transcript would otherwise flip canSend true and hide the mic mid-recording).
-    var isRecording: Bool = false
+    /// The voice turn for this composer. Held by the screen so it survives composer redraws;
+    /// the composer only drives the gesture and reads the state.
+    var voice: VoiceTurnController
+    /// A finished spoken turn. Same funnel as `onSend` on the screen side.
+    var onVoiceCommit: (String) -> Void
     /// Dictation language (pt_BR/en_US) shown in the PT/EN chip + a handler to toggle it. The chip
-    /// sits next to the mic (only when the field is empty) — SFSpeechRecognizer is single-locale, so
+    /// sits next to the mic (only when the field is empty) — the recognizer is single-locale, so
     /// the language is chosen before speaking.
+    ///
+    /// SOBREVIVEU À FUSÃO DE PROPÓSITO. O turno de voz novo entra no reconhecedor por
+    /// `startRecording(profile:)`, que não tinha idioma; sem levar o `localeID` até lá o
+    /// chip continuaria DESENHADO e não mudaria nada — botão morto. Ver VoiceTurnController.
     var dictationLocaleID: String = "pt_BR"
     var onToggleLocale: (() -> Void)? = nil
 
@@ -100,15 +105,69 @@ struct ChatComposer: View {
     @FocusState private var focused: Bool
     // SOTA-chat: monotonic trigger for the send haptic (fires .sensoryFeedback on change).
     @State private var sendHaptic = 0
+    /// When the long-press last engaged. SwiftUI still delivers the Button's `action` on
+    /// touch-up after a long hold, and the ordering against the gesture's `onEnded` is not
+    /// guaranteed — so a hold must be able to veto the tap that follows it, or every
+    /// push-to-talk turn would also toggle hands-free.
+    @State private var holdEngagedAt: Date?
     /// Accessibility: Reduce Transparency swaps the Liquid Glass for a solid material so the
     /// draft text never loses contrast over a busy aurora (iOS 27 contrast guidance).
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var canSend: Bool { (!trimmed.isEmpty || attachedData != nil) && !isStreaming }
+    /// Whether there's anything to send — independent of streaming state.
+    private var hasContent: Bool { !trimmed.isEmpty || attachedData != nil }
+    /// Whether tapping the button would actually send right now. While streaming this is
+    /// false, but — see body — the button itself never disables its *identity*, only whether
+    /// the tap does anything; the glyph swap (arrow ⇄ mic) and the streaming state are both
+    /// just modifiers on ONE persistent Button, never a structural if/else. An if/else here
+    /// was the real remaining "disappears" bug (beyond the streaming case fixed in 0c32ddd):
+    /// it destroys and recreates the Button every time `hasContent` flips — which happens
+    /// constantly (typing then deleting back to empty, or `text` clearing the instant Send is
+    /// tapped) — and that structural swap, combined with per-branch `.animation`/`.opacity`
+    /// modifiers, could race and land on a blank frame mid cross-fade. A single Button that
+    /// only ever changes its icon/action in place cannot do that.
+    private var canSend: Bool { hasContent && !isStreaming }
+
+    /// A voz falhando precisa DIZER que falhou.
+    ///
+    /// O motivo já era gravado em `recognizer.error` e nenhuma superfície o
+    /// mostrava: microfone negado, rota de áudio indisponível, tudo virava
+    /// silêncio idêntico a "não apertei direito". Uma linha curta, apagada, que
+    /// some sozinha quando a voz volta a funcionar.
+    @ViewBuilder
+    private var avisoDeVoz: some View {
+        if voice.phase == .denied {
+            Text("Microfone sem permissão — libere em Ajustes › Beagle › Microfone.")
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .padding(.horizontal, BeagleSpacing.xs)
+        } else if let recusa = voice.motivoDaRecusa, !recusa.isEmpty {
+            Text(recusa)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .padding(.horizontal, BeagleSpacing.xs)
+        } else if let erro = voice.erro, !erro.isEmpty {
+            Text(erro)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.postureWarm)
+                .padding(.horizontal, BeagleSpacing.xs)
+        } else if let aviso = avisoTemporario, !aviso.isEmpty {
+            // Recusa explicada, com prazo. Some sozinha para não virar ruído fixo.
+            Text(aviso)
+                .font(BeagleFont.caption.font)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .padding(.horizontal, BeagleSpacing.xs)
+                .task(id: aviso) {
+                    try? await Task.sleep(for: .seconds(3))
+                    avisoTemporario = nil
+                }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            avisoDeVoz
             if attachedData != nil { attachmentChip }
 
             HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {
@@ -116,88 +175,26 @@ struct ChatComposer: View {
                 // style) so the user picks how hard the companion works before sending.
                 depthGear
 
-                TextField("Fala comigo…", text: $text, axis: .vertical)
-                    .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.companionInk)
-                    .tint(BeagleTheme.truthObserved)
-                    .lineLimit(1...6)
-                    .focused($focused)
-                    .padding(.vertical, 4)
-                    // BOTAO DE RECOLHER, acima do teclado.
-                    //
-                    // Havia .scrollDismissesKeyboard(.interactively) e mais nada.
-                    // Num chat a lista ja esta no fim: arrastar para baixo ROLA o
-                    // conteudo em vez de fechar. Na pratica nao existia saida — e
-                    // ele nao conseguia LER a conversa, que e metade do uso.
-                    //
-                    // A barra acima do teclado e onde a Apple treinou todo mundo a
-                    // procurar, e funciona com o polegar da mao que segura o telefone.
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button {
-                                focused = false
-                            } label: {
-                                Label("recolher", systemImage: "keyboard.chevron.compact.down")
-                                    .font(BeagleFont.caption.font)
-                            }
-                            .tint(BeagleTheme.truthObserved)
-                            .accessibilityLabel("Recolher o teclado")
-                        }
-                    }
+                inputField
 
-                Group {
-                    if isRecording {
-                        // Dictating: a Stop control that's ALWAYS reachable (the growing transcript
-                        // would flip canSend true and hide the mic). Tap to stop; text stays to edit/send.
-                        Button(action: onVoice) {
-                            Image(systemName: "stop.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(BeagleTheme.stateError)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("Parar de gravar")
-                    } else if canSend {
-                        Button(action: send) {
-                            Image(systemName: "arrow.up.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(BeagleTheme.truthObserved)
-                                // SOTA-chat: >=44pt HIG tap target for the thumb-reachable send action.
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("Enviar")
-                    } else {
-                        HStack(spacing: BeagleSpacing.xxs) {
-                            // PT/EN dictation-language chip — single-locale recognizer, so pick before
-                            // speaking. Sits next to the mic, only in this empty-field state.
-                            if let onToggleLocale {
-                                Button(action: onToggleLocale) {
-                                    Text(dictationLocaleID.hasPrefix("en") ? "EN" : "PT")
-                                        .font(BeagleFont.caption2.font.weight(.semibold))
-                                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
-                                        .frame(minWidth: 28, minHeight: 28)
-                                        .background(Capsule().fill(BeagleTheme.companionInk.opacity(0.08)))
-                                        .contentShape(Capsule())
-                                }
-                                .accessibilityLabel(dictationLocaleID.hasPrefix("en") ? "Idioma da ditada: inglês, tocar para português" : "Idioma da ditada: português, tocar para inglês")
-                            }
-                            Button(action: onVoice) {
-                                Image(systemName: "mic.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
-                                    // SOTA-chat: bump 30→44pt so the voice target also meets HIG.
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Voz")
-                        }
+                // CHIP PT/EN — sobreviveu da outra faixa. So aparece com o campo vazio,
+                // ao lado do microfone: o reconhecedor e de um idioma so, entao a escolha
+                // e ANTES de falar. Continua util porque o localeID agora atravessa o
+                // turno de voz ate o reconhecedor (ver VoiceTurnController).
+                if !hasContent, let onToggleLocale {
+                    Button(action: onToggleLocale) {
+                        Text(dictationLocaleID.hasPrefix("en") ? "EN" : "PT")
+                            .font(BeagleFont.caption2.font.weight(.semibold))
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
+                            .frame(minWidth: 28, minHeight: 28)
+                            .background(Capsule().fill(BeagleTheme.companionInk.opacity(0.08)))
+                            .contentShape(Capsule())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(dictationLocaleID.hasPrefix("en") ? "Idioma da ditada: inglês, tocar para português" : "Idioma da ditada: português, tocar para inglês")
                 }
-                .buttonStyle(.plain)
-                .animation(.snappy(duration: 0.2), value: canSend)
-                .animation(.snappy(duration: 0.2), value: isRecording)
+
+                actionButton
             }
         }
         .padding(.vertical, BeagleSpacing.xs)
@@ -206,7 +203,241 @@ struct ChatComposer: View {
         // SOTA-chat: subtle light-impact haptic confirming the send, contained and non-decorative.
         .sensoryFeedback(.impact(weight: .light), trigger: sendHaptic)
         .onChange(of: pickedItem) { _, item in
-            Task { attachedData = try? await item?.loadTransferable(type: Data.self) }
+            Task<Void, Never> { attachedData = try? await item?.loadTransferable(type: Data.self) }
+        }
+        .onAppear {
+            // Routed through the composer, not straight to the screen, so a spoken turn goes
+            // through the same cleanup as a typed one and can never leave an orphan attachment
+            // stuck in the bar for the next message.
+            voice.onCommit = { spoken in
+                attachedData = nil
+                pickedItem = nil
+                onVoiceCommit(spoken)
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: voice.isListening)
+    }
+
+    // MARK: - Voice turn
+
+    /// Voice may only arm when the bar is idle: not while editing text (a long press inside a
+    /// TextField is the system's cursor/selection gesture), not while an attachment is pending
+    /// (that turn belongs to the arrow), and not mid-stream.
+    /// Recusa explicada. Um botão que não faz nada é pior que um que diz não.
+    @State private var avisoTemporario: String?
+
+    private var canArmVoice: Bool { !hasContent && !focused && !isStreaming }
+
+    private var voiceAccessibilityLabel: String {
+        if hasContent { return isStreaming ? "Enviando" : "Enviar" }
+        switch voice.phase {
+        case .cancelArmed: return "Solte para cancelar"
+        case .listening, .latched: return "Ouvindo"
+        case .arming: return "Abrindo o microfone"
+        case .denied: return "Microfone sem permissão"
+        case .idle: return "Voz"
+        }
+    }
+
+    /// Short tap = latch hands-free for this turn (and tap again to force the commit). A tap
+    /// that merely ends a hold is vetoed here.
+    private func micTapped() {
+        if let engaged = holdEngagedAt, Date().timeIntervalSince(engaged) < 3 {
+            holdEngagedAt = nil
+            return
+        }
+        // TOCAR NO MICROFONE COM O TECLADO ABERTO É INTENÇÃO CLARA: ele quer falar.
+        //
+        // Antes isto era `guard canArmVoice else { return }` — um RETURN SILENCIOSO.
+        // E `canArmVoice` exige `!focused`, ou seja, teclado FECHADO. Como não
+        // existia botão para recolher o teclado, o microfone ficava inalcançável
+        // por construção: ele tocava e não acontecia nada, sem uma palavra na tela.
+        // Os dois defeitos que ele relatou (o teclado que não abaixa e o microfone
+        // que não responde) eram o MESMO defeito.
+        //
+        // Agora, em vez de recusar: fecha o teclado e abre o microfone. Recusar
+        // algo que o usuário pediu sem explicar é a pior resposta possível.
+        if focused && !voice.isListening {
+            recolherTeclado()
+            Task<Void, Never> {
+                // Um respiro para o teclado sair e a sessão de áudio assentar —
+                // abrir o microfone no mesmo instante disputa a rota de áudio.
+                try? await Task.sleep(for: .milliseconds(250))
+                await voice.toggleLatched()
+            }
+            return
+        }
+        guard canArmVoice || voice.isListening else {
+            // Sobra um caso só: ele está respondendo. Dizer isso é melhor que
+            // um botão morto.
+            if isStreaming { avisoTemporario = "espera ele terminar de responder" }
+            return
+        }
+        Task<Void, Never> { await voice.toggleLatched() }
+    }
+
+    /// Hold to talk; drag up past the threshold to cancel. The finger is the endpoint
+    /// detector — the only one that works when the room is not quiet.
+    ///
+    /// The handlers are written out as methods with explicit types on purpose: inline
+    /// closures over a SequenceGesture value blew up the type-checker in this file.
+    private typealias VoiceGesture = SequenceGesture<LongPressGesture, DragGesture>
+
+    private var voiceGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.18)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+            .onChanged(handleVoiceGestureChange)
+            .onEnded(handleVoiceGestureEnd)
+    }
+
+    private func handleVoiceGestureChange(_ value: VoiceGesture.Value) {
+        switch value {
+        case .first(true):
+            guard canArmVoice else { return }
+            holdEngagedAt = Date()
+            Task<Void, Never> { await voice.beginHold() }
+        case .second(true, let drag):
+            guard let drag else { return }
+            voice.updateHold(translation: drag.translation.height)
+        default:
+            break
+        }
+    }
+
+    private func handleVoiceGestureEnd(_ value: VoiceGesture.Value) {
+        voice.endHold()
+    }
+
+    /// What the text field becomes while he is speaking: the words as they land, plus a level
+    /// bar that proves the microphone is actually hearing something.
+    private var listeningField: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            levelMeter
+            Text(listeningText)
+                .font(BeagleFont.body.font)
+                .foregroundStyle(voice.phase == .cancelArmed ? BeagleTheme.textSecondary : BeagleTheme.companionInk)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var listeningText: String {
+        if voice.phase == .cancelArmed { return "solta para cancelar" }
+        let t = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { return t }
+        return voice.phase == .latched ? "ouvindo · toca para enviar" : "ouvindo…"
+    }
+
+    /// Three bars breathing with the input level. Deliberately tiny — it is a proof of life,
+    /// not a visualization; the real feedback channel for this gesture is haptic.
+    private var levelMeter: some View {
+        let lvl = CGFloat(max(0.06, min(1, voice.level)))
+        return HStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { i in
+                Capsule()
+                    .fill(voice.phase == .cancelArmed ? BeagleTheme.textTertiary : BeagleTheme.truthObserved)
+                    .frame(width: 2.5, height: 6 + lvl * (i == 1 ? 16 : 10))
+            }
+        }
+        .frame(width: 14, height: 24)
+        .animation(.easeOut(duration: 0.12), value: voice.level)
+    }
+
+    /// The text field, or — while he is speaking — the live transcript. Swapping the FIELD's
+    /// content is safe; the forbidden swap is the Button's.
+    @ViewBuilder
+    private var inputField: some View {
+        if voice.isListening {
+            listeningField
+        } else {
+            TextField("Fala comigo…", text: $text, axis: .vertical)
+                .font(BeagleFont.body.font)
+                .foregroundStyle(BeagleTheme.companionInk)
+                .tint(BeagleTheme.truthObserved)
+                .lineLimit(1...6)
+                .focused($focused)
+                .padding(.vertical, 4)
+                // BOTÃO DE RECOLHER, acima do teclado.
+                //
+                // Havia .scrollDismissesKeyboard(.interactively) e mais nada. Num
+                // chat a lista já está no fim: arrastar para baixo ROLA o
+                // conteúdo, não fecha o teclado. Na prática não existia saída — e
+                // ele não conseguia LER a conversa, que é metade do uso.
+                //
+                // Uma barra acima do teclado é o lugar onde a Apple treinou todo
+                // mundo a procurar, e funciona com o polegar da mão que segura o
+                // telefone.
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button {
+                            recolherTeclado()
+                        } label: {
+                            Label("recolher", systemImage: "keyboard.chevron.compact.down")
+                                .font(BeagleFont.caption.font)
+                        }
+                        .tint(BeagleTheme.truthObserved)
+                        .accessibilityLabel("Recolher o teclado")
+                    }
+                }
+        }
+    }
+
+    /// ONE persistent Button — send-vs-mic is just which icon/action it wears right now, never
+    /// a structural if/else. (See `canSend`'s doc comment: the old if/else identity-swap was
+    /// the real remaining disappearing bug.) Streaming is shown as a quiet ring around the
+    /// still full-opacity arrow, not a gray dim — the button is never hidden and never looks
+    /// "broken". It lives in its own property purely so the type-checker can cope.
+    /// Fecha o teclado. Também usado pelo toque na conversa.
+    func recolherTeclado() {
+        focused = false
+        #if canImport(UIKit)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                        to: nil, from: nil, for: nil)
+        #endif
+    }
+
+    private var actionButton: some View {
+        // The ternary is INSIDE the closure, not on the Button: two partially-applied method
+        // references as a ternary is what the type-checker choked on, and swapping the Button
+        // itself is forbidden (see canSend).
+        Button(action: { hasContent ? send() : micTapped() }) {
+            ZStack {
+                if hasContent && isStreaming {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(BeagleTheme.truthObserved.opacity(0.7))
+                        .scaleEffect(1.25)
+                }
+                Image(systemName: hasContent ? "arrow.up.circle.fill" : "mic.fill")
+                    .font(.system(size: hasContent ? 28 : 20))
+                    .foregroundStyle(micTint)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .frame(width: 44, height: 44)   // HIG minimum: 34 was unhittable without looking
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(hasContent && !canSend)
+        .accessibilityLabel(voiceAccessibilityLabel)
+        .accessibilityHint(hasContent ? "" : "Segure para falar, arraste para cima para cancelar")
+        .scaleEffect(voice.isListening ? 1.12 : 1.0)
+        // simultaneousGesture, never .gesture: .gesture would swallow the Button's own action
+        // and trade the send tap for the hold. The Button's identity is untouched.
+        .simultaneousGesture(voiceGesture)
+        .animation(.snappy(duration: 0.2), value: hasContent)
+        .animation(.snappy(duration: 0.2), value: isStreaming)
+        .animation(.snappy(duration: 0.2), value: voice.isListening)
+    }
+
+    private var micTint: Color {
+        if hasContent { return BeagleTheme.truthObserved }
+        switch voice.phase {
+        case .cancelArmed: return BeagleTheme.textTertiary
+        case .listening, .latched, .arming: return BeagleTheme.truthObserved
+        default: return BeagleTheme.textSecondary
         }
     }
 

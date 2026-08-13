@@ -79,7 +79,11 @@ class MetalKitSceneRenderer: NSObject, MTKViewDelegate {
         var breath: Double? = nil
         if let i = args.firstIndex(of: "--splat-breath"), i + 1 < args.count, let d = Double(args[i + 1]) { breath = d }
         if flow != nil || listening || breath != nil {
-            self.motion = CompanionMotion(flowState: flow, listening: listening, breathRate: breath)
+            // `--splat-breath` é uma medida DECLARADA pelo operador, com carimbo de agora.
+            self.motion = CompanionMotion(
+                flowState: flow, listening: listening,
+                breath: PresenceBreath.from(bpm: breath, observedAt: breath == nil ? nil : Date())
+            )
             self.motionOverriddenByArgs = true
         }
     }

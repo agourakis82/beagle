@@ -30,7 +30,30 @@ public actor BeagleClient {
     // public, not just internal: BeagleCockpit-module screens (e.g. CognitiveRecall.swift)
     // also need it — BeagleCore and BeagleCockpit are separate modules, so `internal` isn't
     // enough.
-    public static let cockpitMobileToken = "63e6190ef59507df275fb3550398bf7012afabc6a8075bb70f3869c8cb9e2f7e"
+    /// Token do cockpit, lido do bundle — NUNCA de um literal no código.
+    ///
+    /// Este valor ficou hardcoded aqui e a branch é publicada: de 01-jul a
+    /// 06-ago-2026 qualquer pessoa podia baixar o arquivo do GitHub sem
+    /// autenticação, conversar com o companion como ele e puxar 19 KB da
+    /// biografia dele por /companion/grounding. Verificado, não suposto.
+    ///
+    /// Agora vem de Secrets.plist, que é gitignored. Secrets.example.plist tem o
+    /// modelo e diz como obter o valor real do cluster.
+    ///
+    /// Vazio quando o arquivo falta: o app compila e as chamadas falham com 401,
+    /// que é ruído honesto — melhor que um token de exemplo parecendo funcionar.
+    public static let cockpitMobileToken: String = {
+        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+              let dados = try? Data(contentsOf: url),
+              let dict = try? PropertyListSerialization.propertyList(from: dados, format: nil) as? [String: Any],
+              let token = dict["COCKPIT_MOBILE_TOKEN"] as? String,
+              !token.isEmpty, !token.hasPrefix("COLE-AQUI")
+        else {
+            print("[BeagleClient] Secrets.plist ausente ou vazio — as chamadas ao cockpit vão dar 401.")
+            return ""
+        }
+        return token
+    }()
 
     public static let shared = BeagleClient()
 
@@ -957,7 +980,11 @@ public actor BeagleClient {
     ) async -> Truthful<AssistedImportBatchResult> {
         await postEncoded(
             AssistedImportBatchResult.self,
-            path: "/api/exocortex/v1/memory/assisted-import",
+            // O Cloudflare libera /api/mobile/* e bloqueia /api/exocortex/* (401 de corpo
+            // vazio, antes de chegar ao servidor). Como o gateway público é o primeiro
+            // que o app tenta, a importação nunca chegava — e cada falha ia para o
+            // outbox. O cockpit serve o MESMO handler nos dois caminhos.
+            path: "/api/mobile/v1/memory/assisted-import",
             body: request,
             timeout: 120
         )
@@ -1261,6 +1288,8 @@ public actor BeagleClient {
         // Live body + sky for the server's `## Agora` block — the exact values the strip/aura
         // show. All optional → backward compatible (older server just ignores them).
         hrvMs: Double? = nil,
+        voiceWpm: Double? = nil,
+        voicePausa: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
@@ -1317,7 +1346,8 @@ public actor BeagleClient {
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
-                            kp: kp, dst: dst, solarWind: solarWind, bz: bz)
+                            kp: kp, dst: dst, solarWind: solarWind, bz: bz,
+                            voiceWpm: voiceWpm, voicePausa: voicePausa)
 
         let mobileResult = await postPublicMobileChat(body: body)
         if mobileResult.value != nil {
@@ -1436,6 +1466,8 @@ public actor BeagleClient {
         lastContactAt: Date? = nil,
         history: [[String: String]] = [],
         hrvMs: Double? = nil,
+        voiceWpm: Double? = nil,
+        voicePausa: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
@@ -1458,7 +1490,8 @@ public actor BeagleClient {
             physioPolicy: physioPolicy,
             lastContactAt: lastContactAt,
             history: history,
-            hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
+            hrvMs: hrvMs, voiceWpm: voiceWpm, voicePausa: voicePausa,
+            readiness: readiness, sleepHours: sleepHours,
             heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
             voiceModel: voiceModel
@@ -1468,10 +1501,16 @@ public actor BeagleClient {
     /// Inject the live body + sky fields into a chat request body (shared by llmComplete +
     /// the streaming path). Only present values are sent — the server's `## Agora` fills in
     /// the rest from its own fetch.
+    /// Sinal de TOM (`voiceWpm`/`voicePausa`): derivado no aparelho quando ele falou
+    /// em vez de digitar. São dois números; o áudio é descartado no iPhone e nunca
+    /// sai. Ausentes quando ele digitou — ausência aqui significa "não falei", não
+    /// "falei normal".
     static func addLiveContext(_ body: inout [String: any Sendable], hrvMs: Double?, readiness: String?,
-                               sleepHours: Double?, heartRate: Double?, stateOfMind: Double?,
-                               stateOfMindLabel: String?,
-                               kp: Double?, dst: Double?, solarWind: Double?, bz: Double?) {
+                               sleepHours: Double?,
+                               heartRate: Double? = nil, stateOfMind: Double? = nil,
+                               stateOfMindLabel: String? = nil,
+                               kp: Double?, dst: Double?, solarWind: Double?, bz: Double?,
+                               voiceWpm: Double? = nil, voicePausa: Double? = nil) {
         // Live interoceptive anchor: the heartbeat, named back in a hard moment; and his OWN
         // logged State of Mind (valence −1..1 + the emotion word he tagged). All optional.
         if let heartRate { body["heart_rate"] = heartRate }
@@ -1484,6 +1523,122 @@ public actor BeagleClient {
         if let dst { body["dst"] = dst }
         if let solarWind { body["solar_wind"] = solarWind }
         if let bz { body["bz"] = bz }
+        if let voiceWpm { body["voice_speech_rate_wpm"] = voiceWpm }
+        if let voicePausa { body["voice_pause_ratio"] = voicePausa }
+    }
+
+    // MARK: - A boca
+
+    /// Pede ao servidor o áudio de `text`. Devolve o WAV pronto para tocar.
+    ///
+    /// 422 do servidor NÃO é falha a mascarar: é o guarda tendo reprovado a boca
+    /// (ela falou outra coisa) ou a voz indisponível. Nos dois casos o certo é
+    /// cair para texto — a carta já está na tela.
+    public func fetchCompanionVoice(text: String) async -> Truthful<Data> {
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        let debugLabel = "[CompanionVoice] POST /api/mobile/v1/companion/voice"
+        var lastError: String?
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/companion/voice", relativeTo: base) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 60
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
+            do {
+                let (data, response) = try await session.data(for: request)
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                guard (200..<300).contains(status) else {
+                    lastError = formatError(statusCode: status, data: data, fallback: "HTTP \(status)")
+                    // 4xx é veredito, não indisponibilidade: não adianta tentar outro gateway.
+                    if (400..<500).contains(status) { break }
+                    continue
+                }
+                struct Env: Decodable { let data: Corpo?; struct Corpo: Decodable { let wav_base64: String } }
+                guard let env = try? decoder.decode(Env.self, from: data),
+                      let b64 = env.data?.wav_base64,
+                      let wav = Data(base64Encoded: b64), !wav.isEmpty else {
+                    lastError = "resposta sem áudio"
+                    continue
+                }
+                print("\(debugLabel) ok — \(wav.count / 1024) KB")
+                return Truthful(value: wav, mode: .observed, observedAt: .now, source: url.host, error: nil)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        print("\(debugLabel) sem voz — \(lastError ?? "sem detalhe")")
+        return Truthful(value: nil, mode: .stale, observedAt: nil, source: nil, error: lastError)
+    }
+
+    // MARK: - A chegada (síntese proativa)
+
+    public struct ArrivalSynthesis: Sendable {
+        public let texto: String
+        /// O servidor se recusou a sintetizar por falta de material. É o
+        /// comportamento correto, não uma falha.
+        public let insuficiente: Bool
+    }
+
+    /// Busca o que ele deixou. Acumula o SSE inteiro em vez de transmitir: isto
+    /// não é fala ao vivo, é algo que já estava dito quando ele abriu o app —
+    /// mostrar aparecendo letra a letra mentiria sobre o tempo.
+    public func fetchArrivalSynthesis(windowDays: Int = 3) async -> Truthful<ArrivalSynthesis> {
+        let debugLabel = "[ArrivalSynthesis] POST /api/mobile/v1/synthesize"
+        // Mesma sequência de gateways do chat: público primeiro, tailnet depois,
+        // cluster por último.
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        var lastError: String?
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/synthesize", relativeTo: base) else { continue }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 120
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: ["windowDays": windowDays])
+            do {
+                let (bytes, response) = try await session.bytes(for: request)
+                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                    lastError = "HTTP \((response as? HTTPURLResponse)?.statusCode ?? -1)"
+                    continue
+                }
+                var texto = ""
+                var insuficiente = false
+                for try await linha in bytes.lines {
+                    guard linha.hasPrefix("data:") else { continue }
+                    let bruto = String(linha.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                    guard let d = bruto.data(using: .utf8),
+                          let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+                    if let t = j["token"] as? String { texto += t }
+                    if j["done"] != nil {
+                        insuficiente = (j["insufficient"] as? Bool) ?? false
+                        break
+                    }
+                }
+                print("\(debugLabel) ok — \(texto.count) chars, insuficiente=\(insuficiente)")
+                return Truthful(value: ArrivalSynthesis(texto: texto, insuficiente: insuficiente),
+                                mode: .observed, observedAt: .now, source: url.host, error: nil)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        print("\(debugLabel) falhou — \(lastError ?? "sem detalhe")")
+        return Truthful(value: nil, mode: .stale, observedAt: nil, source: nil, error: lastError)
     }
 
     private func postPublicMobileChat(body: [String: any Sendable]) async -> Truthful<ChatResponse> {
@@ -1555,6 +1710,63 @@ public actor BeagleClient {
         return .staleError(lastError, source: "cockpit-mobile-gateway")
     }
 
+    // MARK: - Companion grounding (cache offline)
+
+    /// O pacote de identidade dele, montado pelo cluster: persona, biografia viva,
+    /// Sounio, continuidade. ~18 KB de texto.
+    public struct CompanionGrounding: Decodable, Sendable {
+        public let system: String
+        public let bytes: Int?
+    }
+
+    /// Busca o grounding para o app guardar em disco. Existe por um motivo concreto:
+    /// dentro do hospital a rede cai, e sem isto o modelo no aparelho responde como um
+    /// estranho educado usando o nome dele — justamente quando ele está mais sozinho.
+    public func fetchCompanionGrounding() async -> Truthful<CompanionGrounding> {
+        let cockpitURLs = [
+            URL(string: "https://beagle.chiuratto.ai")!,
+            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
+            URL(string: "http://100.107.208.198")!,
+            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
+        ]
+        let body: [String: any Sendable] = ["space": "personal", "prompt": "grounding"]
+        var lastError = "grounding gateway unreachable"
+        let debugLabel = "[CompanionGrounding] POST /api/mobile/v1/companion/grounding"
+
+        for base in cockpitURLs {
+            guard let url = URL(string: "/api/mobile/v1/companion/grounding", relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                request.timeoutInterval = 60
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                let (data, response) = try await session.data(for: request)
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = "HTTP \(statusCode)"
+                    print("[BeagleClient] \(debugLabel) HTTP \(statusCode)")
+                    continue
+                }
+                let envelope = try decoder.decode(MobileEnvelope<CompanionGrounding>.self, from: data)
+                guard envelope.ok != false, let payload = envelope.data else {
+                    lastError = envelope.error?.message ?? "grounding returned no data"
+                    continue
+                }
+                print("[BeagleClient] \(debugLabel) ok — \(payload.bytes ?? payload.system.count) bytes")
+                return Truthful(value: payload, mode: .observed, observedAt: .now, source: url.host, error: nil)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
+        return .staleError(lastError, source: "cockpit-mobile-gateway")
+    }
+
     // MARK: - Streaming chat (SSE: /api/mobile/v1/chat/stream)
     //
     // Streams tokens from the cockpit's SSE endpoint as they arrive — the user sees
@@ -1573,6 +1785,8 @@ public actor BeagleClient {
         lastContactAt: Date? = nil,
         history: [[String: String]] = [],
         hrvMs: Double? = nil,
+        voiceWpm: Double? = nil,
+        voicePausa: Double? = nil,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
@@ -1583,7 +1797,12 @@ public actor BeagleClient {
         solarWind: Double? = nil,
         bz: Double? = nil,
         voiceModel: String? = nil,
-        deepThink: Bool = false
+        deepThink: Bool = false,
+        // Presence channel (2026-08-02-companion-presence-design.md §5): the server writes
+        // {"event":"presence"|"phase", ...} at t≈0 and while it waits. Optional callback
+        // instead of widening the stream element type, so the other call-site
+        // (DailySynthesisView) keeps compiling untouched. Invoked off the main actor.
+        onPhase: (@Sendable (String, String) -> Void)? = nil
     ) -> AsyncThrowingStream<String, Error> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1620,12 +1839,15 @@ public actor BeagleClient {
         if let voiceModel, !voiceModel.isEmpty {
             body["voiceModel"] = voiceModel
         }
+        // Deep-think gear: asks the server to route this turn through the grounded/agentic
+        // path (web + cluster + fs tools) instead of the fast conversational default.
         if deepThink {
             body["deepThink"] = true
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
-                            kp: kp, dst: dst, solarWind: solarWind, bz: bz)
+                            kp: kp, dst: dst, solarWind: solarWind, bz: bz,
+                            voiceWpm: voiceWpm, voicePausa: voicePausa)
 
         let cockpitURLs: [URL] = [
             URL(string: "https://beagle.chiuratto.ai")!,
@@ -1673,15 +1895,28 @@ public actor BeagleClient {
                                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                                 continue
                             }
-                            if let token = obj["token"] as? String, !token.isEmpty {
-                                continuation.yield(token)
-                            } else if obj["done"] as? Bool == true {
+                            // ORDER IS CONTRACT: done → error → event → token. `done` carries a
+                            // `presence` field of its own (the FLOOR layer) — checking presence
+                            // first would swallow every degraded `done` and hang the stream.
+                            if obj["done"] as? Bool == true {
+                                if let err = obj["error"] as? String {
+                                    continuation.finish(throwing: NSError(domain: "BeagleChatStream", code: -1,
+                                        userInfo: [NSLocalizedDescriptionKey: err]))
+                                    return
+                                }
                                 continuation.finish()
                                 return
                             } else if let err = obj["error"] as? String {
                                 continuation.finish(throwing: NSError(domain: "BeagleChatStream", code: -1,
                                     userInfo: [NSLocalizedDescriptionKey: err]))
                                 return
+                            } else if let event = obj["event"] as? String,
+                                      event == "presence" || event == "phase" {
+                                let phase = obj["phase"] as? String ?? event
+                                let text = obj["text"] as? String ?? ""
+                                onPhase?(phase, text)
+                            } else if let token = obj["token"] as? String, !token.isEmpty {
+                                continuation.yield(token)
                             }
                         }
                         continuation.finish()

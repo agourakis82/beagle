@@ -27,9 +27,15 @@ struct MessageBubble: View {
     @State private var showGoDeep = false
     @State private var goDeepStore = GoDeepStore()
 
+    /// Âmbar do desenho da presença — a mesma brasa do ancestral de luz.
+    static let marcaAmbar = Color(red: 0.78, green: 0.48, blue: 0.29)
+
     private var isUser: Bool { message.role == .user }
     /// The text the user actually reads (the companion's note is stripped out) — what we copy,
     /// share, or send to Go-Deeper.
+    /// A boca. Opcional: a bolha existe em telas que não tocam áudio.
+    var voz: CompanionVoice?
+
     private var displayedText: String { isUser ? message.content : parsed.message }
 
     var body: some View {
@@ -68,6 +74,9 @@ struct MessageBubble: View {
     private var messageActions: some View {
         Button { copyText() } label: { Label("Copiar", systemImage: "doc.on.doc") }
         Button { showGoDeep = true } label: { Label("Go Deeper", systemImage: "scope") }
+        if !isUser, isLast, let voz {
+            botaoOuvir(voz)
+        }
         if !isUser, isLast, let onRegenerate {
             Button { onRegenerate() } label: { Label("Regenerar", systemImage: "arrow.clockwise") }
         }
@@ -160,6 +169,36 @@ struct MessageBubble: View {
     // MARK: - Bubble
 
     /// Companion is thinking — request in flight, no text yet.
+    /// Ouvir a última fala dele.
+    ///
+    /// Só na ÚLTIMA e só dele: um botão em cada bolha viraria enfeite, e ouvir
+    /// uma resposta de três turnos atrás não é um gesto que alguém faz.
+    @ViewBuilder
+    private func botaoOuvir(_ voz: CompanionVoice) -> some View {
+        let falando = voz.estaFalando(message.id.uuidString)
+        Button {
+            Task {
+                if falando { voz.parar() }
+                else { await voz.falar(parsed.message, id: message.id.uuidString) }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: falando ? "stop.fill" : "speaker.wave.2")
+                    .font(.system(size: 11, weight: .medium))
+                Text(falando ? "parar" : "ouvir")
+                    .font(BeagleFont.caption2.font)
+            }
+            .foregroundStyle(falando ? Self.marcaAmbar : BeagleTheme.textTertiary)
+            .padding(.vertical, 5)
+            .padding(.horizontal, 9)
+            .contentShape(Rectangle())   // a área toda clicável, não só o glifo
+        }
+        .buttonStyle(.plain)
+        .disabled(voz.buscando)
+        .opacity(voz.buscando && !falando ? 0.45 : 1)
+        .accessibilityLabel(falando ? "Parar de ouvir" : "Ouvir esta resposta")
+    }
+
     private var isThinking: Bool { !isUser && message.isStreaming && message.content.isEmpty }
 
     private var bubble: some View {
@@ -169,9 +208,11 @@ struct MessageBubble: View {
                     .padding(.vertical, 14)
                     .padding(.horizontal, BeagleSpacing.md)
             } else if isUser {
+                // Você sabe o que escreveu. A tela serve à voz dele.
                 Text(message.content)
-                    .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .font(BeagleFont.body.font.italic())
+                    .foregroundStyle(BeagleTheme.textPrimary.opacity(0.58))
+                    .multilineTextAlignment(.trailing)
                     .textSelection(.enabled)
                     .padding(.vertical, BeagleSpacing.sm)
                     .padding(.horizontal, BeagleSpacing.md)
@@ -186,13 +227,30 @@ struct MessageBubble: View {
             } else {
                 // Companion replies render real markdown — code blocks (with copy), lists,
                 // tables, headings, emphasis — instead of a flat string.
-                MarkdownText(text: parsed.message, inkColor: BeagleTheme.companionInk)
-                    .padding(.vertical, BeagleSpacing.sm)
-                    .padding(.horizontal, BeagleSpacing.md)
+                MarkdownText(
+                    text: parsed.message,
+                    inkColor: BeagleTheme.companionInk,
+                    bodyFont: .system(.body, design: .serif),
+                    lineSpacingPt: 6.5
+                )
+                .padding(.vertical, BeagleSpacing.sm)
+                .padding(.leading, BeagleSpacing.md)
+                .padding(.trailing, BeagleSpacing.sm)
             }
         }
-        .background(isUser ? BeagleTheme.userSurface : BeagleTheme.companionSurface, in: bubbleShape)
-        .frame(maxWidth: 540, alignment: isUser ? .trailing : .leading)
+        // Bolhas simétricas tratavam as duas falas como a mesma coisa. Não são:
+        // a sua é telegráfica, a dele é parágrafo. Moldura de altura inteira
+        // vira caixa; uma marca curta no início do turno é assinatura.
+        .overlay(alignment: .topLeading) {
+            if !isUser && !isThinking {
+                Capsule()
+                    .fill(Self.marcaAmbar)
+                    .frame(width: 2.5, height: 20)
+                    .padding(.top, BeagleSpacing.sm + 3)
+                    .padding(.leading, 3)
+            }
+        }
+        .frame(maxWidth: 620, alignment: isUser ? .trailing : .leading)
     }
 
     private var bubbleShape: UnevenRoundedRectangle {
@@ -272,6 +330,11 @@ private struct MemoryProvenanceChip: View {
 struct MarkdownText: View {
     let text: String
     var inkColor: Color = BeagleTheme.companionInk
+    /// A fala dele é para LER, não para escanear: serifa e entrelinha de leitura.
+    var bodyFont: Font = BeagleFont.body.font
+    /// Padrao 5pt: prosa calma para leitura de uma mao so. As respostas dele sobrescrevem
+    /// com 6.5 + serifa (ver o call-site acima); os demais usos herdam o respiro.
+    var lineSpacingPt: CGFloat = 5
 
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
@@ -279,8 +342,8 @@ struct MarkdownText: View {
                 blockView(block)
             }
         }
-        .font(BeagleFont.body.font)
-        .lineSpacing(5)   // calmer prose for one-handed mobile reading
+        .font(bodyFont)
+        .lineSpacing(lineSpacingPt)
         .foregroundStyle(inkColor)
         .textSelection(.enabled)
         .frame(maxWidth: .infinity, alignment: .leading)

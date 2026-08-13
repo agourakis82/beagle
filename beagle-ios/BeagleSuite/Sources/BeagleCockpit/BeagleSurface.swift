@@ -12,6 +12,7 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+import BeagleWorkbenchKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -30,6 +31,10 @@ struct BeagleSurface: View {
     @State private var metacogNudge: MetacognitiveObservation?
     @State private var serendipityProvocation: SerendipityProvocation?
 
+    /// A deep link parked by `onOpenURL` — the path a Live Activity or lock-screen tap takes
+    /// to land straight on the Frota.
+    private let deepLink = DeepLinkRouter.shared
+
     private enum SurfaceSheet: String, Identifiable {
         case settings
         case cognitiveState
@@ -44,12 +49,23 @@ struct BeagleSurface: View {
         case work  // agent deck (WorkView) — was iPad-sidebar-only until this session's audit
         case sleep  // last night's HealthKit sleep data — the real "análise do sono"
         case synthesis  // proactive synthesis — a deliberate surface, separate from chat
+        case frota    // Mission Control: who needs you (was iPad-sidebar-only too)
+        case oficina  // dev half: is it green / what broke / where am I
 
         var id: String { rawValue }
     }
 
     var body: some View {
         surfaceRoot
+            .onChange(of: deepLink.pending) { _, _ in
+                guard let d = deepLink.consume() else { return }
+                switch d {
+                case .frota:   activeSheet = .frota
+                case .oficina: activeSheet = .oficina
+                case .work:    activeSheet = .work
+                }
+            }
+            .task { deepLink.applyLaunchArgumentIfPresent() }
             .task {
                 await bootstrapSurface()
             }
@@ -101,7 +117,12 @@ struct BeagleSurface: View {
 
             ChatScreen(
                 store: conversation,
-                breathRate: physio.cognitivePosture.respiratoryRate,
+                // Os DOIS precisam existir: sem `observedAt` o dado não foi observado,
+                // e uma leitura velha demais deixa de valer como agora.
+                breath: PresenceBreath.from(
+                    bpm: physio.cognitivePosture.respiratoryRate,
+                    observedAt: physio.cognitivePosture.observedAt
+                ).resolved(now: .now),
                 weather: spaceWeather.latest,
                 posture: physio.cognitivePosture,
                 onOpenSettings: { activeSheet = .settings },
@@ -113,7 +134,9 @@ struct BeagleSurface: View {
                 onOpenWork: { activeSheet = .work },
                 onOpenCapture: { activeSheet = .capture },
                 onOpenSleep: { activeSheet = .sleep },
-                onOpenSynthesize: { activeSheet = .synthesis }
+                onOpenSynthesize: { activeSheet = .synthesis },
+                onOpenFrota: { activeSheet = .frota },
+                onOpenOficina: { activeSheet = .oficina }
             )
         }
     }
@@ -177,6 +200,10 @@ struct BeagleSurface: View {
             workSheet
         case .sleep:
             sleepSheet
+        case .frota:
+            frotaSheet
+        case .oficina:
+            oficinaSheet
         }
     }
 
@@ -205,6 +232,28 @@ struct BeagleSurface: View {
     private var workSheet: some View {
         NavigationStack {
             WorkView(bootError: $bootError)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { activeSheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var frotaSheet: some View {
+        NavigationStack {
+            FrotaView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { activeSheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var oficinaSheet: some View {
+        NavigationStack {
+            OficinaView()
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Fechar") { activeSheet = nil }

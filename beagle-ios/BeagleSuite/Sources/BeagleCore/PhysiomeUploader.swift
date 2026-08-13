@@ -435,12 +435,43 @@ public actor PhysiomeUploader {
         }
 
         // Step 3: Encode the ingest payload.
+        //
+        // INSTRUMENTADO (12-ago-2026) para decidir se vale trocar JSON por Arrow no
+        // transporte. Medido em lote de 5.000 amostras, que é o uploadChunkSize:
+        //   JSON hoje ................ 172,8 B/linha
+        //   JSON + gzip ..............  36,1 B/linha   (4,8x)
+        //   colunar estilo Arrow .....  23,0 B/linha   (7,5x)
+        //   piso teórico (só o uuid) .  16,0 B/linha
+        // O uuid é aleatório e não comprime — ele é 70% do payload em qualquer
+        // formato. O que falta saber é o CUSTO DE CPU, e é isso que este carimbo
+        // mede. O tempo vai no header para o servidor registrar junto com o dele:
+        // é o único ponto onde as duas pontas aparecem na mesma linha de log.
         let payload: Data
+        let encodeMs: Double
         do {
+            let t0 = DispatchTime.now().uptimeNanoseconds
             payload = try JSONEncoder().encode(batch)
+            encodeMs = Double(DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
         } catch {
             throw PhysiomeUploaderError.uploadFailed("encode: \(error.localizedDescription)")
         }
+        let linhas = batch.healthSamples.count + batch.sleepSamples.count
+                   + batch.workoutSamples.count + batch.weatherObs.count
+
+        // Comprime. Medido: 172,8 → ~36 B/linha, 4,8x menos rede. Se falhar ou não
+        // valer a pena, `comprimido` fica nil e vai o original — comprimir jamais
+        // pode derrubar um envio de dados de saúde que já está atrasado.
+        let tComp = DispatchTime.now().uptimeNanoseconds
+        let comprimido = CompressaoZlib.comprimir(payload)
+        let compMs = Double(DispatchTime.now().uptimeNanoseconds - tComp) / 1_000_000
+        let corpo = comprimido ?? payload
+
+        let carimbo = String(
+            format: "encode_ms=%.2f;comprimir_ms=%.2f;bytes=%d;bytes_fio=%d;linhas=%d;bytes_por_linha=%.1f;fio_por_linha=%.1f",
+            encodeMs, compMs, payload.count, corpo.count, linhas,
+            linhas > 0 ? Double(payload.count) / Double(linhas) : 0,
+            linhas > 0 ? Double(corpo.count) / Double(linhas) : 0
+        )
 
         // Step 4: POST directly to physiome-ingest, trying each base URL in order.
         // The gateway at beagle.chiuratto.ai validates the operator token and forwards
@@ -454,8 +485,14 @@ public actor PhysiomeUploader {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
             request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            request.setValue(carimbo, forHTTPHeaderField: "X-Beagle-Client-Timing")
+            // O express infla isto sozinho — verificado contra o mesmo body-parser
+            // que o serviço usa. Nenhuma mudança foi necessária do lado do servidor.
+            if comprimido != nil {
+                request.setValue("deflate", forHTTPHeaderField: "Content-Encoding")
+            }
             request.timeoutInterval = 60
-            request.httpBody = payload
+            request.httpBody = corpo
             do {
                 let (data, response) = try await physSession.data(for: request)
                 guard let http = response as? HTTPURLResponse else {

@@ -1,39 +1,138 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking   // URLRequest/URLSession live here on non-Apple platforms
+#endif
 
-/// Connection details for the fleet cockpit's native PTY transport (P0 `/pty/<agent>`).
-/// No auth: the cockpit is gated at the pod (tailnet / Cloudflare Access). The device
-/// must be on the tailnet to reach `host`.
+/// Connection details for the fleet's **Loom** transport (`/ws/loom`) — the live broker that
+/// multiplexes every agent session over ONE WebSocket (server/loom/protocol.mjs). This replaces
+/// the dead P0 `/pty/<agent>` gateway (Rust, source lost).
+///
+/// Auth: the Loom upgrade accepts a `tailscale-user-login` header (injected by the tailnet
+/// gateway when the device is on the tailnet) OR an `x-cockpit-token`. So with `token == nil`
+/// and a tailnet `host`, no secret is needed — same posture as the old pod-gated `/pty`.
 public struct FleetEndpoint: Sendable {
+    /// The real workspace agent lanes — tmux session ids on `sounio-workspace-control-0`,
+    /// allowlisted in `platform-bridge.mjs` and seeded into the Loom broker.
     public static let agents: [String] = [
         "claude-1", "claude-2", "claude-3",
         "codex-1", "codex-2", "codex-3",
-        "minimax", "kimi", "cursor", "grok",
+        "kimi-cli1", "kimi-cli2",
+        "grok-cli1", "grok-cli2",
+        "repo",
     ]
 
     public let host: String
     public let scheme: String
+    /// Optional cockpit token → sent as `x-cockpit-token` on the WS upgrade. Nil = rely on the
+    /// tailnet gateway (`tailscale-user-login`). Set it to reach the public HTTPS gateway.
+    public let token: String?
 
-    public init(host: String = "cockpit-1.tail21cbc4.ts.net", scheme: String = "ws") {
+    public init(
+        host: String = "sounio-cockpit.tail21cbc4.ts.net",
+        scheme: String = "ws",
+        token: String? = nil
+    ) {
         self.host = host
         self.scheme = scheme
+        // Default to the app's canonical cockpit token (Secrets.plist, gitignored — same source
+        // every other cockpit call uses). A token is now REQUIRED for the Loom socket: it carries
+        // keystrokes into live sessions, so the cockpit stopped accepting the forgeable
+        // `tailscale-user-login` header alone on write paths. Empty stays empty, so a missing
+        // Secrets.plist fails loudly with 401 instead of looking like a network problem.
+        if let token {
+            self.token = token
+        } else {
+            let shared = BeagleClient.cockpitMobileToken
+            self.token = shared.isEmpty ? nil : shared
+        }
     }
 
     public static func isKnownAgent(_ agent: String) -> Bool {
         agents.contains(agent)
     }
 
-    /// `ws://<host>/pty/<agent>` — nil for unknown/unsafe agents.
-    public func ptyURL(agent: String) -> URL? {
-        guard Self.isKnownAgent(agent) else { return nil }
+    /// The single multiplexed Loom socket: `ws(s)://<host>/ws/loom`. Every lane shares it;
+    /// the agent is selected per-connection via a `subscribe` frame, not via the path.
+    public func loomURL() -> URL? {
         var c = URLComponents()
         c.scheme = scheme
         c.host = host
-        c.path = "/pty/\(agent)"
+        c.path = "/ws/loom"
         return c.url
     }
 
-    /// Control frame the P0 gateway parses: `{"resize":[cols,rows]}`.
-    public static func resizeFrame(cols: Int, rows: Int) -> String {
-        #"{"resize":[\#(cols),\#(rows)]}"#
+    /// A `URLRequest` for the WS upgrade, carrying the optional `x-cockpit-token` header.
+    public func loomRequest() -> URLRequest? {
+        guard let url = loomURL() else { return nil }
+        var req = URLRequest(url: url)
+        if let token, !token.isEmpty {
+            req.setValue(token, forHTTPHeaderField: "x-cockpit-token")
+        }
+        return req
+    }
+
+    /// The Oficina reading: `http(s)://<host>/api/mobile/v1/oficina`, same auth posture as the
+    /// Loom socket (tailnet header, or the cockpit token via the public gateway).
+    public func oficinaRequest() -> URLRequest? {
+        var c = URLComponents()
+        c.scheme = (scheme == "wss") ? "https" : "http"
+        c.host = host
+        c.path = "/api/mobile/v1/oficina"
+        guard let url = c.url else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token, !token.isEmpty { req.setValue(token, forHTTPHeaderField: "x-cockpit-token") }
+        return req
+    }
+
+    /// The coordination reading: shared-tree hazards, live claims, and their conflicts.
+    public func coordRequest() -> URLRequest? { jsonRequest(path: "/api/mobile/v1/coord") }
+
+    private func jsonRequest(path: String) -> URLRequest? {
+        var c = URLComponents()
+        c.scheme = (scheme == "wss") ? "https" : "http"
+        c.host = host
+        c.path = path
+        guard let url = c.url else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token, !token.isEmpty { req.setValue(token, forHTTPHeaderField: "x-cockpit-token") }
+        return req
+    }
+
+    // MARK: - Loom client frames (see server/loom/protocol.mjs CLIENT_TYPES)
+
+    /// Attach to a lane: server replies `{t:"scrollback"}` then streams `{t:"data"}`.
+    public static func subscribeFrame(sid: String) -> String {
+        encode(["t": "subscribe", "sid": sid])
+    }
+
+    /// Detach without killing the lane (broker dematerializes on last subscriber).
+    public static func unsubscribeFrame(sid: String) -> String {
+        encode(["t": "unsubscribe", "sid": sid])
+    }
+
+    /// Keyboard/stdin → lane. `data` is JSON-string-escaped by JSONSerialization.
+    public static func inputFrame(sid: String, data: String) -> String {
+        encode(["t": "input", "sid": sid, "data": data])
+    }
+
+    /// Tell the lane's pty its viewport (tmux only repaints once it knows the client size).
+    public static func resizeFrame(sid: String, cols: Int, rows: Int) -> String {
+        encode(["t": "resize", "sid": sid, "cols": cols, "rows": rows])
+    }
+
+    /// Ask for the current session roster (also sent unprompted on connect).
+    public static func listFrame() -> String {
+        encode(["t": "list"])
+    }
+
+    /// Robust JSON encoding via JSONSerialization (correct escaping for input payloads).
+    static func encode(_ obj: [String: Any]) -> String {
+        guard
+            let d = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]),
+            let s = String(data: d, encoding: .utf8)
+        else { return "{}" }
+        return s
     }
 }
