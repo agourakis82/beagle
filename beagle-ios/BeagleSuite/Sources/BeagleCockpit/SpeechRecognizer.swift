@@ -729,8 +729,8 @@ final class SpeechRecognizer {
         let bufferRef = UnsafeMutablePointer<[Float]>.allocate(capacity: 1)
         bufferRef.initialize(to: [])
 
-        guard entradaValida(audioEngine?.inputNode) else { stopRecording(); return }
-        let legacyFormat = audioEngine!.inputNode.outputFormat(forBus: 0)
+        guard entradaValida(audioEngine.inputNode) else { stopRecording(); return }
+        let legacyFormat = audioEngine.inputNode.outputFormat(forBus: 0)
         // The legacy path re-transcribes the WHOLE accumulated buffer every 2 s, so an
         // untruncated buffer makes long dictation cost O(n²) and eventually stall. Cap the
         // retained audio; callers are told (isUsingLegacyRecognizer) not to offer hands-free
@@ -749,13 +749,13 @@ final class SpeechRecognizer {
         // próximo toque derrubar tudo. Remover é idempotente: se não há tap, é
         // no-op. Não existe motivo para não fazer sempre.
 
-        if let falha = GuardaDeAudio.protegido("abrir o microfone", { self.audioEngine?.inputNode.removeTap(onBus: 0) }) {
+        if let falha = GuardaDeAudio.protegido("abrir o microfone", { audioEngine.inputNode.removeTap(onBus: 0) }) {
 
             self.error = falha; self.stopRecording(); return
 
         }
 
-        audioEngine?.inputNode.installTap(onBus: 0, bufferSize: 4096, format: legacyFormat) { [weak self] buffer, _ in
+        audioEngine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: legacyFormat) { [weak self] buffer, _ in
             if let lvl = Self.normalizedLevel(of: buffer) { self?.publishLevel(lvl) }
             let channelData = buffer.floatChannelData?[0]
             let frameLength = Int(buffer.frameLength)

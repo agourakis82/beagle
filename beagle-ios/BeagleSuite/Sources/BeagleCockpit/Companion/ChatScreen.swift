@@ -346,17 +346,6 @@ public struct ChatScreen: View {
     /// O estado do bicho. Entradas que este ramo não tem (ocioso, hora, céu medido)
     /// ficam no padrão do resolvedor — ele degrada para um estado calmo em vez de
     /// exigir tudo. Ligar o que existe hoje e crescer depois é melhor que não ligar.
-    private var presenceState: PresenceState {
-        PresenceResolver(
-            isStreaming: store.isStreaming,
-            isVoiceListening: speech.isRecording,
-            composerFocused: !draft.isEmpty,
-            ultimaFalaDele: store.messages.last(where: { $0.role == .user })?.content,
-            hora: Calendar.current.component(.hour, from: Date()),
-            ceu: weather?.band
-        ).state(now: Date())
-    }
-
     private var presenceBackground: some View {
         let empty = store.messages.isEmpty
         // CADA CAMADA TEM A SUA OPACIDADE.
