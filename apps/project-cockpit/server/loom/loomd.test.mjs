@@ -252,6 +252,22 @@ test("comando e patch chegam separados — o rótulo do botão depende disso", (
   assert.equal(loomdCard(lane({ pending_kind: "patch" })).approvalKind, "patch");
   assert.equal(loomdCard(lane({ pending_kind: "command" })).approvalKind, "command");
   assert.equal(loomdCard(lane()).approvalKind, null);
+  // O nome que o agente deu ao que persegue, SEPARADO da identidade da lane.
+  assert.equal(loomdCard(lane({ title: "Decide whether to land PR #1672" })).agentTitle,
+    "Decide whether to land PR #1672");
+  assert.equal(loomdCard(lane()).agentTitle, null, "sem nome declarado, nada a mostrar");
+  assert.equal(loomdCard(lane({ title: "x" })).title, "loom-1",
+    "🚨 `title` continua sendo a IDENTIDADE — o agentTitle não pode engoli-la");
+});
+
+test("o agentTitle sobrevive à FUSÃO — é lá que os campos morrem, não no card", () => {
+  // 🚨 O card estar certo não prova nada: `fuseFleet` copia campo a campo por LISTA EXPLÍCITA,
+  // e um campo que não entra nessa lista some sem erro. Foi assim com `aceita`, com `usd` e com
+  // `loomdKind`. Testar só `loomdCard` deixaria exatamente este buraco aberto.
+  const m = new Map([["loom-1", loomdCard(lane({ title: "Decide whether to land PR #1672" }))]]);
+  const out = fuseFleet([card("loom-1")], m);
+  assert.equal(out[0].agentTitle, "Decide whether to land PR #1672");
+  assert.equal(out[0].title, "loom-1", "a identidade da lane atravessa intacta");
 });
 
 test("a fusão preserva diff, parcial e tipo de aprovação", () => {

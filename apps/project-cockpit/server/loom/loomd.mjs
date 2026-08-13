@@ -117,6 +117,10 @@ export function loomdCard(l, readAtMs) {
       ? l.streaming_text : null,
     // Comando ou patch: decide o rótulo do botão porque decide o risco.
     approvalKind: l?.pending_kind || null,
+    // 🚨 SEPARADO de `title`, que no fio é a IDENTIDADE da lane (o sid que ele procura na tela).
+    // Este é o nome que o AGENTE deu ao que persegue (`ai-title`). Fundir os dois tiraria a
+    // identidade do cabeçalho — e é ela que ele usa para saber de quem está falando.
+    agentTitle: l?.title || null,
     // O turno EM CURSO. É o que decide se a tela oferece parar/guiar — e a resposta vem daqui,
     // nunca de um palpite do cliente sobre o último passo que ele viu.
     currentTurn: l?.current_turn || null,
@@ -209,6 +213,7 @@ export function fuseFleet(entries, loomdLanes, lastUsd = null) {
       diff: l.diff,
       streamingText: l.streamingText,
       approvalKind: l.approvalKind,
+      agentTitle: l.agentTitle,
       currentTurn: l.currentTurn,
       turns: l.turns,
       // O que a lane aceita e o custo acumulado — do loomd, sem normalizar. Uma lane sem

@@ -179,12 +179,14 @@ export class Broker {
       ? { t: "state", sid, state: exact.state, detail: exact.detail, confidence: EXACT,
           approveKey: null, atShell: false, observedAt: exact.observedAt,
           aceita: exact.aceita ?? null, usd: Number(exact.usd) || 0,
-          loomdKind: exact.loomdKind ?? null, ausente: false }
+          loomdKind: exact.loomdKind ?? null, ausente: false,
+          agentTitle: exact.agentTitle ?? null }
       : { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", confidence: INFERRED,
           approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null,
           aceita: null, usd: this._lastUsd.get(sid) ?? 0,
           // Uma lane com contraparte no loomd existe por construção; sem ela, quem sabe é a tela.
-          loomdKind: null, ausente: obs?.ausente === true };
+          // Sem a fonte exata não há quem saiba o nome: `null` é "não sei", e a tela cala.
+          loomdKind: null, ausente: obs?.ausente === true, agentTitle: null };
     for (const c of this._clients) this._send(c, msg);
   }
   _toSubscribers(sid, msg) { for (const c of this._clients) if (this._subs.get(c)?.has(sid)) this._send(c, msg); }
