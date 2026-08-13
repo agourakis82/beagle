@@ -12,7 +12,7 @@ function fakePool({ failOnInsertIndex } = {}) {
   const client = {
     query: async (sql, params) => {
       const s = String(sql).trim();
-      queries.push({ sql: s, nparams: params ? params.length : 0 });
+      queries.push({ sql: s, nparams: params ? params.length : 0, params: params || [] });
       if (s.startsWith("INSERT")) {
         if (failOnInsertIndex != null && inserts === failOnInsertIndex) {
           inserts++;
@@ -35,16 +35,30 @@ function healthRow(i) {
   return { uuid: `u${i}`, ts: "2026-06-24T00:00:00Z", end_ts: null, type: "HRV", value: i, unit: "ms", source: "Watch", device: null, metadata: {} };
 }
 
-test("upsertHealthSamples: chunks a large batch so no INSERT exceeds the 65535-param ceiling", async () => {
+test("upsertHealthSamples: sends one ARRAY PER COLUMN, chunked, and loses no row", async () => {
   const pool = fakePool();
-  const N = 12000; // 12000 × 9 cols = 108000 params → MUST be split
+  const N = 12000;
   const rows = Array.from({ length: N }, (_, i) => healthRow(i));
   const n = await upsertHealthSamples(pool, rows);
 
   assert.equal(n, N, "returns total rows upserted");
   const inserts = pool.queries.filter((q) => q.sql.startsWith("INSERT"));
   assert.ok(inserts.length >= 2, "large batch split into multiple INSERTs");
-  for (const q of inserts) assert.ok(q.nparams <= 65535, `INSERT params ${q.nparams} within ceiling`);
+
+  // The point of unnest: params no longer scale with row count. 9 columns → 9 params,
+  // whatever the batch size. Asserting "<= 65535" here would be vacuously true.
+  for (const q of inserts) {
+    assert.equal(q.nparams, 9, "one bound param per COLUMN, not per cell");
+    assert.ok(q.params.every(Array.isArray), "every param is a column array");
+    const lens = new Set(q.params.map((a) => a.length));
+    assert.equal(lens.size, 1, "all column arrays same length — unnest zips them by position");
+    assert.ok([...lens][0] <= 5000, "chunk stays within the transaction chunk size");
+  }
+  // No row silently dropped between chunks.
+  const total = inserts.reduce((s, q) => s + q.params[0].length, 0);
+  assert.equal(total, N, "every row reached an INSERT");
+  // And the uuid array carries the actual uuids, in order.
+  assert.equal(inserts[0].params[0][0], "u0");
 });
 
 test("upsertHealthSamples: wraps the inserts in a single transaction", async () => {

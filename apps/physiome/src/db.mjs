@@ -56,13 +56,68 @@ async function txChunkedUpsert(pool, { sql, colsPerRow, toParams }, rows) {
   }
 }
 
+// Same transaction/chunking contract as txChunkedUpsert, but the rows travel as ONE
+// ARRAY PER COLUMN instead of one placeholder per cell. A 5000-row chunk goes from
+// 45000 bound params to 9, so the driver stops building a 45000-entry parameter list
+// and the planner parses one tiny statement instead of a megabyte of VALUES.
+//
+// MEDIDO (13-ago-2026, dentro do pod, tabela real com WAL e a MESMA estrutura de
+// health_samples; 3000 linhas/lote, 7 repeticoes ALTERNADAS, mediana):
+//   caminho          VALUES    unnest    ganho
+//   INSERT novo      84,8 ms   62,6 ms   1,35x
+//   ON CONFLICT UPD  66,9 ms   56,5 ms   1,18x
+//
+// Duas armadilhas que ja cairam nesta mesma medicao:
+//  1. Medir contra tabela TEMP mente — temp table nao escreve WAL, ou seja, remove
+//     exatamente o custo que domina.
+//  2. Medir de tiro unico mente — a dispersao e grande (43-66 ms para o mesmo lote).
+//     Uma primeira medicao aqui deu "1,87x"; alternando as duas versoes ao longo de
+//     7 repeticoes o ganho real caiu para 1,2-1,35x. Alternar, e usar mediana.
+//
+// Ou seja: ganho real, modesto, e NAO e onde mora o tempo do ingest. O ingest gasta
+// 99,5% no banco (ver project_physiome_ingest_arrow_veredito), mas dentro desse 99,5%
+// o custo e disco/WAL/indice, nao a forma do statement.
+//
+//   columns: [{ name, type, get(row) }] — `type` e o tipo do ELEMENTO; o [] entra aqui.
+async function txChunkedUnnest(pool, { table, columns, conflict, chunkSize = 5000 }, rows) {
+  if (!rows.length) return 0;
+  const names = columns.map((c) => c.name).join(", ");
+  const arrays = columns.map((c, i) => `$${i + 1}::${c.type}[]`).join(", ");
+  const sql = `INSERT INTO ${table} (${names})
+      SELECT * FROM unnest(${arrays})
+      ${conflict}`;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const slice = rows.slice(i, i + chunkSize);
+      await client.query(sql, columns.map((c) => slice.map(c.get)));
+    }
+    await client.query("COMMIT");
+    return rows.length;
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch { /* connection may be dead */ }
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 export async function upsertHealthSamples(pool, rows) {
-  return txChunkedUpsert(pool, {
-    colsPerRow: 9,
-    toParams: (r) => [r.uuid, r.ts, r.end_ts, r.type, r.value, r.unit, r.source, r.device, JSON.stringify(r.metadata || {})],
-    sql: (n) => `INSERT INTO health_samples (uuid, ts, end_ts, type, value, unit, source, device, metadata)
-      VALUES ${placeholders(n, 9)}
-      ON CONFLICT (uuid) DO UPDATE SET
+  return txChunkedUnnest(pool, {
+    table: "health_samples",
+    columns: [
+      { name: "uuid",     type: "uuid",             get: (r) => r.uuid },
+      { name: "ts",       type: "timestamptz",      get: (r) => r.ts },
+      { name: "end_ts",   type: "timestamptz",      get: (r) => r.end_ts ?? null },
+      { name: "type",     type: "text",             get: (r) => r.type },
+      { name: "value",    type: "double precision", get: (r) => r.value ?? null },
+      { name: "unit",     type: "text",             get: (r) => r.unit ?? null },
+      { name: "source",   type: "text",             get: (r) => r.source ?? null },
+      { name: "device",   type: "text",             get: (r) => r.device ?? null },
+      { name: "metadata", type: "jsonb",            get: (r) => JSON.stringify(r.metadata || {}) },
+    ],
+    conflict: `ON CONFLICT (uuid) DO UPDATE SET
         ts=EXCLUDED.ts, end_ts=EXCLUDED.end_ts, type=EXCLUDED.type, value=EXCLUDED.value,
         unit=EXCLUDED.unit, source=EXCLUDED.source, device=EXCLUDED.device, metadata=EXCLUDED.metadata`,
   }, rows);
