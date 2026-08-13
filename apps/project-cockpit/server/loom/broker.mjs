@@ -117,6 +117,14 @@ export class Broker {
         detail: obs?.detail || "",
         peek: obs?.peek || [],
         approveKey: obs?.approveKey || null,
+        // Command or patch, read off the dialog's own words (laneState.approvalKindOf) — the
+        // same vocabulary the loomd path speaks. `null` when the screen carries no such words.
+        approvalKind: obs?.approvalKind || null,
+        // `capture-pane` never sees a real diff, only the dialog text — declaring this
+        // explicitly (never omitted) says "we don't have one" instead of leaving the key
+        // absent, which a client could read as "keep whatever it had before".
+        hasDiff: false,
+        diff: null,
         // At a SHELL, not an agent's input box — the client must not draw an action that types
         // a command where an agent would read it as a request.
         atShell: obs?.atShell === true,
@@ -180,9 +188,17 @@ export class Broker {
           approveKey: null, atShell: false, observedAt: exact.observedAt,
           aceita: exact.aceita ?? null, usd: Number(exact.usd) || 0,
           loomdKind: exact.loomdKind ?? null, ausente: false,
-          agentTitle: exact.agentTitle ?? null }
+          agentTitle: exact.agentTitle ?? null,
+          // Mesmo defeito do `loomdKind` (sexta vez, ver o teste): sem estas duas no PATCH de
+          // lane única, o botão de aprovação e o DiffView caem no `?? antigo` do cliente e
+          // congelam o pedido anterior em vez do atual — ou pior, somem em silêncio se o
+          // cliente não tiver fallback nenhum.
+          approvalKind: exact.approvalKind ?? null, hasDiff: exact.hasDiff === true, diff: exact.diff ?? null }
       : { t: "state", sid, state: this._stateOf(s), detail: obs?.detail || "", confidence: INFERRED,
           approveKey: obs?.approveKey || null, atShell: obs?.atShell === true, observedAt: obs?.observedAt || null,
+          // Tela raspada nunca sabe um diff de verdade — só o texto do diálogo. Declarado
+          // explícito (nunca ausente) pelo mesmo motivo de `_peekedSnapshot`.
+          approvalKind: obs?.approvalKind || null, hasDiff: false, diff: null,
           aceita: null, usd: this._lastUsd.get(sid) ?? 0,
           // Uma lane com contraparte no loomd existe por construção; sem ela, quem sabe é a tela.
           // Sem a fonte exata não há quem saiba o nome: `null` é "não sei", e a tela cala.

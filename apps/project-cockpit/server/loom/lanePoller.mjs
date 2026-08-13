@@ -99,6 +99,9 @@ export class LanePoller {
         state: r.state,
         detail: r.detail,
         approveKey: r.approveKey,
+        // Command or patch, read off the dialog's own words (laneState.approvalKindOf). `null`
+        // when the tail carries no such words — never guessed from the lane's family.
+        approvalKind: r.approvalKind,
         // Whether the lane is sitting at a SHELL (not an agent's input box). Anything that types
         // a command may only aim here — see laneActions.decideIsolate.
         atShell: r.atShell,

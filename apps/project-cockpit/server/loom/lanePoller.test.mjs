@@ -9,6 +9,7 @@ const screen = (lane, body) => `${PEEK_DELIM}${lane}\n${body}\n`;
 const ASKING = "   A pergunta: quer que eu rode o pré-registro agora?\n ╭────╮\n │ >  │\n ╰────╯\n";
 const WORKING = "● lowering the IR\n  ⏵⏵ auto mode on · esc to interrupt · ctrl+t to show tasks\n";
 const SHELL = "sounio-workspace-control-0%\n";
+const EDIT_APPROVAL = "● I'll update the manifest.\n│ Do you want to make this edit to k8s/deploy.yaml? │\n│ ❯ 1. Yes │\n";
 
 function pollerWith(stdout, { err = null, now = () => 1_000_000 } = {}) {
   const calls = [];
@@ -29,6 +30,13 @@ test("one sweep classifies every lane it saw, each stamped with observedAt", asy
   assert.equal(p.get("repo").state, "idle");
   assert.equal(p.get("kimi-cli1").observedAt, 1_000_000);
   assert.equal(p.get("kimi-cli1").peek.length > 0, true);
+});
+
+test("approvalKind flows from the classifier into the published verdict", async () => {
+  const { p } = pollerWith(screen("codex-1", EDIT_APPROVAL));
+  await p.poll();
+  assert.equal(p.get("codex-1").state, "waiting");
+  assert.equal(p.get("codex-1").approvalKind, "patch");
 });
 
 test("a lane never observed returns null — the board must not invent a state", async () => {

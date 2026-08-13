@@ -60,6 +60,22 @@ const APPROVAL = [
 /// A highlighted selectable option (permission dialog or an open modal menu) = a choice is owed.
 const SELECTION = /^\s*[❯>]\s*\d+\.\s+\S/m;
 
+/// Command or patch — decides the button's label because it decides the risk (same vocabulary
+/// the loomd path already speaks, see `pending_kind` in loomd.mjs). Read directly off the
+/// dialog's own words, never guessed from the lane's family or history: Claude Code's and
+/// Codex's permission prompts already say which one it is ("make this edit" vs "run this
+/// command"), so this is a quote, not an inference. No match = we do not know → `null`, the same
+/// "not deduced" discipline the rest of this module holds to.
+const APPROVAL_KIND = [
+  { kind: "patch", re: /make this edit|Allow the edit|\bcreate\b/i },
+  { kind: "command", re: /run this command|Allow (this|the) command|Do you want to (proceed|continue)/i },
+];
+
+function approvalKindOf(text) {
+  for (const { kind, re } of APPROVAL_KIND) if (re.test(text)) return kind;
+  return null;
+}
+
 /// An empty input box (`>` / `❯` with nothing typed) or a bare shell prompt.
 const EMPTY_PROMPT = /^\s*[❯>]\s*$/;
 const SHELL_PROMPT = /[%$#]\s*$/;
@@ -129,7 +145,7 @@ export function lastContentLine(lines) {
 }
 
 /// Classify one lane from its terminal tail.
-/// Returns { state, detail, question, working, atPrompt, awaitingInput, approveKey }.
+/// Returns { state, detail, question, working, atPrompt, awaitingInput, approveKey, approvalKind }.
 /// `detail` is ALWAYS the evidence for the verdict — the UI quotes it rather than asserting.
 export function classifyLane({
   text = "",
@@ -182,21 +198,25 @@ export function classifyLane({
       // `last` presente = a lane rodou e morreu, que é coisa diferente e tem tela para citar.
       ausente: !last,
       question: "", working: false, atPrompt: false, atShell: false, awaitingInput: false, approveKey: null,
+      approvalKind: null,
     };
   }
   // A blank screen tells us nothing. Found live on codex-3, which reported "running" with no
   // evidence at all — exactly the confident-but-empty verdict this vocabulary exists to avoid.
   if (lines.length === 0) {
-    return { state: "unknown", detail: "", question: "", working: false, atPrompt: false, atShell: false, awaitingInput: false, approveKey: null, ausente: false };
+    return { state: "unknown", detail: "", question: "", working: false, atPrompt: false, atShell: false, awaitingInput: false, approveKey: null, approvalKind: null, ausente: false };
   }
 
-  let state, detail, approveKey = null;
+  let state, detail, approveKey = null, approvalKind = null;
   if (awaitingInput) {
     state = "waiting";
     // Quote the dialog line itself so the card shows exactly what is being asked.
     const dialogLine = tail.slice().reverse().find((l) => APPROVAL.some((re) => re.test(l)) || /^\s*[❯>]\s*\d+\./.test(l));
     detail = (dialogLine || last).trim().slice(0, 240);
     approveKey = /\(y\/n\)|\[y\/N\]|\[Y\/n\]/i.test(tailText) ? "y" : "enter";
+    // Read over the whole tail, not just the matched dialog line: the descriptive phrase
+    // ("I'll update the deployment manifest") often sits one line above the button prompt.
+    approvalKind = approvalKindOf(tailText);
   } else if (!working && question && atPrompt) {
     state = "waiting";
     detail = question.slice(0, 240);   // quote the question itself, never the line above it
@@ -215,7 +235,7 @@ export function classifyLane({
     detail = last.slice(0, 240);
   }
 
-  return { state, detail, question, working, atPrompt, atShell, awaitingInput, approveKey, ausente: false };
+  return { state, detail, question, working, atPrompt, atShell, awaitingInput, approveKey, approvalKind, ausente: false };
 }
 
 /// The last N content lines — the opaque 2-line terminal peek on a Frota card.

@@ -126,6 +126,24 @@ test("um único frame mostra loom-1 `exact` ao lado das lanes de tela `inferred`
   assert.equal(frame.loomd.mode, "observed");
 });
 
+test("o frame `sessions` cheio também declara `approvalKind` numa lane só-tela — nunca omitido", () => {
+  const broker = new Broker({
+    sessionFactory: fakeSession,
+    laneStates: fakeLaneStates({
+      peeked: { "codex-2": { state: "waiting", detail: "Allow this command?", approvalKind: "command", observedAt: 999 } },
+    }),
+  });
+  broker.addSeed(fakeSession("codex-2", "codex-2"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  const frame = sock.sent.find((m) => m.t === "sessions");
+  const codex2 = frame.sessions.find((s) => s.sid === "codex-2");
+  assert.equal(codex2.approvalKind, "command");
+  assert.equal(codex2.hasDiff, false);
+  assert.equal(codex2.diff, null);
+});
+
 test("sem loomd, NINGUÉM é exact, nenhum card some, e o frame diz que a fonte boa caiu", () => {
   // A degradação tem de ser visível: todo mundo inferred sem aviso é indistinguível do sucesso.
   const broker = new Broker({
@@ -222,6 +240,39 @@ test("o patch de lane única carrega `loomdKind` — é ele que escolhe a VOZ da
     "sem a fonte exata não sabemos o kind, e o detail deste ramo veio do capture-pane — " +
     "mandar o último kind casaria voz de protocolo com texto de tela"
   );
+});
+
+test("o patch de lane única carrega `approvalKind`/`diff` — sétima vez que um campo morre no caminho de patch", () => {
+  // codex-1/codex-2 (LanePoller, regex de tela) mostravam "Press enter to confirm or esc to
+  // cancel" cru: nem o card de aprovação exato nem o inferido carregavam `approvalKind`/`diff`
+  // no PATCH de lane única — só o frame `sessions` cheio os tinha. Como o board reage a `state`
+  // a cada evento, o botão e o DiffView caíam para o valor congelado (ou ausente) do cliente.
+  const loomd = new Map([["codex-1", exactCard("codex-1", {
+    state: "waiting", approvalKind: "patch", hasDiff: true, diff: "--- a/x\n+++ b/x\n",
+  })]]);
+  const broker = new Broker({ sessionFactory: fakeSession, laneStates: fakeLaneStates({
+    peeked: { "claude-1": { state: "waiting", detail: "Do you want to make this edit?", approvalKind: "patch", observedAt: 999 } },
+    loomd,
+  }) });
+  broker.addSeed(fakeSession("claude-1", "claude-1"));
+  broker.addSeed(fakeSession("codex-1", "codex-1"));
+  const sock = fakeSocket();
+  broker.handleConnection(sock);
+
+  sock.recv({ t: "kill", sid: "claude-1" });   // sem contraparte → ramo inferred
+  sock.recv({ t: "kill", sid: "codex-1" });    // com contraparte → ramo exact
+  const patches = sock.sent.filter((m) => m.t === "state");
+
+  const exato = patches.find((m) => m.sid === "codex-1");
+  assert.equal(exato.approvalKind, "patch");
+  assert.equal(exato.hasDiff, true);
+  assert.match(exato.diff, /--- a\/x/);
+
+  const inferido = patches.find((m) => m.sid === "claude-1");
+  assert.ok("approvalKind" in inferido, "a chave PRECISA existir mesmo no ramo lido da tela");
+  assert.equal(inferido.approvalKind, "patch", "a leitura de tela também sabe dizer patch vs comando");
+  assert.equal(inferido.hasDiff, false, "capture-pane nunca tem um diff de verdade — declarado, não omitido");
+  assert.equal(inferido.diff, null);
 });
 
 test("🚨 uma lane que perde a fonte exata NÃO tem o `usd` apagado — congela o último valor medido", () => {

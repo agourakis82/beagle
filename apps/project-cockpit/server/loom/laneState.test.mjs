@@ -78,6 +78,26 @@ const SHELL_YN = `
 Removing 3 stale worktrees. Continue? (y/n)
 `;
 
+// Claude Code's edit-permission dialog: the descriptive line sits ABOVE the button prompt.
+const CLAUDE_EDIT_APPROVAL = `
+● I'll update the deployment manifest.
+╭──────────────────────────────────────────────────╮
+│ Do you want to make this edit to k8s/deploy.yaml? │
+│ ❯ 1. Yes                                          │
+│   2. No, and tell Claude what to do differently   │
+╰──────────────────────────────────────────────────╯
+`;
+
+const CLAUDE_COMMAND_APPROVAL = `
+● I'll run the test suite.
+╭──────────────────────────────────────────────────╮
+│ Allow this command?                               │
+│   npm test                                        │
+│ ❯ 1. Yes                                          │
+│   2. No, and tell Claude what to do differently   │
+╰──────────────────────────────────────────────────╯
+`;
+
 test("working: `esc to interrupt` is the cross-family in-flight signal", () => {
   assert.equal(classifyLane({ text: CLAUDE_WORKING }).state, "running");
   assert.equal(classifyLane({ text: CODEX_WORKING }).state, "running");
@@ -101,6 +121,28 @@ test("waiting: a (y/n) gate is approved with `y`, not Enter", () => {
   const r = classifyLane({ text: SHELL_YN });
   assert.equal(r.state, "waiting");
   assert.equal(r.approveKey, "y");
+});
+
+test("approvalKind: an edit dialog reads as `patch` — quoted from the dialog's own words", () => {
+  const r = classifyLane({ text: CLAUDE_EDIT_APPROVAL });
+  assert.equal(r.state, "waiting");
+  assert.equal(r.approvalKind, "patch");
+});
+
+test("approvalKind: a run-this-command dialog reads as `command`", () => {
+  const r = classifyLane({ text: CLAUDE_COMMAND_APPROVAL });
+  assert.equal(r.state, "waiting");
+  assert.equal(r.approvalKind, "command");
+});
+
+test("approvalKind: a bare numbered menu with no descriptive text stays null — never guessed", () => {
+  const r = classifyLane({ text: "❯ 1. minimax-m3\n  2. glm-5.2\n" });
+  assert.equal(r.approvalKind, null);
+});
+
+test("approvalKind: an open operator question is not an approval dialog — stays null", () => {
+  const r = classifyLane({ text: KIMI_ASKING });
+  assert.equal(r.approvalKind, null);
 });
 
 test("waiting: an agent QUESTION parked at an empty box needs the operator (measured: kimi-cli1)", () => {
