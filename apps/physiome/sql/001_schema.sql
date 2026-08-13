@@ -12,6 +12,29 @@ CREATE TABLE IF NOT EXISTS health_samples (
 );
 CREATE INDEX IF NOT EXISTS health_samples_type_ts ON health_samples (type, ts);
 
+-- AUTOVACUUM COM LIMIAR ABSOLUTO (13-ago-2026).
+--
+-- Medido: health_samples tinha 1.736.445 linhas e o pg_stat estimava 17.305 — erro
+-- de 100x. autovacuum e autoanalyze NUNCA haviam rodado nesta tabela, enquanto
+-- rodavam normalmente nas vizinhas (space_weather_hires, weather_obs).
+--
+-- A causa e o gatilho PROPORCIONAL: autovacuum_analyze_scale_factor=0.1 exige 10%
+-- da tabela modificada. Com 1,7 milhao de linhas isso sao 173 mil modificacoes, e o
+-- ingest entra a conta-gotas — nunca cruza. A tabela foi carregada de uma vez pela
+-- importacao historica e ficou orfa desde entao.
+--
+-- Consequencia: o planejador montava plano para TODA consulta desta tabela achando
+-- que ela tinha 17 mil linhas. Um ANALYZE manual levou 0,3 s e corrigiu.
+--
+-- Limiar absoluto nao escala com o tamanho, entao nao pode starvar de novo.
+-- Qualquer tabela grande alimentada a conta-gotas precisa do mesmo tratamento.
+ALTER TABLE health_samples SET (
+  autovacuum_analyze_scale_factor = 0.0,
+  autovacuum_analyze_threshold    = 20000,
+  autovacuum_vacuum_scale_factor  = 0.0,
+  autovacuum_vacuum_threshold     = 50000
+);
+
 CREATE TABLE IF NOT EXISTS weather_obs (
   ts           TIMESTAMPTZ NOT NULL,
   lat          DOUBLE PRECISION NOT NULL,
