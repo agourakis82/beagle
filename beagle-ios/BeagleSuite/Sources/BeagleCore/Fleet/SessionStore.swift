@@ -977,3 +977,25 @@ public final class SessionStore {
     }
     struct Envelope: Decodable { let ok: Bool; let data: Page }
 }
+
+// MARK: - O trilho de lanes da Sessão
+
+public extension SessionStore {
+    /// Agrupa o roster desta tela (lanes de PROTOCOLO) em duas prateleiras, para o trilho da
+    /// coluna esquerda da Sessão. Pura: sem view, sem rede, sem relógio — mesma disciplina de
+    /// `SessaoLane.exibida`, ao lado.
+    ///
+    /// 🚨 Reaproveita `FrotaBoard.shelf`/`FrotaBoard.rest`, a MESMA regra que a Frota já usa para
+    /// "precisa de você" — uma segunda definição de urgência aqui divergiria da Frota no dia em
+    /// que alguém mudasse só uma das duas. Uma lane do roster que ainda não tem `LaneSnapshot`
+    /// (o servidor não falou dela ainda) cai nas "demais": a tela não afirma urgência sobre o
+    /// que não observou.
+    static func railGroups(roster: [String], lanes: [LaneSnapshot]) -> (precisa: [String], demais: [String]) {
+        let porSid = Dictionary(uniqueKeysWithValues: lanes.map { ($0.sid, $0) })
+        let comSnapshot = roster.compactMap { porSid[$0] }
+        let semSnapshot = roster.filter { porSid[$0] == nil }
+        let precisa = FrotaBoard.shelf(comSnapshot).map(\.sid)
+        let demais = FrotaBoard.rest(comSnapshot).map(\.sid) + semSnapshot
+        return (precisa, demais)
+    }
+}

@@ -50,33 +50,57 @@ public struct SessionView: View {
     /// distinção vira texto — pura, testável sem esta view.
     private let linkDaFrota: FleetStateClient.Link?
 
+    /// O snapshot da Frota — MESMA fonte que alimenta o board, injetado pela cena (mesmo padrão
+    /// de `roster`/`aceita`/`linkDaFrota` acima). Só serve o trilho da coluna esquerda: agrupa
+    /// as lanes do roster em "precisa de você"/"demais" via `SessionStore.railGroups`, que
+    /// reaproveita a regra da Frota em vez de inventar uma segunda. Vazio até o primeiro frame
+    /// chegar — e aí toda lane cai em "demais", que é a leitura honesta de "ainda não sei".
+    private let lanes: [LaneSnapshot]
+
+    /// Pra onde a coluna do meio deve rolar — o inspetor de mudanças escreve aqui quando o
+    /// operador clica numa mudança, e a trilha lê. É a "seleção cruzada" entre as duas colunas:
+    /// nenhum estado de seleção compartilhado, só um alvo de rolagem — a trilha continua sendo a
+    /// única fonte de verdade do que está desenhado.
+    @State private var scrollAlvo: Int?
+
     public init(store: SessionStore, roster: [String] = FleetEndpoint.loomdLanes,
+                lanes: [LaneSnapshot] = [],
                 aceita: Aceita? = nil, linkDaFrota: FleetStateClient.Link? = nil,
                 onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: store)
         self.roster = roster
+        self.lanes = lanes
         self.aceita = aceita
         self.linkDaFrota = linkDaFrota
         self.onTrocarLane = onTrocarLane
     }
 
     public init(lane: String, roster: [String] = FleetEndpoint.loomdLanes,
+                lanes: [LaneSnapshot] = [],
                 aceita: Aceita? = nil, linkDaFrota: FleetStateClient.Link? = nil,
                 onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: SessionStore(lane: lane))
         self.roster = roster
+        self.lanes = lanes
         self.aceita = aceita
         self.linkDaFrota = linkDaFrota
         self.onTrocarLane = onTrocarLane
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            cabecalho
+        HStack(spacing: 0) {
+            trilhoDeLanes
             Divider().overlay(BeagleTheme.hairline)
-            trilha
-            if let n = store.note { recusa(n) }
-            compositor
+            VStack(spacing: 0) {
+                cabecalho
+                Divider().overlay(BeagleTheme.hairline)
+                trilha
+                if let n = store.note { recusa(n) }
+                compositor
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider().overlay(BeagleTheme.hairline)
+            inspetorDeMudancas
         }
         .background(BeagleTheme.surface0)
         // O Mission Control é escuro por decisão, e `BeagleTheme` resolve por aparência: sem
@@ -87,6 +111,162 @@ public struct SessionView: View {
         .onDisappear { store.stop() }
     }
 
+    // MARK: - Coluna esquerda: o trilho de lanes
+
+    /// Substitui o `Menu` que existia no cabeçalho: aqui a lane ativa tem posição fixa no olho,
+    /// não um rótulo que só aparece depois de clicar. Com uma lane só o trilho ainda aparece —
+    /// diferente do `Menu` antigo (que sumia com uma lane só), porque agora ele não é SÓ um
+    /// seletor: é onde a identidade espacial de "qual lane" mora.
+    private var trilhoDeLanes: some View {
+        let grupos = SessionStore.railGroups(roster: roster, lanes: lanes)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                if !grupos.precisa.isEmpty {
+                    secaoDoTrilho("precisa de você", grupos.precisa)
+                }
+                secaoDoTrilho(grupos.precisa.isEmpty ? "lanes" : "demais", grupos.demais)
+            }
+            .padding(BeagleSpacing.xs)
+        }
+        .frame(width: 200)
+        .background(BeagleTheme.surface1)
+    }
+
+    private func secaoDoTrilho(_ titulo: String, _ sids: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(titulo.uppercased())
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .padding(.horizontal, 6).padding(.top, 6).padding(.bottom, 2)
+            ForEach(sids, id: \.self) { sid in linhaDoTrilho(sid) }
+        }
+    }
+
+    /// Identidade (ponto de família) + estado (glifo, nunca cor de família — ver
+    /// `BeagleTheme.familyColor`) + nome. A lane ATIVA ganha fundo, não cor de texto: a mesma
+    /// disciplina que já vale para o resto do app.
+    private func linhaDoTrilho(_ sid: String) -> some View {
+        let ativa = sid == store.lane
+        let snapshot = lanes.first { $0.sid == sid }
+        return Button { onTrocarLane?(sid) } label: {
+            HStack(spacing: 6) {
+                Circle().fill(BeagleTheme.familyColor(LaneFamily.of(sid))).frame(width: 6, height: 6)
+                Text(sid)
+                    .font(.system(size: 12, weight: ativa ? .semibold : .regular, design: .monospaced))
+                    .foregroundStyle(ativa ? BeagleTheme.textPrimary : BeagleTheme.textSecondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if let s = snapshot {
+                    Text(s.state.glyph)
+                        .font(.system(size: 10))
+                        .foregroundStyle(s.needsOperator ? BeagleTheme.accent : BeagleTheme.textTertiary)
+                }
+            }
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .background(ativa ? BeagleTheme.surface2 : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: BeagleRadius.sm))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(snapshot?.detail ?? sid)
+    }
+
+    // MARK: - Coluna direita: o inspetor de mudanças
+
+    /// Toda mudança proposta NESTA sessão, num lugar só de fora da trilha — para achar uma sem
+    /// rolar por turnos que já passaram. Clicar rola a trilha até o turno (`scrollAlvo`); o
+    /// PATCH em si continua morando só na trilha, no `DiffView` de sempre — não um segundo
+    /// renderizador de patch aqui, só um índice para o que já está desenhado.
+    private var inspetorDeMudancas: some View {
+        let comDiff = store.turnos.filter(\.temDiff)
+        return VStack(alignment: .leading, spacing: 0) {
+            Text("MUDANÇAS")
+                .font(.system(size: 9, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(BeagleTheme.textTertiary)
+                .padding(.horizontal, BeagleSpacing.sm).padding(.top, BeagleSpacing.sm).padding(.bottom, 6)
+            Divider().overlay(BeagleTheme.hairline)
+            ScrollView {
+                VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                    if comDiff.isEmpty {
+                        Text("Nenhuma mudança proposta nesta sessão ainda.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .padding(BeagleSpacing.sm)
+                    } else {
+                        ForEach(comDiff) { turno in linhaDoInspetor(turno) }
+                    }
+                }
+                .padding(BeagleSpacing.xs)
+            }
+        }
+        .frame(width: 260)
+        .background(BeagleTheme.surface1)
+    }
+
+    private func linhaDoInspetor(_ turno: Turno) -> some View {
+        Button { scrollAlvo = turno.id } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 4) {
+                    Text("turno \(numeroDoTurno(turno))")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                    if turno.pedePermissao {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.system(size: 8))
+                            .foregroundStyle(BeagleTheme.accent)
+                    }
+                }
+                if let pedido = turno.pedido {
+                    Text(pedido)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .lineLimit(2)
+                }
+                ForEach(arquivosMudados(turno), id: \.self) { arq in
+                    Text(arq)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .lineLimit(1).truncationMode(.head)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(BeagleSpacing.xs)
+            .background(RoundedRectangle(cornerRadius: BeagleRadius.sm).fill(BeagleTheme.surface2))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// A mesma numeração de `conteudo` — conta PEDIDOS, não blocos. Duplicar a fórmula em vez de
+    /// expor o índice do `ForEach` porque o inspetor não tem acesso ao índice ali: é outra
+    /// coluna, olhando o mesmo `store.turnos`.
+    private func numeroDoTurno(_ turno: Turno) -> Int {
+        guard let i = store.turnos.firstIndex(where: { $0.id == turno.id }) else { return 0 }
+        return store.turnos.prefix(i + 1).filter { $0.pedido != nil }.count
+    }
+
+    /// Os arquivos que este turno tocou, sem abrir o `DiffView` — só o cabeçalho `+++ b/` de
+    /// cada patch do turno. Mesmo parsing do `DiffView.arquivos`, sobre os patches deste turno
+    /// em vez de um patch só; não vale extrair uma função compartilhada para três linhas.
+    private func arquivosMudados(_ turno: Turno) -> [String] {
+        var arquivos: [String] = []
+        for passo in turno.passos {
+            let patch: String?
+            switch passo {
+            case .diff(_, let p, _): patch = p
+            case .approval(_, _, _, let d, _): patch = d
+            default: patch = nil
+            }
+            guard let patch else { continue }
+            for linha in patch.split(separator: "\n") where linha.hasPrefix("+++ b/") {
+                let arq = String(linha.dropFirst(6))
+                if !arquivos.contains(arq) { arquivos.append(arq) }
+            }
+        }
+        return arquivos
+    }
+
     // MARK: - Cabeçalho
 
     /// Interno (não privado) pelo mesmo motivo que `conteudo`: o retrato o renderiza sozinho.
@@ -94,28 +274,11 @@ public struct SessionView: View {
     /// PROVAR em imagem que a Sessão está de fato na lane escolhida.
     var cabecalho: some View {
         HStack(spacing: BeagleSpacing.sm) {
-            // Com mais de uma lane de protocolo o nome fixo deixa de ser cabeçalho e passa a ser
-            // uma mentira sobre onde você está. Com uma só, o seletor não aparece — um menu de um
-            // item é ruído que ainda pede um clique para não fazer nada.
-            if roster.count > 1 {
-                Menu {
-                    ForEach(roster, id: \.self) { l in
-                        Button(l) { onTrocarLane?(l) }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(store.lane).font(.system(.headline, weight: .semibold))
-                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
-                    }
-                    .foregroundStyle(BeagleTheme.textPrimary)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-            } else {
-                Text(store.lane)
-                    .font(.system(.headline, weight: .semibold))
-                    .foregroundStyle(BeagleTheme.textPrimary)
-            }
+            // Quem troca de lane agora é o trilho da coluna esquerda — ele tem posição fixa no
+            // olho, e um `Menu` aqui em cima seria um segundo seletor para a mesma decisão.
+            Text(store.lane)
+                .font(.system(.headline, weight: .semibold))
+                .foregroundStyle(BeagleTheme.textPrimary)
             Text("sessão de protocolo")
                 .font(.caption2)
                 .foregroundStyle(BeagleTheme.textTertiary)
@@ -202,6 +365,13 @@ public struct SessionView: View {
             .onChange(of: store.steps.count) { _, _ in
                 withAnimation(BeagleMotion.fast) { leitor.scrollTo("fim", anchor: .bottom) }
             }
+            // O inspetor de mudanças (coluna direita) escreve aqui ao clicar num item — a
+            // "seleção cruzada" entre as duas colunas é só isto: rolar até o turno, nada de
+            // segundo estado de seleção para as duas colunas concordarem entre si.
+            .onChange(of: scrollAlvo) { _, alvo in
+                guard let alvo else { return }
+                withAnimation(BeagleMotion.fast) { leitor.scrollTo(alvo, anchor: .top) }
+            }
         }
     }
 
@@ -220,6 +390,9 @@ public struct SessionView: View {
                           emCurso: i == store.turnos.count - 1 && store.turnoEmCurso,
                           enviando: store.sending,
                           onAprovar: { allow in Task { await store.approve(allow) } })
+                    // Alvo do `scrollAlvo` que o inspetor de mudanças usa — sem isto o
+                    // `scrollTo(turno.id)` não tem para onde ir.
+                    .id(turno.id)
             }
             if let parcial = store.streaming { escrevendoAgora(parcial) }
             Color.clear.frame(height: 1).id("fim")

@@ -288,7 +288,7 @@ struct MissionControlWindow: View {
                     // fio na ordem certa.
                     let lane = SessaoLane.exibida(roster: fleet.loomdRoster,
                                                   escolha: sessionLaneEscolhida)
-                    SessionView(lane: lane, roster: fleet.loomdRoster,
+                    SessionView(lane: lane, roster: fleet.loomdRoster, lanes: fleet.lanes,
                                 aceita: fleet.aceita(de: lane), linkDaFrota: fleet.link,
                                 onTrocarLane: { sessionLaneEscolhida = $0 })
                         .id(lane)
