@@ -159,6 +159,33 @@ public enum BeagleTheme {
         dark:  Color.white.opacity(0.08)
     )
 
+    // MARK: - Identidade de família (Frota / Sessão / Terminais)
+
+    /// A cor de identidade de UMA família de agente, num lugar só para o app inteiro.
+    ///
+    /// 🚨 Existia duplicada — `FrotaView.corDaFamilia` e `FleetTerminalsView.color(for:)` cada
+    /// uma com sua própria paleta, e a segunda nem cobria as 7 famílias (kimi/grok/glm caíam
+    /// juntas num "vendor" genérico). A MESMA lane podia trocar de cor ao trocar de aba — que é
+    /// exatamente o defeito que o comentário original de `corDaFamilia` já nomeava
+    /// ("identidade que muda de tom... deixa de ser identidade"), só que entre telas, não dentro
+    /// de uma. Hue mora aqui agora; as telas leem, nenhuma decide sozinha.
+    ///
+    /// Hue carrega IDENTIDADE, nunca ESTADO — conectado/travado/chamando usam ícone, spinner ou
+    /// as cores semânticas (`stateReady`/`stateError`/`accent`), reservadas e intocadas por isto.
+    public static func familyColor(_ family: LaneFamily) -> Color {
+        switch family {
+        case .claude: return Color(red: 1.00, green: 0.76, blue: 0.34)   // amber
+        case .codex:  return Color(red: 0.28, green: 0.86, blue: 0.82)   // cyan
+        case .kimi:   return Color(red: 0.72, green: 0.56, blue: 1.00)   // violet
+        case .grok:   return Color(red: 0.72, green: 0.90, blue: 0.32)   // chartreuse
+        case .glm:    return Color(red: 0.44, green: 0.66, blue: 1.00)   // blue
+        case .minimax: return Color(red: 1.00, green: 0.42, blue: 0.55) // rose
+        case .cursor: return Color(red: 1.00, green: 0.57, blue: 0.40)  // coral
+        case .repo:   return Color(red: 0.85, green: 0.72, blue: 0.50)   // brass
+        case .other:  return Color(white: 0.75)
+        }
+    }
+
     // MARK: - Legacy font aliases (deprecated — use BeagleFont instead)
 
     public static func dataFont(size: CGFloat = 13, weight: Font.Weight = .regular) -> Font {

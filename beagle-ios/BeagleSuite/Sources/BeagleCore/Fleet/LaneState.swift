@@ -49,7 +49,7 @@ public enum LaneState: String, Sendable, Codable, CaseIterable {
 
 /// Which agent family a lane belongs to — the hue that carries identity.
 public enum LaneFamily: String, Sendable, CaseIterable {
-    case claude, codex, kimi, grok, glm, repo, other
+    case claude, codex, kimi, grok, glm, minimax, cursor, repo, other
 
     public static func of(_ sid: String) -> LaneFamily {
         if sid.hasPrefix("claude") { return .claude }
@@ -57,6 +57,8 @@ public enum LaneFamily: String, Sendable, CaseIterable {
         if sid.hasPrefix("kimi") { return .kimi }
         if sid.hasPrefix("grok") { return .grok }
         if sid.hasPrefix("glm") { return .glm }
+        if sid.hasPrefix("minimax") { return .minimax }
+        if sid.hasPrefix("cursor") { return .cursor }
         if sid == "repo" { return .repo }
         return .other
     }

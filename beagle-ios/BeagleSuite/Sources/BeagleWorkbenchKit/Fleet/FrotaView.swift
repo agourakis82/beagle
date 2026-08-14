@@ -895,18 +895,9 @@ private struct LaneCard: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.32)))
     }
 
-    /// Hue = identity. One accent per agent family.
-    private var hue: Color {
-        switch lane.family {
-        case .claude: return Color(red: 1.00, green: 0.76, blue: 0.34)   // amber
-        case .codex:  return Color(red: 0.28, green: 0.86, blue: 0.82)   // cyan
-        case .kimi:   return Color(red: 0.72, green: 0.56, blue: 1.00)   // violet
-        case .grok:   return Color(red: 0.72, green: 0.90, blue: 0.32)   // chartreuse
-        case .glm:    return Color(red: 0.44, green: 0.66, blue: 1.00)   // blue
-        case .repo:   return Color(red: 0.85, green: 0.72, blue: 0.50)   // brass
-        case .other:  return Color(white: 0.75)
-        }
-    }
+    /// Hue = identity. Um lugar só decide isto agora: `BeagleTheme.familyColor` — ver o
+    /// comentário lá para o porquê de ter saído daqui.
+    private var hue: Color { BeagleTheme.familyColor(lane.family) }
 }
 
 
@@ -1009,7 +1000,7 @@ private struct LaneRow: View {
         )
     }
 
-    private var hue: Color { corDaFamilia(lane.family) }
+    private var hue: Color { BeagleTheme.familyColor(lane.family) }
 }
 
 /// UMA FICHA para quem está em REPOUSO. O terceiro nível de peso da Frota, depois do cartão
@@ -1032,7 +1023,7 @@ private struct LaneChip: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(corDaFamilia(lane.family).opacity(0.5))
+            Circle().fill(BeagleTheme.familyColor(lane.family).opacity(0.5))
                 .frame(width: 5, height: 5)
 
             Text(lane.sid)
@@ -1074,19 +1065,6 @@ private struct LaneChip: View {
     }
 }
 
-/// A cor de identidade da família, num lugar só. Hue carrega IDENTIDADE, e identidade que muda
-/// de tom entre o cartão, a linha e a ficha deixa de ser identidade.
-private func corDaFamilia(_ family: LaneFamily) -> Color {
-    switch family {
-    case .claude: return Color(red: 1.00, green: 0.76, blue: 0.34)
-    case .codex:  return Color(red: 0.28, green: 0.86, blue: 0.82)
-    case .kimi:   return Color(red: 0.72, green: 0.56, blue: 1.00)
-    case .grok:   return Color(red: 0.72, green: 0.90, blue: 0.32)
-    case .glm:    return Color(red: 0.44, green: 0.66, blue: 1.00)
-    case .repo:   return Color(red: 0.85, green: 0.72, blue: 0.50)
-    case .other:  return Color(white: 0.75)
-    }
-}
 
 // MARK: - The glass stratum
 

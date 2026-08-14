@@ -21,6 +21,19 @@ struct SounioMissionControlApp: App {
                 .frame(minWidth: 980, minHeight: 640)
         }
         .defaultSize(width: 1280, height: 860)
+        // A JANELA FLUTUANTE POR LANE. Existe para matar a "tarja" por construção — ver
+        // `LaneWindowView.swift`. `for: String.self` porque o valor que a identifica É o nome da
+        // lane; `WindowGroup(for:)` já deduplica por valor, então pedir a MESMA lane duas vezes
+        // (⌘T repetido) só traz a janela existente à frente em vez de abrir uma segunda — o
+        // padrão certo aqui, porque duas janelas do MESMO PTY seriam dois clientes brigando pelo
+        // mesmo `tmux attach`.
+        WindowGroup("Lane", id: "lane-terminal", for: String.self) { $lane in
+            if let lane {
+                LaneWindowView(lane: lane)
+                    .frame(minWidth: 480, minHeight: 300)
+            }
+        }
+        .defaultSize(width: 760, height: 480)
         .commands {
             // 🚨 SEM ISTO NÃO HÁ COPIAR NEM COLAR, e a causa é estrutural, não do terminal.
             //
@@ -85,6 +98,15 @@ struct SounioMissionControlApp: App {
                     NotificationCenter.default.post(name: .abrirGavetaDeSessoes, object: nil)
                 }
                 .keyboardShortcut("k", modifiers: .command)
+                Divider()
+                // Abre a lane ativa da aba Terminais numa janela própria — ver
+                // `LaneWindowView.swift`. A aba não sabe abrir janela sozinha (comando de Scene é
+                // o nível certo para `openWindow`); ela só publica QUAL lane via notificação, e
+                // este botão é quem de fato chama `openWindow`.
+                Button("Abrir lane em janela própria") {
+                    NotificationCenter.default.post(name: .abrirLaneEmJanela, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: .command)
             }
             CommandGroup(after: .toolbar) {
                 Button("Frota") { NotificationCenter.default.post(name: .missionControlGo, object: Section.frota) }

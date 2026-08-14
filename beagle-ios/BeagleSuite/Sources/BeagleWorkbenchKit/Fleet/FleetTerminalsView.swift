@@ -16,6 +16,9 @@ public struct FleetTerminalsView: View {
     @State private var store = FleetTerminalStore()
     @State private var showSwitcher = false
     @Environment(\.scenePhase) private var scenePhase
+    #if os(macOS)
+    @Environment(\.openWindow) private var openWindow
+    #endif
 
     /// A lane to jump straight to (the Frota handing over "open this one"). Nil = last active.
     private let initialAgent: String?
@@ -24,9 +27,6 @@ public struct FleetTerminalsView: View {
 
     private static let canvas = Color(red: 0.106, green: 0.078, blue: 0.149)   // #1b1426
     private static let amber  = Color(red: 1.0, green: 0.76, blue: 0.27)
-    private static let claude = Color(red: 1.0, green: 0.82, blue: 0.40)
-    private static let codex  = Color(red: 0.20, green: 0.88, blue: 0.78)
-    private static let vendor = Color(red: 1.0, green: 0.57, blue: 0.40)
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -47,6 +47,14 @@ public struct FleetTerminalsView: View {
         .onReceive(NotificationCenter.default.publisher(for: .abrirGavetaDeSessoes)) { _ in
             showSwitcher = true
         }
+        #if os(macOS)
+        // Só a Scene sabe `openWindow`; o comando ⌘T (em `SounioMissionControlApp`) só publica a
+        // intenção, e é aqui que ela vira janela — com a lane ATIVA desta aba, que é a única
+        // informação que o comando de Scene não tem sozinho.
+        .onReceive(NotificationCenter.default.publisher(for: .abrirLaneEmJanela)) { _ in
+            openWindow(id: "lane-terminal", value: store.activeAgent)
+        }
+        #endif
         .navigationTitle("Fleet")
     }
 
@@ -113,10 +121,17 @@ public struct FleetTerminalsView: View {
             store.open(agent); haptic()
         } label: {
             HStack(spacing: 6) {
+                // Identidade: um ponto, sempre presente — nunca a cor do texto inteiro (ver
+                // `BeagleTheme.familyColor`). Estado é OUTRO ponto, condicional a estar aberta:
+                // os dois convivem porque são duas perguntas diferentes (quem / o que está
+                // acontecendo agora), e a Frota já resolve essa mesma dupla do mesmo jeito.
+                Circle().fill(color(for: agent)).frame(width: 5, height: 5)
                 if store.opened.contains(agent) {
                     Circle().fill(stateColor(store.state(for: agent))).frame(width: 7, height: 7)
                 }
-                Text(agent).font(.system(.caption, design: .monospaced))
+                Text(agent)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.92))
                 // O TÍTULO que o processo remoto anunciou (OSC 0/2) — o tmux publica ali o que a
                 // lane está fazendo. Vem DEPOIS do nome e mais apagado: o nome é o endereço, que
                 // ele usa para navegar; o título é o assunto, que muda toda hora. Trocar um pelo
@@ -162,7 +177,6 @@ public struct FleetTerminalsView: View {
             }
         }
         .buttonStyle(.plain)
-        .foregroundStyle(color(for: agent))
         // Leaving a lane must be possible, and it is not cosmetic: each open lane holds a live
         // socket AND a real `tmux attach` on the workspace pod. Closing releases both.
         .contextMenu {
@@ -207,6 +221,11 @@ public struct FleetTerminalsView: View {
                 enviarAoTerminal(#selector(TerminalView.limparTela(_:)))
             }
             Divider().frame(height: 12).overlay(Color.white.opacity(0.12))
+            // Caminho VISÍVEL para a janela flutuante — ⌘T sozinho é um recurso que não existe
+            // até alguém procurar o menu, mesma regra que já valeu para a gaveta de sessão.
+            controle("macwindow.on.rectangle", "Abrir em janela própria (⌘T) — mata a tarja: uma lane, uma janela, sem ZStack") {
+                openWindow(id: "lane-terminal", value: store.activeAgent)
+            }
             controle("rectangle.stack", "Trocar de sessão (⌘K)") { showSwitcher = true }
             controle("arrow.clockwise", "Reconectar esta lane") {
                 store.client(for: store.activeAgent).connect()
@@ -279,9 +298,9 @@ public struct FleetTerminalsView: View {
                     store.open(agent); haptic(); showSwitcher = false
                 } label: {
                     HStack {
+                        Circle().fill(color(for: agent)).frame(width: 6, height: 6)
                         Circle().fill(stateColor(store.state(for: agent))).frame(width: 8, height: 8)
                         Text(agent).font(.system(.body, design: .monospaced))
-                            .foregroundStyle(color(for: agent))
                         if store.hasUnread(agent) {
                             Circle().fill(Self.amber).frame(width: 7, height: 7)
                         }
@@ -332,11 +351,9 @@ public struct FleetTerminalsView: View {
         }
     }
 
-    private func color(for agent: String) -> Color {
-        if agent.hasPrefix("claude") { return Self.claude }
-        if agent.hasPrefix("codex") { return Self.codex }
-        return Self.vendor
-    }
+    /// Um lugar só decide a cor de família agora — `BeagleTheme.familyColor` — para a MESMA
+    /// lane não trocar de tom entre a Frota e esta aba. Ver o comentário lá.
+    private func color(for agent: String) -> Color { BeagleTheme.familyColor(LaneFamily.of(agent)) }
 }
 #endif
 
