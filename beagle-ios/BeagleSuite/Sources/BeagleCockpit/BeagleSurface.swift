@@ -18,6 +18,24 @@ import BeagleWorkbenchKit
 import UIKit
 #endif
 
+/// Escreve o instantâneo da presença nos três momentos em que ele muda de valor,
+/// e avisa o widget. Vive num modificador para não engordar o corpo do
+/// BeagleSurface, que já não fecha o type-check quando cresce.
+private struct GravaInstantaneoDaPresenca: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+    let corpoObservadoEm: Date?
+    let ceuEm: Date?
+    let gravar: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            // Ao sair de cena: o que estava na tela vira o que fica no widget.
+            .onChange(of: scenePhase) { _, fase in if fase != .active { gravar() } }
+            .onChange(of: corpoObservadoEm) { _, _ in gravar() }
+            .onChange(of: ceuEm) { _, _ in gravar() }
+    }
+}
+
 struct BeagleSurface: View {
     @Environment(CatalogStore.self) private var catalog
     @Environment(CognitiveStore.self) private var cognitive
@@ -91,23 +109,14 @@ struct BeagleSurface: View {
             .task {
                 await bootstrapSurface()
             }
-            // O QUE O WIDGET VAI VER.
-            //
-            // O widget não faz rede (ver PresencaSnapshot): ele lê o que ficou escrito
-            // aqui. Escrevemos ao SAIR de cena — o que estava na tela vira o que fica
-            // no widget — e a cada mudança de corpo ou céu enquanto o app está aberto.
-            //
-            // `reloadAllTimelines` é o elo que faltava: o app NUNCA avisava o widget,
-            // então ele só se atualizava no próprio ciclo de 5 min fazendo rede.
-            .onChange(of: scenePhase) { _, fase in
-                if fase != .active { gravarInstantaneoDaPresenca() }
-            }
-            .onChange(of: physio.cognitivePosture.observedAt) { _, _ in
-                gravarInstantaneoDaPresenca()
-            }
-            .onChange(of: spaceWeather.latest?.ts) { _, _ in
-                gravarInstantaneoDaPresenca()
-            }
+            // O QUE O WIDGET VAI VER. Extraido para um modificador proprio: tres
+            // .onChange empilhados nesta view fizeram o type-checker desistir
+            // ("unable to type-check this expression in reasonable time").
+            .modifier(GravaInstantaneoDaPresenca(
+                corpoObservadoEm: physio.cognitivePosture.observedAt,
+                ceuEm: spaceWeather.latest?.ts,
+                gravar: gravarInstantaneoDaPresenca
+            ))
             // Keep the chat's physio snapshot LIVE: bootstrapSurface() copies physio.summary once,
             // before the async HealthKit refresh completes, so without this the companion sends a
             // stale/empty body (heart/HRV/State of Mind missing). PhysioSummary is a value type —
