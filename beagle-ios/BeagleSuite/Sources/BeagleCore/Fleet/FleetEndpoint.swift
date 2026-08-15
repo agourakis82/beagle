@@ -20,7 +20,10 @@ public struct FleetEndpoint: Sendable {
         "claude-1", "claude-2", "claude-3",
         "codex-1", "codex-2", "codex-3",
         "kimi-cli1", "kimi-cli2",
-        "grok-cli1", "grok-cli2",
+        "grok-cli1", "grok-cli2", "grok-cli3", "grok-cli4", "grok-cli5",
+        "cursor-1", "cursor-2", "cursor-3",
+        "glm-cli1", "glm-cli2",
+        "minimax-cli1", "minimax-cli2", "minimax-cli3",
         "repo",
     ]
 
