@@ -12,6 +12,7 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+import WidgetKit
 import BeagleWorkbenchKit
 #if canImport(UIKit)
 import UIKit
@@ -55,6 +56,27 @@ struct BeagleSurface: View {
         var id: String { rawValue }
     }
 
+    /// Escreve o instantâneo que o widget lê e manda o widget recarregar.
+    ///
+    /// Silencioso de propósito: se o App Group não estiver disponível a escrita
+    /// simplesmente não acontece — o widget desenha "sem notícia", que é honesto.
+    /// Falhar barulhento aqui atrapalharia o uso por um widget que ficou velho.
+    private func gravarInstantaneoDaPresenca() {
+        guard let loja = PresencaSnapshotStore() else { return }
+        let s = PresencaSnapshot.montar(
+            respiracao: PresenceBreath.from(
+                bpm: physio.cognitivePosture.respiratoryRate,
+                observedAt: physio.cognitivePosture.observedAt
+            ),
+            ceu: spaceWeather.latest?.band.rawValue,
+            ceuObservadoEm: spaceWeather.latest?.ts,
+            fluxo: conversation.flowState,
+            capturasPendentes: cognitive.recentThoughts.count
+        )
+        try? loja.escrever(s)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     var body: some View {
         surfaceRoot
             .onChange(of: deepLink.pending) { _, _ in
@@ -68,6 +90,23 @@ struct BeagleSurface: View {
             .task { deepLink.applyLaunchArgumentIfPresent() }
             .task {
                 await bootstrapSurface()
+            }
+            // O QUE O WIDGET VAI VER.
+            //
+            // O widget não faz rede (ver PresencaSnapshot): ele lê o que ficou escrito
+            // aqui. Escrevemos ao SAIR de cena — o que estava na tela vira o que fica
+            // no widget — e a cada mudança de corpo ou céu enquanto o app está aberto.
+            //
+            // `reloadAllTimelines` é o elo que faltava: o app NUNCA avisava o widget,
+            // então ele só se atualizava no próprio ciclo de 5 min fazendo rede.
+            .onChange(of: scenePhase) { _, fase in
+                if fase != .active { gravarInstantaneoDaPresenca() }
+            }
+            .onChange(of: physio.cognitivePosture.observedAt) { _, _ in
+                gravarInstantaneoDaPresenca()
+            }
+            .onChange(of: spaceWeather.latest?.ts) { _, _ in
+                gravarInstantaneoDaPresenca()
             }
             // Keep the chat's physio snapshot LIVE: bootstrapSurface() copies physio.summary once,
             // before the async HealthKit refresh completes, so without this the companion sends a

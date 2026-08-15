@@ -147,3 +147,32 @@ public struct PresencaSnapshotStore: Sendable {
         return try? Self.decodificador.decode(PresencaSnapshot.self, from: d)
     }
 }
+
+// MARK: - Montagem
+
+extension PresencaSnapshot {
+    /// Monta o instantâneo a partir do que o app já tem em mãos.
+    ///
+    /// FUNÇÃO PURA, de propósito: sem HealthKit, sem App Group, sem relógio
+    /// implícito. É onde mora a decisão de o que conta como medido, e decisão
+    /// dessas tem que caber num teste — não num aparelho.
+    ///
+    /// A regra: só vira `observadoEm` o que TEM carimbo. Inventar `Date()` para um
+    /// valor sem procedência transformaria "declarado" em "observado", que é
+    /// exatamente a mentira que a Faixa de Estado existe para não contar.
+    public static func montar(respiracao: PresenceBreath?,
+                              ceu: String?,
+                              ceuObservadoEm: Date?,
+                              fluxo: String?,
+                              capturasPendentes: Int,
+                              agora: Date = Date()) -> PresencaSnapshot {
+        PresencaSnapshot(
+            geradoEm: agora,
+            corpo: Fato(valor: respiracao?.bpm, observadoEm: respiracao?.observedAt),
+            ceu: Fato(valor: ceu, observadoEm: ceuObservadoEm),
+            // Fluxo vem do servidor/HRV já derivado: é declarado, nunca medido aqui.
+            fluxo: Fato(valor: fluxo, observadoEm: nil),
+            capturasPendentes: max(0, capturasPendentes)
+        )
+    }
+}

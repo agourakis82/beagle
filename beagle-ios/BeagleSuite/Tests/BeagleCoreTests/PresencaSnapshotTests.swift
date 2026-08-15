@@ -158,3 +158,48 @@ struct PresencaSnapshotTests {
         return d
     }
 }
+
+@Suite("PresencaSnapshot.montar")
+struct PresencaSnapshotMontarTests {
+
+    private let agora = Date(timeIntervalSinceReferenceDate: 2_000_000)
+
+    @Test("respiração medida vira corpo observado, com o carimbo dela")
+    func respiracaoMedida() {
+        let b = PresenceBreath.from(bpm: 58, observedAt: agora.addingTimeInterval(-60))
+        let s = PresencaSnapshot.montar(respiracao: b, ceu: "calmo", ceuObservadoEm: agora,
+                                        fluxo: "FLOW", capturasPendentes: 0, agora: agora)
+        #expect(s.corpo.valor == 58)
+        #expect(s.corpo.procedencia(agora: agora) == .observed)
+    }
+
+    @Test("fluxo NUNCA é observado — vem derivado, não medido aqui")
+    func fluxoEhSempreDeclarado() {
+        let s = PresencaSnapshot.montar(respiracao: nil, ceu: nil, ceuObservadoEm: nil,
+                                        fluxo: "STRESS", capturasPendentes: 0, agora: agora)
+        #expect(s.fluxo.procedencia(agora: agora) == .declared)
+    }
+
+    @Test("céu sem carimbo fica declarado — não inventamos Date() por baixo")
+    func ceuSemCarimbo() {
+        let s = PresencaSnapshot.montar(respiracao: nil, ceu: "tempestade", ceuObservadoEm: nil,
+                                        fluxo: nil, capturasPendentes: 0, agora: agora)
+        #expect(s.ceu.procedencia(agora: agora) == .declared)
+    }
+
+    @Test("sem nada em mãos, o instantâneo é de ausências — não de zeros")
+    func semNadaEhAusencia() {
+        let s = PresencaSnapshot.montar(respiracao: nil, ceu: nil, ceuObservadoEm: nil,
+                                        fluxo: nil, capturasPendentes: 0, agora: agora)
+        #expect(s.corpo.procedencia(agora: agora) == nil)
+        #expect(s.ceu.procedencia(agora: agora) == nil)
+        #expect(s.fluxo.procedencia(agora: agora) == nil)
+    }
+
+    @Test("contagem negativa é aparada, nunca propagada")
+    func contagemNegativa() {
+        let s = PresencaSnapshot.montar(respiracao: nil, ceu: nil, ceuObservadoEm: nil,
+                                        fluxo: nil, capturasPendentes: -3, agora: agora)
+        #expect(s.capturasPendentes == 0)
+    }
+}

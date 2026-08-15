@@ -26,6 +26,9 @@ import BeagleCore
 @main
 struct BeagleWidgetsBundle: WidgetBundle {
     var body: some Widget {
+        // O widget do COMPANION vem primeiro: e o unico que funciona sem rede,
+        // lendo o instantaneo do App Group. Os demais sao de Mission Control.
+        PresencaWidget()
         ClusterHealthWidget()
         PostureOverviewWidget()
         LatestResearchWidget()
