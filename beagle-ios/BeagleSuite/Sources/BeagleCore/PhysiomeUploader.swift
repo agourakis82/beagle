@@ -217,7 +217,14 @@ public actor PhysiomeUploader {
     }
 
     /// Register the device's APNs token so physiome-ingest can push to it.
-    public func registerDeviceToken(_ hexToken: String, apnsEnv: String) async {
+    ///
+    /// `autorizacao` NÃO é enfeite. Ter token e ter permissão de alerta são coisas
+    /// DIFERENTES: `registerForRemoteNotifications` devolve token mesmo sem o
+    /// usuário ter autorizado nada, e aí o servidor manda, a Apple responde 200, e
+    /// nada aparece na tela. Foi exatamente o que aconteceu em 13-ago-2026. Sem
+    /// este campo, "entregue" e "silenciado" são indistinguíveis do lado de cá.
+    public func registerDeviceToken(_ hexToken: String, apnsEnv: String,
+                                    autorizacao: String = "desconhecida") async {
         // didRegister can fire at cold start BEFORE the physiome auth bridge is up, so ensure
         // auth first and retry with backoff instead of silently dropping the token once.
         for attempt in 0..<5 {
@@ -235,7 +242,8 @@ public actor PhysiomeUploader {
                     request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
                     request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
                     request.httpBody = try? JSONEncoder().encode([
-                        "token": hexToken, "apns_env": apnsEnv, "bundle": "dev.sounio.cockpit"
+                        "token": hexToken, "apns_env": apnsEnv, "bundle": "dev.sounio.cockpit",
+                        "autorizacao": autorizacao
                     ])
                     if let (_, resp) = try? await physSession.data(for: request),
                        let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) {

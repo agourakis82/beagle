@@ -40,7 +40,24 @@ final class BeagleAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificati
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         print("[APNsDBG] device token acquired, len=\(deviceToken.count) hex12=\(hex.prefix(12))")
-        Task { await PhysiomeUploader.shared.registerDeviceToken(hex, apnsEnv: "sandbox") }
+        Task {
+            // Le a autorizacao REAL no momento do registro. Token e permissao sao
+            // coisas distintas: da para ter token e alerta silenciado, e desse jeito
+            // o servidor recebe 200 da Apple e nada aparece na tela.
+            let s = await UNUserNotificationCenter.current().notificationSettings()
+            let rotulo: String
+            switch s.authorizationStatus {
+            case .authorized:    rotulo = "autorizado"
+            case .provisional:   rotulo = "provisorio"   // entrega SILENCIOSA, sem banner
+            case .denied:        rotulo = "negado"
+            case .notDetermined: rotulo = "nao_perguntado"
+            case .ephemeral:     rotulo = "efemero"
+            @unknown default:    rotulo = "desconhecida"
+            }
+            print("[APNsDBG] autorizacao=\(rotulo) alert=\(s.alertSetting.rawValue)")
+            await PhysiomeUploader.shared.registerDeviceToken(hex, apnsEnv: "sandbox",
+                                                              autorizacao: rotulo)
+        }
     }
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         print("[APNsDBG] didFailToRegister: \(error)")
