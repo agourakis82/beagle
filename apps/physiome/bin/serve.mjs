@@ -421,10 +421,11 @@ app.get("/api/physiome/agora-history", async (req, res) => {
 // until the key + Push capability are live — proven working: sandbox returns BadDeviceToken.
 app.post("/api/physiome/device-token", async (req, res) => {
   if (!authed(req)) return res.status(401).json({ error: "unauthorized" });
-  const { token, apns_env, bundle } = req.body || {};
+  const { token, apns_env, bundle, autorizacao } = req.body || {};
   if (!token) return res.status(400).json({ error: "missing token" });
   try {
-    await upsertDeviceToken(pool, { token, apnsEnv: apns_env || "sandbox", bundle: bundle || "dev.sounio.cockpit" });
+    await upsertDeviceToken(pool, { token, apnsEnv: apns_env || "sandbox",
+                                    bundle: bundle || "dev.sounio.cockpit", autorizacao });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });
