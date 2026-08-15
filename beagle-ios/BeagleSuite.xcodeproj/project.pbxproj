@@ -121,6 +121,7 @@
 		B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FADF6A9C3533B785FE38619 /* GoDeepView.swift */; };
 		BB19063FBD1E753D7FD91FAA /* PresencePill.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C4128C7822635F0B4D0B966 /* PresencePill.swift */; };
 		BD252AA03538ED12C4AFE5D7 /* BeagleWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */; };
+		A1B2C3D40000000000000002 /* PresencaWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40000000000000001 /* PresencaWidget.swift */; };
 		BD5252A15774BB0AFF4C2537 /* PlatformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4EBFAF926379A760494FDDE /* PlatformView.swift */; };
 		BD8DE849A86BAFDCE1CAC86B /* LiveActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 365A4A4180DF64759923830A /* LiveActivityManager.swift */; };
 		BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECE76875D595132E400D65E /* HeatmapView.swift */; };
@@ -253,6 +254,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 		4391CB65FB2D130CC3568338 /* BeagleCockpit.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = BeagleCockpit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		43B215DAC7DAEE9730E3C12C /* SleepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SleepView.swift; sourceTree = "<group>"; };
 		4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWidgets.swift; sourceTree = "<group>"; };
+		A1B2C3D40000000000000001 /* PresencaWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencaWidget.swift; sourceTree = "<group>"; };
 		441B0B8029610015FF9F9B56 /* CompanionPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionPresence.swift; sourceTree = "<group>"; };
 		47BD7CBFD5E7060107B10BFF /* TerminalContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalContentView.swift; sourceTree = "<group>"; };
 		49590C3934C2C786F704ADB3 /* PostureGradientBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureGradientBackground.swift; sourceTree = "<group>"; };
@@ -679,6 +681,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 			isa = PBXGroup;
 			children = (
 				4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */,
+				A1B2C3D40000000000000001 /* PresencaWidget.swift */,
 			);
 			name = BeagleWidgets;
 			path = BeagleSuite/Sources/BeagleWidgets;
@@ -1118,6 +1121,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 			buildActionMask = 2147483647;
 			files = (
 				BD252AA03538ED12C4AFE5D7 /* BeagleWidgets.swift in Sources */,
+				A1B2C3D40000000000000002 /* PresencaWidget.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
