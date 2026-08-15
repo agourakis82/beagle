@@ -140,7 +140,7 @@ test("the route re-reads the screen BEFORE deciding — never from a 12s-old ver
   assert.equal(r.code, 200);
   assert.equal(h.sweeps() >= 2, true, "one sweep to decide, one so the card catches up");
   assert.equal(h.execs.length, 1);
-  assert.match(h.execs[0].at(-1), / exec tmux send-keys -t codex-2 y$/);
+  assert.match(h.execs[0].at(-1), / exec tmux send-keys -t fleet:codex-2 y$/);
   assert.equal(r.payload.data.verdictBefore.state, "waiting", "report what we acted on");
 });
 
@@ -173,7 +173,7 @@ test("isolate checks the destination before typing the cd", async () => {
   assert.equal(r.code, 200);
   assert.equal(h.execs.length, 2, "first the test -d, then the send-keys");
   assert.match(h.execs[0].at(-1), /test -d \/workspace\/\.wt\/codex-1/);
-  assert.match(h.execs[1].at(-1), /send-keys -t codex-1 "cd \/workspace\/\.wt\/codex-1" Enter$/);
+  assert.match(h.execs[1].at(-1), /send-keys -t fleet:codex-1 "cd \/workspace\/\.wt\/codex-1" Enter$/);
   assert.equal(r.payload.data.movedTo, "/workspace/.wt/codex-1");
 });
 

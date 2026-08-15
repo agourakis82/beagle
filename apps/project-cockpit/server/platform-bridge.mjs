@@ -41,12 +41,27 @@ export const LOOMD_TIMEOUT_S = 3;
 export const LANE_KEYS = { enter: "Enter", y: "y", esc: "Escape" };
 
 // pod "@bridge" = resolve the t560 platform-bridge pod at call time; a literal name = that pod.
-// The 11 workspace agent lanes are tmux sessions on the workspace pod's OWN uid-owned socket:
-// the herd runs them under TMUX_TMPDIR=<home>/.tmux (NOT /tmp/tmux-1000), so they resolve the
-// socket via TMUX_TMPDIR and run as the non-root workspace user (`su`-wrapped, like sounio-dev).
+// The workspace agent lanes are WINDOWS of a single tmux session ("fleet") on the workspace
+// pod's OWN uid-owned socket: the herd runs them under TMUX_TMPDIR=<home>/.tmux (NOT
+// /tmp/tmux-1000), so they resolve the socket via TMUX_TMPDIR and run as the non-root workspace
+// user (`su`-wrapped, like sounio-dev).
+//
+// 🚨 14-ago-2026: a frota migrou de "N sessões, uma por lane" para "1 sessão (`fleet`), N
+// janelas" — abas clicáveis na barra de status. `target` aqui continua sendo o NOME DA LANE cru
+// (é também o nome do diretório de worktree em `LANE_WT_ROOT`, e o nome da janela); quem
+// interpola um comando tmux usa `FLEET_TARGET(target)`, nunca `target` puro, porque um `tmux
+// -t <lane>` sem prefixo de sessão não acha mais nada — as sessões órfãs que ainda respondiam a
+// isso (sobra da migração) foram encerradas, e sem este conserto a Frota inteira ficaria muda.
+export const FLEET_SESSION = "fleet";
+export const FLEET_TARGET = (lane) => `${FLEET_SESSION}:${lane}`;
 export const WORKSPACE_LANES = [
   "claude-1", "claude-2", "claude-3", "codex-1", "codex-2", "codex-3",
-  "kimi-cli1", "kimi-cli2", "grok-cli1", "grok-cli2", "repo",
+  "kimi-cli1", "kimi-cli2",
+  "grok-cli1", "grok-cli2", "grok-cli3", "grok-cli4", "grok-cli5",
+  "cursor-1", "cursor-2", "cursor-3",
+  "glm-cli1", "glm-cli2",
+  "minimax-cli1", "minimax-cli2", "minimax-cli3",
+  "repo",
 ];
 const WORKSPACE_LANE = (target) => ({
   type: "tmux", pod: "sounio-workspace-control-0", container: "workspace-ssh",
@@ -97,11 +112,13 @@ export function deckExec(kind, action, param) {
     // Workspace lanes (s.user set): non-root, own TMUX_TMPDIR, `su`-wrapped, socket via env.
     if (s.user) {
       let inner;
-      if (action === "attach") inner = `tmux attach -t ${s.target}`;
+      if (action === "attach") inner = `tmux attach -t ${FLEET_TARGET(s.target)}`;
       else if (action === "list") inner = `tmux list-sessions -F '${TMUX_LIST_FORMAT}'`;
-      else if (action === "kill") inner = `tmux kill-session -t ${s.target}`;
+      // `kill-window`, NÃO `kill-session`: a lane é uma JANELA da sessão `fleet` compartilhada
+      // por todo mundo agora — `kill-session -t fleet` derrubaria as outras 21 lanes junto.
+      else if (action === "kill") inner = `tmux kill-window -t ${FLEET_TARGET(s.target)}`;
       // Read-only screen read: no attach, no client, so it cannot resize or disturb his lane.
-      else if (action === "peek") inner = `tmux capture-pane -p -t ${s.target} -S -${PEEK_LINES}`;
+      else if (action === "peek") inner = `tmux capture-pane -p -t ${FLEET_TARGET(s.target)} -S -${PEEK_LINES}`;
       else return null;
       return { pod: s.pod, container: s.container || null, argv: tmuxSu(s, inner) };
     }
@@ -164,10 +181,13 @@ export function lanesPeekArgv(ns) {
   // em newline, e sem ele o `@@ALIVE:` gruda no fim do JSON: o JSON não parseia (loomd lido
   // como caído) E o bloco de liveness some (as 11 lanes passariam a ser assumidas vivas).
   const loomd = `echo "${LOOMD_DELIM}"; curl -fsS --max-time ${LOOMD_TIMEOUT_S} ${LOOMD_STATE_URL} 2>/dev/null; echo`;
-  const alive = `echo "${ALIVE_DELIM}"; tmux ls -F "#{session_name}" 2>/dev/null`;
+  // Janela, não sessão: com a frota inteira numa sessão `fleet` só, `tmux ls -F
+  // "#{session_name}"` devolveria uma linha ("fleet") e NENHUMA bateria em `WORKSPACE_LANES` —
+  // toda lane sairia "ausente". Quem existe agora é enumerado por JANELA da sessão.
+  const alive = `echo "${ALIVE_DELIM}"; tmux list-windows -t ${FLEET_SESSION} -F "#{window_name}" 2>/dev/null`;
   const script = [loomd, alive]
     .concat(WORKSPACE_LANES.map(
-      (l) => `echo "${PEEK_DELIM}${l}"; tmux capture-pane -p -t ${l} -S -${PEEK_LINES} 2>/dev/null`))
+      (l) => `echo "${PEEK_DELIM}${l}"; tmux capture-pane -p -t ${FLEET_TARGET(l)} -S -${PEEK_LINES} 2>/dev/null`))
     .join("; ");
   const inner = `sh -c '${script}'`;
   return ["-n", ns, "exec", "-i", lane0.pod, "-c", lane0.container, "--", ...tmuxSu(lane0, inner)];
@@ -232,7 +252,7 @@ export function laneSendKeyArgv(ns, lane, key) {
   const s = SESSION_ALLOWLIST[lane];
   if (!s || !s.user || !WORKSPACE_LANES.includes(lane)) return null;
   if (!Object.prototype.hasOwnProperty.call(LANE_KEYS, key)) return null;
-  const inner = `tmux send-keys -t ${s.target} ${LANE_KEYS[key]}`;
+  const inner = `tmux send-keys -t ${FLEET_TARGET(s.target)} ${LANE_KEYS[key]}`;
   return ["-n", ns, "exec", "-i", s.pod, "-c", s.container, "--", ...tmuxSu(s, inner)];
 }
 
@@ -241,7 +261,9 @@ export function laneSendKeyArgv(ns, lane, key) {
 export function laneIsolateArgv(ns, lane) {
   const s = SESSION_ALLOWLIST[lane];
   if (!s || !s.user || !WORKSPACE_LANES.includes(lane)) return null;
-  const inner = `tmux send-keys -t ${s.target} "cd ${LANE_WT_ROOT}/${s.target}" Enter`;
+  // `s.target` aqui é o NOME cru — é o diretório em `LANE_WT_ROOT`, não o alvo tmux; só o
+  // `send-keys -t` precisa do prefixo de janela.
+  const inner = `tmux send-keys -t ${FLEET_TARGET(s.target)} "cd ${LANE_WT_ROOT}/${s.target}" Enter`;
   return ["-n", ns, "exec", "-i", s.pod, "-c", s.container, "--", ...tmuxSu(s, inner)];
 }
 

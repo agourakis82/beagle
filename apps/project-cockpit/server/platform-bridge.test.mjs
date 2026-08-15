@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   isT560Kind, deckExec, kubectlArgv, parseDeckSession,
   lanesPeekArgv, parseLanesPeek, WORKSPACE_LANES, PEEK_DELIM,
-  parseLanesAlive, ALIVE_DELIM, LANE_KEYS,
+  parseLanesAlive, ALIVE_DELIM, LANE_KEYS, FLEET_SESSION, FLEET_TARGET,
   laneSendKeyArgv, laneIsolateArgv, laneWorktreeCheckArgv, LANE_WT_ROOT,
   parseLoomdState, hasLoomdBlock, LOOMD_DELIM, LOOMD_STATE_URL,
   loomdApproveArgv, parseLoomdHttp, loomdErrorOf, LOOMD_HTTP_DELIM,
@@ -11,19 +11,19 @@ import {
 
 test("peek is read-only (capture-pane), su-wrapped, and never attaches a client", () => {
   const p = deckExec("claude-1", "peek");
-  assert.match(p.argv[5], /exec tmux capture-pane -p -t claude-1 -S -\d+$/);
+  assert.match(p.argv[5], /exec tmux capture-pane -p -t fleet:claude-1 -S -\d+$/);
   assert.doesNotMatch(p.argv[5], /attach/, "peek must not attach — it would resize his real pane");
   assert.equal(deckExec("t560-beagle", "peek").argv.join(" ").includes("capture-pane"), true);
 });
 
-test("batched fleet peek: one exec, all 11 lanes, delimited, no request input", () => {
+test("batched fleet peek: one exec, every workspace lane, delimited, no request input", () => {
   const argv = lanesPeekArgv("beagle");
   assert.deepEqual(argv.slice(0, 8),
     ["-n", "beagle", "exec", "-i", "sounio-workspace-control-0", "-c", "workspace-ssh", "--"]);
   const body = argv[argv.length - 1];
   for (const lane of WORKSPACE_LANES) {
     assert.ok(body.includes(`${PEEK_DELIM}${lane}`), `missing delimiter for ${lane}`);
-    assert.ok(body.includes(`capture-pane -p -t ${lane}`), `missing capture for ${lane}`);
+    assert.ok(body.includes(`capture-pane -p -t ${FLEET_TARGET(lane)}`), `missing capture for ${lane}`);
   }
   assert.match(body, /TMUX_TMPDIR=\/workspace\/\.home\/openvscode-server\/\.tmux/);
   assert.doesNotMatch(body, /attach|kill-session|send-keys/);
@@ -40,7 +40,7 @@ test("parseLanesPeek splits by lane and drops unknown labels", () => {
 
 test("the same peek reports which lanes tmux actually HAS", () => {
   const body = lanesPeekArgv("beagle").at(-1);
-  assert.match(body, /echo "@@ALIVE:"; tmux ls -F "#\{session_name\}"/);
+  assert.match(body, /echo "@@ALIVE:"; tmux list-windows -t fleet -F "#\{window_name\}"/);
   // The liveness block must come FIRST, so parseLanesPeek (which ignores anything before the
   // first @@LANE:) keeps dropping it and the two parsers stay independent.
   assert.ok(body.indexOf(ALIVE_DELIM) < body.indexOf(PEEK_DELIM));
@@ -70,9 +70,9 @@ test("send-keys carries a NAMED key from a closed set — never text from a requ
     ["-n", "beagle", "exec", "-i", "sounio-workspace-control-0", "-c", "workspace-ssh", "--"]);
   assert.deepEqual(a.slice(8, 13), ["su", "-s", "/bin/bash", "openvscode-server", "-c"]);
   assert.match(a.at(-1), /export TMUX_TMPDIR=\/workspace\/\.home\/openvscode-server\/\.tmux;/);
-  assert.match(a.at(-1), / exec tmux send-keys -t codex-2 y$/);
-  assert.match(laneSendKeyArgv("beagle", "repo", "enter").at(-1), / exec tmux send-keys -t repo Enter$/);
-  assert.match(laneSendKeyArgv("beagle", "repo", "esc").at(-1), / exec tmux send-keys -t repo Escape$/);
+  assert.match(a.at(-1), / exec tmux send-keys -t fleet:codex-2 y$/);
+  assert.match(laneSendKeyArgv("beagle", "repo", "enter").at(-1), / exec tmux send-keys -t fleet:repo Enter$/);
+  assert.match(laneSendKeyArgv("beagle", "repo", "esc").at(-1), / exec tmux send-keys -t fleet:repo Escape$/);
 });
 
 test("send-keys refuses anything outside the two allowlists", () => {
@@ -91,7 +91,7 @@ test("send-keys refuses anything outside the two allowlists", () => {
 
 test("isolate types a cd whose path comes from the lane NAME, and can be pre-checked", () => {
   assert.match(laneIsolateArgv("beagle", "codex-1").at(-1),
-    new RegExp(` exec tmux send-keys -t codex-1 "cd ${LANE_WT_ROOT}/codex-1" Enter$`));
+    new RegExp(` exec tmux send-keys -t fleet:codex-1 "cd ${LANE_WT_ROOT}/codex-1" Enter$`));
   assert.equal(laneIsolateArgv("beagle", "../etc"), null);
   assert.equal(laneIsolateArgv("beagle", "t560-beagle"), null);
   assert.match(laneWorktreeCheckArgv("beagle", "codex-1").at(-1),
@@ -125,23 +125,24 @@ test("workspace lane: tmux su-wrapped with TMUX_TMPDIR (measured socket, not /tm
   assert.deepEqual(a.argv.slice(0, 5), ["su", "-s", "/bin/bash", "openvscode-server", "-c"]);
   const body = a.argv[5];
   assert.match(body, /export TMUX_TMPDIR=\/workspace\/\.home\/openvscode-server\/\.tmux;/);
-  assert.match(body, / exec tmux attach -t claude-1$/);
+  assert.match(body, / exec tmux attach -t fleet:claude-1$/);
   assert.doesNotMatch(body, /\/tmp\/tmux-1000/); // must NOT use the wrong default socket path
   // list quotes the -F format so the pipe isn't a shell pipe
   const l = deckExec("codex-2", "list");
   assert.match(l.argv[5], /exec tmux list-sessions -F '#\{session_name\}\|#\{session_attached\}\|/);
-  assert.equal(deckExec("grok-cli1", "kill").argv[5].endsWith("exec tmux kill-session -t grok-cli1"), true);
+  // kill-WINDOW, not kill-session: the lane is a window inside the shared `fleet` session —
+  // kill-session would take every other lane down with it.
+  assert.equal(deckExec("grok-cli1", "kill").argv[5].endsWith("exec tmux kill-window -t fleet:grok-cli1"), true);
   assert.equal(deckExec("claude-1", "exec"), null); // unknown action refused
 });
 
-test("all 11 workspace lanes are allowlisted and target the workspace pod as the workspace user", () => {
-  const lanes = ["claude-1","claude-2","claude-3","codex-1","codex-2","codex-3","kimi-cli1","kimi-cli2","grok-cli1","grok-cli2","repo"];
-  for (const lane of lanes) {
+test("every workspace lane is allowlisted and targets the workspace pod as the workspace user", () => {
+  for (const lane of WORKSPACE_LANES) {
     assert.equal(isT560Kind(lane), true, lane);
     const a = deckExec(lane, "attach");
     assert.equal(a.pod, "sounio-workspace-control-0", lane);
     assert.equal(a.argv[3], "openvscode-server", lane);
-    assert.match(a.argv[5], new RegExp(`exec tmux attach -t ${lane}$`), lane);
+    assert.match(a.argv[5], new RegExp(`exec tmux attach -t ${FLEET_TARGET(lane)}$`), lane);
   }
 });
 
