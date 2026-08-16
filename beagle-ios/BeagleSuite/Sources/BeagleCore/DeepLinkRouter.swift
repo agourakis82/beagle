@@ -40,7 +40,7 @@ public final class DeepLinkRouter {
         /// Grafias que ja circulam por aí (widget antigo, Atalhos escritos à mão).
         /// Aceitar sinônimo é mais barato que caçar todo emissor — e um destino que
         /// falha em silêncio é justamente o defeito que estamos corrigindo.
-        static func from(token: String) -> Destination? {
+        nonisolated static func from(token: String) -> Destination? {
             switch token.lowercased() {
             case "capture", "captura", "capturar": return .capturar
             case "falar", "voz", "voice", "speak": return .falar
@@ -54,7 +54,10 @@ public final class DeepLinkRouter {
     /// Parse a `beagle://` URL into a destination, or nil if it is not one of ours.
     /// Accepts both `beagle://frota` (host) and `beagle:///frota` (path), because the two forms
     /// are trivially easy to mix up when writing a Shortcut by hand.
-    public static func destination(for url: URL) -> Destination? {
+    /// `nonisolated` porque é PURO: só lê a URL, não toca estado nenhum do ator.
+    /// Sem isto, um Atalho, um teste ou a extensão teriam que saltar para o main
+    /// actor só para descobrir se uma URL é nossa.
+    nonisolated public static func destination(for url: URL) -> Destination? {
         guard url.scheme == "beagle" else { return nil }
         let token = url.host ?? url.pathComponents.first(where: { $0 != "/" }) ?? ""
         return Destination.from(token: token)
