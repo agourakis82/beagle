@@ -30,8 +30,10 @@ let package = Package(
         .package(url: "https://github.com/ml-explore/mlx-swift-lm", branch: "main"),
         // HuggingFace Hub client for model downloads + tokenizers
         .package(url: "https://github.com/huggingface/swift-transformers", .upToNextMinor(from: "1.1.0")),
-        // On-device Whisper speech-to-text
-        .package(url: "https://github.com/argmaxinc/WhisperKit", from: "0.18.0"),
+        // WhisperKit REMOVIDO em 15-ago-2026: declarado no BeagleCore e importado por
+        // ZERO arquivos. Toda a fala do app passa por SpeechAnalyzer/SFSpeechRecognizer
+        // (ver SpeechRecognizer.swift). Ele so engordava o alvo — e como o WIDGET linka
+        // BeagleCore, engordava o widget junto.
         // VT100/xterm terminal emulator for the native fleet terminal (iOS/macOS only)
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.0"),
     ],
@@ -71,7 +73,6 @@ let package = Package(
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .visionOS])),
                 .product(name: "Hub", package: "swift-transformers", condition: .when(platforms: [.iOS, .visionOS])),
                 .product(name: "Tokenizers", package: "swift-transformers", condition: .when(platforms: [.iOS, .visionOS])),
-                .product(name: "WhisperKit", package: "WhisperKit", condition: .when(platforms: [.iOS, .visionOS])),
             ],
             path: "Sources/BeagleCore",
             swiftSettings: [
