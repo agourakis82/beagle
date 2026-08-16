@@ -521,6 +521,14 @@ struct RootView: View {
             case .frota:   sidebarSelection = .frota
             case .oficina: sidebarSelection = .oficina
             case .work:    sidebarSelection = .work
+            // O MESMO gesto no layout de barra lateral (iPad/Vision). Sem estes
+            // dois ramos o compilador acusa switch não-exaustivo — e ele está
+            // certo: um destino que existe e não é honrado AQUI seria o mesmo
+            // botão morto, só que noutra tela.
+            case .capturar: sidebarSelection = .capture
+            // Não há runtime de voz nesta superfície; `mind` é onde a conversa
+            // acontece, e é o mais honesto que dá para fazer sem fingir.
+            case .falar:    sidebarSelection = .mind
             }
         }
         .tint(BeagleTheme.truthObserved)
