@@ -21,6 +21,10 @@ let package = Package(
             targets: ["BeagleCore"]
         ),
         .library(
+            name: "BeagleLocalLLM",
+            targets: ["BeagleLocalLLM"]
+        ),
+        .library(
             name: "BeagleWorkbenchKit",
             targets: ["BeagleWorkbenchKit"]
         )
@@ -61,20 +65,38 @@ let package = Package(
         ),
         .target(
             name: "BeagleCore",
+            // NUCLEO MAGRO. MLX/Hub/Tokenizers saíram para BeagleLocalLLM em
+            // 15-ago-2026. O alvo dos WIDGETS linka este aqui: tudo que entra
+            // neste array entra no widget junto — e era assim que um widget de
+            // três linhas de texto carregava 80 MB de runtime de LLM e três
+            // bundles aninhados que faziam a instalação no aparelho ser recusada.
+            // Ver Sources/BeagleCore/MotorLocal.swift.
             dependencies: [
                 "BeagleAudioGuard",
-                // macOS fica de fora destes de propósito: swift-transformers não
-                // compila para macOS com o toolchain atual (Hub/Config.swift,
-                // ObjectKey), e era isso que impedia `swift test` de rodar — os
-                // testes do pacote existiam e NUNCA eram executados por ninguém.
-                // O app é iOS; LocalLLMEngine já se protege com #if canImport,
-                // então no macOS ele simplesmente não tem runtime local.
+            ],
+            path: "Sources/BeagleCore",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v6)
+            ]
+        ),
+        // O runtime de LLM local, ISOLADO do núcleo. Só o app linka isto; o widget
+        // e o relógio ficam de fora, e é essa separação que devolve o tamanho.
+        //
+        // macOS fica de fora de propósito: swift-transformers não compila para
+        // macOS com o toolchain atual (Hub/Config.swift, ObjectKey), e era isso
+        // que impedia `swift test` de rodar — os testes do pacote existiam e
+        // NUNCA eram executados por ninguém.
+        .target(
+            name: "BeagleLocalLLM",
+            dependencies: [
+                "BeagleCore",
                 .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .visionOS])),
                 .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .visionOS])),
                 .product(name: "Hub", package: "swift-transformers", condition: .when(platforms: [.iOS, .visionOS])),
                 .product(name: "Tokenizers", package: "swift-transformers", condition: .when(platforms: [.iOS, .visionOS])),
             ],
-            path: "Sources/BeagleCore",
+            path: "Sources/BeagleLocalLLM",
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency"),
                 .swiftLanguageMode(.v6)

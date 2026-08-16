@@ -15,6 +15,7 @@
 
 import SwiftUI
 import BeagleCore
+import BeagleLocalLLM
 
 struct ModelSettingsView: View {
     @State private var llm = LocalLLMEngine.shared

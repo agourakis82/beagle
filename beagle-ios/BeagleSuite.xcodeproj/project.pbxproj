@@ -30,6 +30,7 @@
 		2E61BDB009F282CB1A3CCCE7 /* MetalClusterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1627EC91F819B45D2929869B /* MetalClusterView.swift */; };
 		357233B56EA6220C81DFC055 /* HyperbolicGraphView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */; };
 		3676B6A0274B8867938EA3E9 /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA8A9689928DC1BA45738244 /* BeagleCore */; };
+		C0FFEE000000000000000002 /* BeagleLocalLLM in Frameworks */ = {isa = PBXBuildFile; productRef = C0FFEE000000000000000001 /* BeagleLocalLLM */; };
 		39966D4FD11EC8661B54479D /* CognitiveStateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E5BFBC8407D4C833BA3F95 /* CognitiveStateView.swift */; };
 		3C42D18C89653C9A9F988679 /* CompanionPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = 441B0B8029610015FF9F9B56 /* CompanionPresence.swift */; };
 		40BF456C71ED40A7CBF92FD8 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F9429744BAEF1DC81205FFB /* OnboardingView.swift */; };
@@ -402,6 +403,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C0FFEE000000000000000002 /* BeagleLocalLLM in Frameworks */,
 				92B4E05E95660C6A18722F63 /* BeagleCore in Frameworks */,
 				4F30330ABC2C3224A105FB72 /* BeagleWorkbenchKit in Frameworks */,
 				947DC1F85670234F684A0FCF /* MetalSplatter in Frameworks */,
@@ -773,6 +775,7 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 			);
 			name = BeagleCockpit;
 			packageProductDependencies = (
+				C0FFEE000000000000000001 /* BeagleLocalLLM */,
 				EC23CD7FEB1FC70A4E7192BF /* BeagleCore */,
 				19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */,
 				BB39F53D2A16552DD1727933 /* MetalSplatter */,
@@ -1584,6 +1587,10 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 		19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = BeagleWorkbenchKit;
+		};
+		C0FFEE000000000000000001 /* BeagleLocalLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BeagleLocalLLM;
 		};
 		3CE68477CD23BAC261300B32 /* BeagleCore */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -15,6 +15,7 @@
 
 import Foundation
 import Observation
+import BeagleCore
 
 #if canImport(MLXLLM) && canImport(MLXLMCommon)
 import MLX
@@ -569,7 +570,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
 
 @Observable
 @MainActor
-public final class LocalLLMEngine {
+public final class LocalLLMEngine: MotorLocal {
 
     public static let shared = LocalLLMEngine()
 

@@ -137,7 +137,9 @@ public final class ConversationStore {
     /// o tom da fala anterior, e o companion falaria de um "agora" que já passou.
     public var sinalDeVozDoTurno: (wpm: Double?, pausa: Double)?
 
-    private let llm = LocalLLMEngine.shared
+    /// `nil` onde não há runtime local (widget, relógio, macOS) — ausência é
+    /// estado legítimo, não falha. Ver MotorLocal.swift.
+    private var llm: MotorLocal? { MotoresLocais.motor }
     private let assistedImportEncoder = JSONEncoder()
     private let conversationImportSessionId = "beagle-apple-chat-\(UUID().uuidString.lowercased())"
 
@@ -158,19 +160,19 @@ public final class ConversationStore {
             Task { @MainActor in
                 await self?.flushOutbox()
                 // Voltou a rede: a nuvem responde e os 4,29 GB viram só risco.
-                LocalLLMEngine.shared.unload()
+                MotoresLocais.motor?.unload()
             }
         }
         // Aquece o modelo local na abertura, se os pesos já estiverem aqui.
         // Carregar 8B leva dezenas de segundos; pagar isso quando a rede já caiu
         // é pagar no pior momento possível.
-        print(String(format: "[Beagle] RAM fisica: %.2f GB", LocalLLMEngine.ramGBMedida))
+        print(String(format: "[Beagle] RAM fisica: %.2f GB", MotoresLocais.ramGB))
         // Carregar o modelo na ABERTURA matava o app: o iOS mata em
         // per-process-limit ~6,45 GB e os pesos sozinhos são 4,29 GB. Online ele
         // não precisa do modelo — então só carrega quando a rede cai, e devolve
         // a memória quando ela volta.
         NetworkMonitor.shared.onDisconnect = {
-            Task { @MainActor in await LocalLLMEngine.shared.restaurarUltimoModelo() }
+            Task { @MainActor in await MotoresLocais.motor?.restaurarUltimoModelo() }
         }
     }
 

@@ -13,6 +13,7 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+import BeagleLocalLLM
 import BeagleWorkbenchKit
 #if os(iOS)
 import UIKit
@@ -26,6 +27,11 @@ let beagleDreamTaskIdentifier = "dev.sounio.cockpit.dream"
 
 final class BeagleAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // REGISTRO DO MOTOR LOCAL. O núcleo declara o protocolo e não conhece o
+        // runtime; quem o conhece é o APP, e é aqui que ele se apresenta. É essa
+        // inversão que tira MLX do BeagleCore — e, com ele, do WIDGET.
+        MotoresLocais.registrar(LocalLLMEngine.shared)
+
         UNUserNotificationCenter.current().delegate = self
         print("[APNsDBG] didFinishLaunching -> requesting notification authorization")
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, err in
