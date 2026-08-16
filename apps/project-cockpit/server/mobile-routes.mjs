@@ -2296,14 +2296,23 @@ export function registerMobileRoutes(app, deps) {
     withEnvelope(async (req) => {
       const texto = cleanString(req.body?.text);
       if (!texto) throw contractFailure(ErrorCode.BAD_REQUEST, "text obrigatório");
-      const r = await falar(texto, { apiKey: process.env.XAI_API_KEY });
+      // VETOR DE EMOÇÃO, opcional. Valência é o State of Mind que ELE registrou;
+      // ativação vem do corpo. Ausente ou velho → direção neutra, e o áudio sai
+      // igual: a entonação é um acréscimo quando há medida, nunca um requisito.
+      const vetor = {
+        valencia: num(req.body?.valencia),
+        ativacao: num(req.body?.ativacao),
+        medidoEm: cleanString(req.body?.medido_em) || null,
+      };
+      const r = await falar(texto, { apiKey: process.env.XAI_API_KEY, vetor });
       if (!r.ok) {
         // 422 e não 500: não é o servidor quebrado, é o guarda funcionando ou a
         // boca indisponível. Nos dois casos o app deve cair para texto.
         throw contractFailure(ErrorCode.UNPROCESSABLE || ErrorCode.BAD_REQUEST,
           `voz indisponível: ${r.motivo}${r.similaridade !== undefined ? ` (sim=${r.similaridade.toFixed(2)})` : ""}`);
       }
-      return { data: { wav_base64: r.wavBase64, transcript: r.transcript, similarity: r.similaridade, ms: r.ms } };
+      return { data: { wav_base64: r.wavBase64, transcript: r.transcript, similarity: r.similaridade, ms: r.ms,
+                       quadrante: r.quadrante ?? null, procedencia_da_emocao: r.procedenciaDaEmocao ?? null } };
     })
   );
 

@@ -21,6 +21,7 @@
 // done), não comportamento do modelo.
 
 import WebSocket from "ws";
+import { anotar, semDirecao } from "./direcao-de-atuacao.mjs";
 
 const XAI_REALTIME = "wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-1.0";
 
@@ -117,6 +118,10 @@ export async function falar(texto, {
   apiKey,
   limiar = 0.85,
   timeoutMs = 45000,
+  // O VETOR DE EMOÇÃO MEDIDO: { valencia, ativacao, medidoEm }. Opcional — sem
+  // ele a direção é a neutra, e isso é uma decisão, não uma falha: emoção que
+  // ninguém mediu não vira entonação afirmada.
+  vetor = null,
 } = {}) {
   const limpo = String(texto || "").trim();
   if (!limpo) return { ok: false, motivo: "texto vazio" };
@@ -130,6 +135,10 @@ export async function falar(texto, {
     let transcript = "";
     const deltas = [];
     let encerrado = false;
+
+    // Direção POR FRASE, derivada do vetor. O modelo obedece colchetes sem
+    // pronunciá-los — provado em 16-ago-2026.
+    const { anotado, quadrante, procedencia } = anotar(limpo, vetor || {});
 
     const ws = new WebSocket(XAI_REALTIME, { headers: { Authorization: `Bearer ${apiKey}` } });
     const fim = (r) => {
@@ -149,7 +158,7 @@ export async function falar(texto, {
       }});
       enviar({ type: "conversation.item.create", item: {
         type: "message", role: "user",
-        content: [{ type: "input_text", text: limpo }],
+        content: [{ type: "input_text", text: anotado }],
       }});
       enviar({ type: "response.create" });
     });
@@ -169,7 +178,10 @@ export async function falar(texto, {
       } else if (e.type === "response.done") {
         clearTimeout(relogio);
         const dito = transcript || deltas.join("");
-        const sim = similaridade(limpo, dito);
+        // COMPARAR SEM A MARCAÇÃO. Se comparasse com `anotado`, a boca — que
+        // corretamente NÃO fala os colchetes — reprovaria sempre, e o guarda
+        // mataria justamente a melhoria que ele pediu.
+        const sim = similaridade(semDirecao(limpo), dito);
         const pcm = Buffer.concat(pedacos);
 
         // O GUARDA. Se a boca falou outra coisa, o áudio vai embora inteiro —
@@ -189,6 +201,10 @@ export async function falar(texto, {
           wavBase64: embrulharWav(pcm).toString("base64"),
           transcript: dito,
           similaridade: sim,
+          // Devolvidos para o app poder MOSTRAR de onde veio a entonação — a
+          // mesma disciplina do TruthMode: quem afirma diz a procedência.
+          quadrante,
+          procedenciaDaEmocao: procedencia,
           ms: Date.now() - t0,
         });
       }
