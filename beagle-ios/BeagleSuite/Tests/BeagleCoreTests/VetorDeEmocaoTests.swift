@@ -26,8 +26,11 @@ struct VetorDeEmocaoTests {
     func ativacaoEhInversoDaProntidao() {
         let calmo = VetorDeEmocao.de(valencia: 0.2, readiness: 0.9, medidoEm: quando)
         let aceso = VetorDeEmocao.de(valencia: 0.2, readiness: 0.1, medidoEm: quando)
-        #expect(calmo?.ativacao == 0.1)
-        #expect(aceso?.ativacao == 0.9)
+        // Comparar por PROXIMIDADE: 1.0 - 0.9 dá 0.09999999999999998 em ponto
+        // flutuante. Igualdade exata de decimal aqui testaria a IEEE-754, não a
+        // regra — e reprovaria um código correto.
+        #expect(abs((calmo?.ativacao ?? -1) - 0.1) < 1e-9)
+        #expect(abs((aceso?.ativacao ?? -1) - 0.9) < 1e-9)
     }
 
     @Test("os eixos são aparados na faixa — nada de valência 7")
