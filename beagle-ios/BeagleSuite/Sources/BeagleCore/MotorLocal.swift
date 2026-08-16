@@ -29,12 +29,22 @@ import Foundation
 public protocol MotorLocal: AnyObject {
     /// Há modelo carregado e pronto para responder.
     var isReady: Bool { get }
+    /// Sufixo que instrui o modelo a não emitir cadeia de raciocínio.
+    var sufixoSemRaciocinio: String { get }
+    /// NOME do modelo, não o modelo. O núcleo só precisa disto para rotular a
+    /// bolha — expor o enum `OnDeviceModel` aqui traria o alvo pesado de volta
+    /// pela porta dos fundos, que é exatamente o que esta fronteira desfaz.
+    var nomeDoModeloAtual: String? { get }
     /// Uma resposta completa. Lança se o modelo não estiver pronto ou falhar.
     func respond(to prompt: String) async throws -> String
+    /// A mesma resposta, em fluxo.
+    func generate(prompt: String) -> AsyncThrowingStream<String, Error>
+    /// Instruções de sistema para os próximos turnos.
+    func aplicarInstrucoes(_ texto: String)
     /// Devolve a memória. Chamado quando o app perde o primeiro plano.
     func unload()
-    /// Recarrega o último modelo escolhido pelo usuário, se houver.
-    func restaurarUltimoModelo() async
+    /// Recarrega o último modelo escolhido pelo usuário. `false` se não havia.
+    @discardableResult func restaurarUltimoModelo() async -> Bool
 }
 
 /// Onde o app deixa o motor para o núcleo encontrar.

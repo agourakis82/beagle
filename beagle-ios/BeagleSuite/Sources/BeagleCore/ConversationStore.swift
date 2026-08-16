@@ -252,8 +252,10 @@ public final class ConversationStore {
             // Sem rede. O engine esquece o modelo a cada abertura do app, então
             // tentar restaurar AQUI é a diferença entre responder e não existir.
             // Só carrega o que já está no aparelho: nunca baixa GB no celular.
-            var pronto = llm.isReady
-            if !pronto { pronto = await llm.restaurarUltimoModelo() }
+            // Sem motor local (widget, relógio, macOS) não há o que restaurar —
+            // ausência é estado legítimo, e o caminho de nuvem segue valendo.
+            var pronto = llm?.isReady ?? false
+            if !pronto, let llm { pronto = await llm.restaurarUltimoModelo() }
             if pronto {
                 await sendMessageLocal(text)
                 enqueueOffline(userText: text)
@@ -547,8 +549,8 @@ public final class ConversationStore {
 
     /// Send using the on-device MLX model (streaming).
     public func sendMessageLocal(_ text: String) async {
-        guard llm.isReady else {
-            // Fallback to cloud
+        guard let llm, llm.isReady else {
+            // Sem motor, ou motor frio: nuvem. Mesmo caminho de sempre.
             await sendMessageCloud(text)
             return
         }
@@ -565,7 +567,7 @@ public final class ConversationStore {
         let prompt = offlineGroundedPrompt(text)
 
         let assistantId = UUID()
-        let modelName = llm.currentModel?.displayName ?? "local"
+        let modelName = llm.nomeDoModeloAtual ?? "local"
         let placeholder = ChatMessage(
             id: assistantId, role: .assistant, content: "",
             isStreaming: true, model: modelName, isLocal: true

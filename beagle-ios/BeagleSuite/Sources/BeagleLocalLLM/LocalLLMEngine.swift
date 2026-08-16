@@ -692,6 +692,9 @@ public final class LocalLLMEngine: MotorLocal {
     }
 
     public var isReady: Bool { loadState == .ready }
+
+    /// Ponte para o protocolo: o núcleo quer o NOME, não o enum.
+    public var nomeDoModeloAtual: String? { currentModel?.displayName }
     public var isAvailable: Bool {
         Self.supportsLocalRuntime
     }
