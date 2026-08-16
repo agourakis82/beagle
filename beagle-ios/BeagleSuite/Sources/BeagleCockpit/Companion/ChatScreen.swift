@@ -54,6 +54,9 @@ public struct ChatScreen: View {
     var onOpenFrota: (() -> Void)?
     /// Opens the Oficina (is it green / what broke / where am I).
     var onOpenOficina: (() -> Void)?
+    /// Muda quando alguém pede para FALAR de fora (widget, Atalho, botão de Ação).
+    /// UUID e não Bool: dois pedidos seguidos precisam disparar duas vezes.
+    var pedidoDeVoz: UUID?
     @State private var draft = ""
     /// Dictation language, toggled by the composer's PT/EN chip. Persisted; pt_BR default.
     @AppStorage("dictationLocaleID") private var dictationLocaleID = "pt_BR"
@@ -107,7 +110,8 @@ public struct ChatScreen: View {
                 onOpenSleep: (() -> Void)? = nil,
                 onOpenSynthesize: (() -> Void)? = nil,
                 onOpenFrota: (() -> Void)? = nil,
-                onOpenOficina: (() -> Void)? = nil) {
+                onOpenOficina: (() -> Void)? = nil,
+                pedidoDeVoz: UUID? = nil) {
         self.store = store
         self.breath = breath
         self.weather = weather
@@ -124,6 +128,7 @@ public struct ChatScreen: View {
         self.onOpenSynthesize = onOpenSynthesize
         self.onOpenFrota = onOpenFrota
         self.onOpenOficina = onOpenOficina
+        self.pedidoDeVoz = pedidoDeVoz
     }
 
     /// Estado da presença. Toda a regra vive em `PresenceResolver` (puro, testado em
@@ -240,6 +245,13 @@ public struct ChatScreen: View {
         // `adormecido`. Nada de animação depende disto.
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now in
             idleTick = now
+        }
+        // PEDIDO DE VOZ VINDO DE FORA. O widget não grava áudio — o iOS não
+        // deixa. O mais perto possível é o app abrir JÁ OUVINDO, e é isto: o
+        // toque no widget vira um turno de voz sem passar por tela nenhuma.
+        .onChange(of: pedidoDeVoz) { _, novo in
+            guard novo != nil else { return }
+            Task { await voice.toggleLatched() }
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.55)) { appeared = true }

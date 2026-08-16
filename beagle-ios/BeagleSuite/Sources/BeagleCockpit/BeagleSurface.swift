@@ -44,6 +44,10 @@ struct BeagleSurface: View {
     @Binding var bootError: String?
 
     @State private var conversation = ConversationStore(preferLocal: false)
+    /// Muda quando alguém pede para FALAR (widget, Atalho, botão de Ação). É um
+    /// UUID e não um Bool porque dois pedidos seguidos têm que disparar duas
+    /// vezes — um Bool ficaria `true` e o segundo toque não faria nada.
+    @State private var pedidoDeVoz: UUID?
     @State private var exocortex = ExocortexStore()
     @State private var spaceWeather = SpaceWeatherStore()
     @State private var activeSheet: SurfaceSheet?
@@ -103,6 +107,15 @@ struct BeagleSurface: View {
                 case .frota:   activeSheet = .frota
                 case .oficina: activeSheet = .oficina
                 case .work:    activeSheet = .work
+                // OS DOIS GESTOS DO WIDGET. Sem estes dois ramos o toque abriria o
+                // app na tela em que ele estava e pareceria que funcionou — que é
+                // como `beagle://capture` viveu morto desde sempre.
+                case .capturar: activeSheet = .capture
+                case .falar:
+                    // Fecha qualquer folha aberta: falar acontece no chat, e uma
+                    // folha por cima engoliria o gesto que motivou o toque.
+                    activeSheet = nil
+                    pedidoDeVoz = UUID()
                 }
             }
             .task { deepLink.applyLaunchArgumentIfPresent() }
@@ -184,7 +197,8 @@ struct BeagleSurface: View {
                 onOpenSleep: { activeSheet = .sleep },
                 onOpenSynthesize: { activeSheet = .synthesis },
                 onOpenFrota: { activeSheet = .frota },
-                onOpenOficina: { activeSheet = .oficina }
+                onOpenOficina: { activeSheet = .oficina },
+                pedidoDeVoz: pedidoDeVoz
             )
         }
     }

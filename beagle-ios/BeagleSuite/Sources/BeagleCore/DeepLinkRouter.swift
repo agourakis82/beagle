@@ -23,6 +23,30 @@ public final class DeepLinkRouter {
         case frota      // Mission Control: who needs you
         case oficina    // dev half: is it green / what broke / where am I
         case work       // the older agent deck
+
+        // OS DOIS QUE FALTAVAM, e sem os quais o widget era enfeite.
+        //
+        // O ThoughtCaptureWidget emitia `beagle://capture` desde sempre, e este
+        // roteador nunca conheceu esse destino: o toque abria o app na tela em que
+        // ele estava e a pessoa achava que tinha capturado. Botao morto que PARECE
+        // vivo é pior que botao ausente.
+        //
+        // `falar` nao existia de forma nenhuma. E o gesto mais valioso no plantao:
+        // a mao esta ocupada, a tela esta longe dos olhos, e o que se quer é falar
+        // — nao navegar ate um lugar onde da para falar.
+        case falar      // abre JA OUVINDO, nao numa tela de onde se pode ouvir
+        case capturar   // abre direto na captura
+
+        /// Grafias que ja circulam por aí (widget antigo, Atalhos escritos à mão).
+        /// Aceitar sinônimo é mais barato que caçar todo emissor — e um destino que
+        /// falha em silêncio é justamente o defeito que estamos corrigindo.
+        static func from(token: String) -> Destination? {
+            switch token.lowercased() {
+            case "capture", "captura", "capturar": return .capturar
+            case "falar", "voz", "voice", "speak": return .falar
+            default: return Destination(rawValue: token.lowercased())
+            }
+        }
     }
 
     private init() {}
@@ -33,7 +57,7 @@ public final class DeepLinkRouter {
     public static func destination(for url: URL) -> Destination? {
         guard url.scheme == "beagle" else { return nil }
         let token = url.host ?? url.pathComponents.first(where: { $0 != "/" }) ?? ""
-        return Destination(rawValue: token.lowercased())
+        return Destination.from(token: token)
     }
 
     public func request(_ destination: Destination) { pending = destination }
