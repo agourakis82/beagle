@@ -1534,7 +1534,10 @@ public actor BeagleClient {
     /// 422 do servidor NÃO é falha a mascarar: é o guarda tendo reprovado a boca
     /// (ela falou outra coisa) ou a voz indisponível. Nos dois casos o certo é
     /// cair para texto — a carta já está na tela.
-    public func fetchCompanionVoice(text: String) async -> Truthful<Data> {
+    /// `vetor` opcional: quando há emoção MEDIDA e fresca, o servidor dirige a
+    /// entrega por frase. Sem ele o áudio sai igual, com direção neutra — a
+    /// entonação é acréscimo quando há medida, nunca requisito.
+    public func fetchCompanionVoice(text: String, vetor: VetorDeEmocao? = nil) async -> Truthful<Data> {
         let cockpitURLs = [
             URL(string: "https://beagle.chiuratto.ai")!,
             URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
@@ -1550,7 +1553,9 @@ public actor BeagleClient {
             request.timeoutInterval = 60
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
-            request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
+            var corpo: [String: Any] = ["text": text]
+            if let vetor { corpo.merge(vetor.corpoJSON) { a, _ in a } }
+            request.httpBody = try? JSONSerialization.data(withJSONObject: corpo)
             do {
                 let (data, response) = try await session.data(for: request)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1

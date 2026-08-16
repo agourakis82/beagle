@@ -51,14 +51,16 @@ public final class CompanionVoice: NSObject {
     public func estaFalando(_ id: String) -> Bool { falandoId == id }
 
     /// Vocaliza `texto`. `id` é só para a UI saber qual bolha está falando.
-    public func falar(_ texto: String, id: String) async {
+    /// `vetor`: a emoção MEDIDA no momento da fala. `nil` quando falta eixo ou
+    /// carimbo — e aí o servidor usa direção neutra, que é honesto.
+    public func falar(_ texto: String, id: String, vetor: VetorDeEmocao? = nil) async {
         guard !buscando else { return }
         parar()
         recusa = nil
         buscando = true
         defer { buscando = false }
 
-        let r = await client.fetchCompanionVoice(text: texto)
+        let r = await client.fetchCompanionVoice(text: texto, vetor: vetor)
         guard let wav = r.value else {
             // Cai para texto em silêncio: a carta já está na tela, e é a fonte.
             recusa = r.error

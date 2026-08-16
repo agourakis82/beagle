@@ -131,6 +131,15 @@ public struct ChatScreen: View {
         self.pedidoDeVoz = pedidoDeVoz
     }
 
+    /// A emoção MEDIDA agora — valência que ele registrou, ativação do corpo.
+    /// `nil` quando falta eixo: o servidor cai na direção neutra, e ninguém encena
+    /// um estado que não foi medido.
+    private var vetorDeEmocao: VetorDeEmocao? {
+        VetorDeEmocao.de(valencia: posture?.stateOfMind,
+                         readiness: posture?.readiness,
+                         medidoEm: posture?.observedAt)
+    }
+
     /// Estado da presença. Toda a regra vive em `PresenceResolver` (puro, testado em
     /// BeagleCoreTests); aqui só se colhem as entradas.
     ///
@@ -228,7 +237,7 @@ public struct ChatScreen: View {
             guard let ultima = store.messages.last,
                   ultima.role == .assistant,
                   !ultima.content.isEmpty else { return }
-            Task { await voz.falar(ultima.content, id: ultima.id.uuidString) }
+            Task { await voz.falar(ultima.content, id: ultima.id.uuidString, vetor: vetorDeEmocao) }
         }
         .onDisappear {
             // Sair da tela cala a boca. Áudio tocando numa tela que ele fechou é
