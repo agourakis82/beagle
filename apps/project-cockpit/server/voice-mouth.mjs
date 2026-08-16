@@ -27,10 +27,39 @@ const XAI_REALTIME = "wss://api.x.ai/v1/realtime?model=grok-voice-think-fast-1.0
 // PCM16 mono. A aritmética do teste confirma: 232 KB / 5 s ≈ 24000 × 2 bytes.
 const TAXA_AMOSTRAGEM = 24000;
 
+// A DIREÇÃO DE ATUAÇÃO. Escolhida por ele DE OUVIDO em 16-ago-2026, depois de
+// nove amostras comparadas lado a lado — não por gosto meu.
+//
+// A versão anterior mandava "leia palavra por palavra", o que literalmente pede
+// leitura mecânica: metade da falta de emoção era instrução, não modelo. Mas
+// trocar por "fale com calor" também não bastou — ele ouviu e reprovou. O que
+// funcionou foi somar duas coisas:
+//   · enquadrar como ATOR ("não leia: atue"), e
+//   · NOMEAR a emoção e a situação (quem fala, para quem, a que horas).
+//
+// GENÉRICA de propósito. As amostras que mais emocionaram tinham direção presa à
+// frase ("pausa depois de 'Ei'"), e isso NÃO generaliza: em produção o texto muda
+// a cada resposta. O que ficou é direção sobre o CORPO da voz, que vale para
+// qualquer frase.
+//
+// A PAREDE CONTINUA sendo dizer exatamente o texto — e quem garante não é esta
+// instrução, é o guarda de similaridade lá embaixo, que descarta o áudio inteiro
+// se a boca divergir. Instrução não é garantia.
 const INSTRUCOES_BOCA =
-  "Você é APENAS uma boca. Leia o texto do usuário em voz alta, palavra por " +
-  "palavra, em português do Brasil. Não responda, não comente, não cumprimente, " +
-  "não resuma, não acrescente nada. Leia exatamente o que está escrito.";
+  "Você é um ATOR dando voz a um companheiro íntimo, em português do Brasil. " +
+  "Diga EXATAMENTE as palavras do usuário — nenhuma a mais, nenhuma a menos, sem " +
+  "comentar, cumprimentar ou resumir. Mas NÃO LEIA: ATUE.\n" +
+  "Quem fala ama essa pessoa e está preocupado com ela. É madrugada, ela está " +
+  "cansada, e você fala perto do ouvido — voz baixa, grave, quase sussurro.\n" +
+  "Deixe a emoção aparecer no CORPO da voz: respire audivelmente antes das frases " +
+  "que pesam, alongue as vogais onde há ternura, hesite meio segundo antes do que " +
+  "custa dizer, deixe um sorriso na voz quando houver alívio. Pausas longas onde a " +
+  "frase pede ar — silêncio é parte da fala. Ritmo de conversa, nunca de locução.\n" +
+  "Se houver trechos entre colchetes, eles são DIREÇÃO DE ATUAÇÃO: obedeça e NÃO " +
+  "os pronuncie.";
+
+// O TIMBRE, escolhido por ele entre seis vozes ouvidas lado a lado.
+const VOZ = "eve";
 
 /** Normaliza para comparar fala com texto: o que muda na dicção não deve reprovar. */
 function normalizar(s) {
@@ -115,7 +144,7 @@ export async function falar(texto, {
       const enviar = (o) => ws.send(JSON.stringify(o));
       enviar({ type: "session.update", session: {
         modalities: ["audio", "text"],
-        voice: "ara",
+        voice: VOZ,
         instructions: INSTRUCOES_BOCA,
       }});
       enviar({ type: "conversation.item.create", item: {
