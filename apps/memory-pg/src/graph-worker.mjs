@@ -15,7 +15,7 @@ import { extractGraph, applyExtraction } from "./graph-extract.mjs";
  *   batch?: number,
  *   maxRetries?: number,
  * }} opts
- * @returns {Promise<{claimed:number, processed:number, facts:number, entities:number, failed:number}>}
+ * @returns {Promise<{claimed:number, processed:number, facts:number, entities:number, failed:number, errors:string[]}>}
  */
 export async function runGraphOnce(pool, opts) {
   const { llmFn, embedFn = null, batch = 8, maxRetries = 3 } = opts || {};
@@ -32,7 +32,7 @@ export async function runGraphOnce(pool, opts) {
     [batch],
   );
 
-  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0 };
+  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, errors: [] };
 
   for (const row of claimed.rows) {
     try {
@@ -58,11 +58,16 @@ export async function runGraphOnce(pool, opts) {
       stats.processed++;
     } catch (err) {
       const next = row.retry_count + 1;
+      const reason = `${err?.name ?? "Error"}${err?.kind ? "/" + err.kind : ""}: ${err?.message ?? err}`;
+      // Log every failure. Previously the catch was completely silent, so a
+      // pipeline whose LLM had no backend looked identical to a healthy one.
+      console.error(`[graph-worker] record=${row.record_id} try=${next}/${maxRetries} ${reason.slice(0, 240)}`);
+      stats.errors.push(reason.slice(0, 240));
       if (next > maxRetries) {
         await pool.query(
-          "INSERT INTO failed_graph (id, record_id, status, retry_count, created_at) " +
-            "SELECT id, record_id, 'failed', $2, created_at FROM pending_graph WHERE id=$1",
-          [row.id, next],
+          "INSERT INTO failed_graph (id, record_id, status, retry_count, created_at, last_error) " +
+            "SELECT id, record_id, 'failed', $2, created_at, $3 FROM pending_graph WHERE id=$1",
+          [row.id, next, reason.slice(0, 2000)],
         );
         await pool.query("DELETE FROM pending_graph WHERE id=$1", [row.id]);
         stats.failed++;

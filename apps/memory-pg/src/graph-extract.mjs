@@ -94,22 +94,52 @@ function parseLlmJson(reply) {
   return null;
 }
 
+/** A broken extraction, as opposed to an empty one. Carries the reason to the DLQ. */
+export class GraphExtractionError extends Error {
+  constructor(message, { kind }) {
+    super(message);
+    this.name = "GraphExtractionError";
+    this.kind = kind; // "llm" | "unparseable"
+  }
+}
+
 /**
  * Extract {entities, facts} from a record via the injected sovereign LLM.
- * Never throws — unparseable output yields an empty extraction.
+ *
+ * THROWS on a broken extraction. It used to swallow every failure into an empty
+ * result, which made "the model was unreachable" indistinguishable from "this
+ * record contains no facts" — the worker marked the record done either way and
+ * never came back to it. That is how the pipeline ran for 29 days emitting
+ * facts=0 on every cycle with nothing in the DLQ and nothing in the logs.
+ *
+ * The three outcomes are now distinct:
+ *   - LLM call fails            -> throw (kind "llm"): retry, then DLQ
+ *   - reply present, unparseable -> throw (kind "unparseable"): retry, then DLQ
+ *   - valid JSON, no entities/facts -> return empty: genuinely nothing to extract
+ *
+ * Only the third is success. Silence now means "nothing to say", never "the
+ * extractor broke".
+ *
  * @param {{content:string}} record
  * @param {{llmFn:(prompt:string)=>Promise<string>}} opts
+ * @throws {GraphExtractionError}
  */
 export async function extractGraph(record, { llmFn } = {}) {
   if (typeof llmFn !== "function") throw new Error("extractGraph: opts.llmFn required");
   let reply;
   try {
     reply = await llmFn(buildExtractionPrompt(record.content));
-  } catch {
-    return { entities: [], facts: [] };
+  } catch (err) {
+    throw new GraphExtractionError(`LLM call failed: ${err?.message ?? err}`, { kind: "llm" });
   }
   const obj = parseLlmJson(reply);
-  if (!obj || typeof obj !== "object") return { entities: [], facts: [] };
+  if (!obj || typeof obj !== "object") {
+    throw new GraphExtractionError(
+      `LLM reply had no parseable JSON object (${String(reply ?? "").length} chars): ` +
+        String(reply ?? "").replace(/\s+/g, " ").slice(0, 160),
+      { kind: "unparseable" },
+    );
+  }
   const entities = Array.isArray(obj.entities) ? obj.entities.filter((e) => e && e.name) : [];
   const facts = Array.isArray(obj.facts) ? obj.facts.filter((f) => f && f.subject && f.predicate) : [];
   return { entities, facts };

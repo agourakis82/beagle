@@ -8,7 +8,7 @@
 import { test, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { makePool, ensureSchema } from "../src/db.mjs";
-import { extractGraph, applyExtraction } from "../src/graph-extract.mjs";
+import { extractGraph, applyExtraction, GraphExtractionError } from "../src/graph-extract.mjs";
 
 const DSN = process.env.MEMORY_PG_TEST_DSN;
 if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
@@ -37,14 +37,39 @@ test("extractGraph parses entities + facts from the LLM JSON", async () => {
   assert.equal(out.facts[0].predicate, "located_in");
 });
 
-test("extractGraph tolerates LLM prose around the JSON + bad output", async () => {
+test("extractGraph tolerates LLM prose and fences around the JSON", async () => {
   const wrapped = "Sure! Here is the graph:\n```json\n" +
     JSON.stringify({ entities: [{ name: "Sounio", type: "project" }], facts: [] }) + "\n```\nDone.";
   const out = await extractGraph({ content: "x" }, { llmFn: stubLlm(wrapped) });
   assert.equal(out.entities[0].name, "Sounio");
-  // unparseable → empty extraction, never throws
-  const bad = await extractGraph({ content: "x" }, { llmFn: stubLlm("not json at all") });
-  assert.deepEqual(bad, { entities: [], facts: [] });
+});
+
+// The assertion below used to be the opposite: unparseable output returned an
+// empty extraction and never threw. That made a dead LLM indistinguishable from
+// a record with nothing in it — the worker marked both done and moved on. The
+// graph pipeline ran 29 days that way, emitting facts=0 every cycle with an
+// empty DLQ, because every failure was being recorded as a success.
+test("extractGraph THROWS on unparseable output — broken is not empty", async () => {
+  await assert.rejects(
+    () => extractGraph({ content: "x" }, { llmFn: stubLlm("not json at all") }),
+    (err) => err instanceof GraphExtractionError && err.kind === "unparseable",
+  );
+});
+
+test("extractGraph THROWS when the LLM call itself fails", async () => {
+  const dead = async () => { throw new Error("router 500: no backend for model_group"); };
+  await assert.rejects(
+    () => extractGraph({ content: "x" }, { llmFn: dead }),
+    (err) => err instanceof GraphExtractionError && err.kind === "llm" && /router 500/.test(err.message),
+  );
+});
+
+// The one case that legitimately produces nothing: the model answered, the
+// answer parsed, and it genuinely found no entities or facts. Silence must
+// still be allowed to mean silence.
+test("extractGraph returns empty for well-formed output with nothing in it", async () => {
+  const out = await extractGraph({ content: "..." }, { llmFn: stubLlm({ entities: [], facts: [] }) });
+  assert.deepEqual(out, { entities: [], facts: [] });
 });
 
 test("applyExtraction resolves entities + inserts facts (idempotent)", async () => {
