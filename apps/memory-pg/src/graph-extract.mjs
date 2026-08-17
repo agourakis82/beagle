@@ -317,8 +317,29 @@ export async function applyExtraction(pool, extraction, opts = {}) {
 
   let factsInserted = 0;
   let factsInvalidated = 0;
+  /** Fatos recusados por não terem sentença. Contado, nunca silencioso. */
+  let semSentenca = 0;
   for (let fi = 0; fi < facts.length; fi++) {
     const f = facts[fi];
+
+    // FATO SEM `statement` NASCE INVISÍVEL.
+    //
+    // `statement` é o texto que vai para o índice semântico: sem ele o fato existe na tabela
+    // e NUNCA pode ser recuperado. Não é um fato fraco — é um fato que ninguém jamais lerá,
+    // ocupando espaço e inflando toda contagem de "conhecimento extraído".
+    //
+    // Medido em 17-ago-2026: 66% do que o `qwen2.5:14b` produzia vinha assim (contra 10% do
+    // `coder:32b` e 7,9% do corpus histórico). A amostra mostra o padrão — `contains_pr_state
+    // / blocked`, `has_pr_count / 55`: triplas raspadas de um dump, sem sentença.
+    //
+    // Recusar aqui, e CONTAR quantos foram recusados, é o oposto de deixar passar em
+    // silêncio: a taxa de descarte vira um sinal da qualidade do extrator em vez de virar
+    // lixo indistinguível dentro do grafo.
+    if (typeof f.statement !== "string" || f.statement.trim() === "") {
+      semSentenca++;
+      continue;
+    }
+
     let subjectId = idByName[f.subject];
     if (!subjectId) {
       subjectId = (await resolveEntity(pool, { name: f.subject, type: "unknown" })).id;
@@ -413,7 +434,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       client.release();
     }
   }
-  return { entitiesResolved, factsInserted, factsInvalidated };
+  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca };
 }
 
 export default applyExtraction;

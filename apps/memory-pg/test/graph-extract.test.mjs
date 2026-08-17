@@ -130,3 +130,75 @@ test("multi-valued predicate to a DIFFERENT object is not a contradiction", asyn
   assert.equal(r.factsInvalidated, 0, "multi-valued predicate keeps both");
   assert.equal((await pool.query("SELECT count(*)::int n FROM facts WHERE valid_to IS NULL")).rows[0].n, 2);
 });
+
+// --- A guarda do statement vazio ---
+//
+// `statement` e o texto que vai para o indice semantico. Sem ele o fato existe na tabela e
+// NUNCA pode ser recuperado: nao e um fato fraco, e um fato que ninguem jamais lera, ocupando
+// espaco e inflando toda contagem de "conhecimento extraido".
+//
+// Medido em 17-ago-2026: 66% do que o `qwen2.5:14b` produzia vinha assim, contra 10% do
+// `coder:32b` e 7,9% do corpus historico.
+
+test("fato sem statement NAO e gravado", async () => {
+  
+  const r = await applyExtraction(pool, {
+    entities: [{ name: "PR", type: "thing" }],
+    facts: [{ subject: "PR", predicate: "contains_pr_state", object_literal: "blocked", statement: "" }],
+  }, { recordId: null });
+
+  assert.equal(r.factsInserted, 0);
+  assert.equal(r.semSentenca, 1, "recusado, e CONTADO");
+  const q = await pool.query("SELECT count(*)::int n FROM facts");
+  assert.equal(q.rows[0].n, 0);
+});
+
+test("statement so com espaco tambem e recusado", async () => {
+  
+  const r = await applyExtraction(pool, {
+    entities: [{ name: "X", type: "thing" }],
+    facts: [{ subject: "X", predicate: "p", object_literal: "v", statement: "   \n  " }],
+  }, { recordId: null });
+  assert.equal(r.factsInserted, 0);
+  assert.equal(r.semSentenca, 1);
+});
+
+test("statement ausente (undefined) e recusado", async () => {
+  
+  const r = await applyExtraction(pool, {
+    entities: [{ name: "X", type: "thing" }],
+    facts: [{ subject: "X", predicate: "p", object_literal: "v" }],
+  }, { recordId: null });
+  assert.equal(r.factsInserted, 0);
+  assert.equal(r.semSentenca, 1);
+});
+
+// 🚨 O risco da guarda nao e recusar de menos: e recusar DEMAIS. Um lote com um fato ruim e
+// um bom nao pode perder o bom junto.
+test("o fato BOM do mesmo lote sobrevive ao descarte do ruim", async () => {
+  
+  const r = await applyExtraction(pool, {
+    entities: [{ name: "X", type: "thing" }],
+    facts: [
+      { subject: "X", predicate: "ruim", object_literal: "v", statement: "" },
+      { subject: "X", predicate: "bom", object_literal: "v2", statement: "ele dormiu mal ontem" },
+    ],
+  }, { recordId: null });
+
+  assert.equal(r.semSentenca, 1);
+  assert.equal(r.factsInserted, 1, "o bom entrou");
+  const q = await pool.query("SELECT predicate, statement FROM facts");
+  assert.equal(q.rows.length, 1);
+  assert.equal(q.rows[0].predicate, "bom");
+  assert.match(q.rows[0].statement, /dormiu mal/);
+});
+
+test("extracao inteiramente boa nao recusa nada", async () => {
+  
+  const r = await applyExtraction(pool, {
+    entities: [{ name: "X", type: "thing" }],
+    facts: [{ subject: "X", predicate: "p", object_literal: "v", statement: "uma sentenca legivel" }],
+  }, { recordId: null });
+  assert.equal(r.semSentenca, 0);
+  assert.equal(r.factsInserted, 1);
+});
