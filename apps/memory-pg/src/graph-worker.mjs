@@ -38,7 +38,8 @@ export async function runGraphOnce(pool, opts) {
   for (const row of claimed.rows) {
     try {
       const rec = await pool.query(
-        "SELECT content, occurred_at FROM records WHERE id = $1",
+        `SELECT content, occurred_at, prov_actor, metadata->>'role' AS role
+           FROM records WHERE id = $1`,
         [row.record_id],
       );
       if (rec.rowCount === 0) {
@@ -55,6 +56,9 @@ export async function runGraphOnce(pool, opts) {
         // Quem extraiu vai junto do fato: sem isso, saber qual modelo produziu o
         // que exige cruzar recorded_at com a data dos ReplicaSets.
         model,
+        // Quem FALOU decide se auto-relato e' admissivel. O extrator le texto e
+        // nao sabe de quem e' a boca; o registro sabe.
+        speaker: { prov_actor: rec.rows[0].prov_actor, role: rec.rows[0].role },
       });
       stats.facts += applied.factsInserted;
       stats.entities += applied.entitiesResolved;

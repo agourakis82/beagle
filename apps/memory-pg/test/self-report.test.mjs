@@ -22,6 +22,12 @@ const DSN = process.env.MEMORY_PG_TEST_DSN;
 if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
 const pool = makePool(DSN);
 
+// Estes testes exercitam canal/proveniencia, nao a guarda de falante. Declaram
+// explicitamente que a fala e dele — antes isso era suposto em silencio, e a
+// suposicao silenciosa foi exatamente o que deixou a voz do companion virar
+// auto-relato em producao.
+const FALANTE = { role: "user", prov_actor: "user_stated" };
+
 before(async () => { await ensureSchema(pool); });
 beforeEach(async () => { await pool.query("TRUNCATE entities, facts, records CASCADE"); });
 after(async () => { await pool.end(); });
@@ -56,7 +62,7 @@ test("o prompt instrui auto-relato, canal e tempo do EVENTO", () => {
 test("auto-relato com canal é persistido com self_report e state_channel", async () => {
   const rid = await mkRecord("dormi mal");
   await applyExtraction(pool, { entities: [{ name: "Demetrios", type: "person" }], facts: [selfFact()] },
-    { recordId: rid });
+    { recordId: rid, speaker: FALANTE });
 
   const q = await pool.query("SELECT self_report, state_channel, occurred_at FROM facts");
   assert.equal(q.rowCount, 1);
@@ -72,7 +78,7 @@ test("canal fora do vocabulário fechado é descartado, não gravado", async () 
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }],
       facts: [selfFact({ state_channel: "signo_solar", statement: "canal inventado" })] },
-    { recordId: rid });
+    { recordId: rid, speaker: FALANTE });
 
   const q = await pool.query("SELECT self_report, state_channel FROM facts");
   assert.equal(q.rows[0].self_report, true, "continua sendo auto-relato");
@@ -85,7 +91,7 @@ test("fato sobre código não vira auto-relato", async () => {
     { entities: [{ name: "parser", type: "system" }, { name: "recursive_descent", type: "concept" }],
       facts: [{ subject: "parser", predicate: "uses", object: "recursive_descent",
                 statement: "o parser usa recursive descent" }] },
-    { recordId: rid });
+    { recordId: rid, speaker: FALANTE });
 
   const q = await pool.query("SELECT self_report, state_channel FROM facts");
   assert.equal(q.rows[0].self_report, false);
@@ -100,7 +106,7 @@ test("canal sem auto-relato é descartado", async () => {
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }],
       facts: [selfFact({ self_report: false })] },
-    { recordId: rid });
+    { recordId: rid, speaker: FALANTE });
 
   const q = await pool.query("SELECT self_report, state_channel FROM facts");
   assert.equal(q.rows[0].self_report, false);
@@ -118,7 +124,7 @@ test("o índice da Fase 2 encontra auto-relatos com canal e tempo", async () => 
         selfFact({ predicate: "felt_tense", state_channel: null, occurred_at: null,
                    statement: "sem canal e sem hora" }),
       ] },
-    { recordId: rid });
+    { recordId: rid, speaker: FALANTE });
 
   const q = await pool.query(
     `SELECT state_channel FROM facts
@@ -135,7 +141,7 @@ test("instante em prosa vira null e o fato sobrevive", async () => {
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }],
       facts: [selfFact({ occurred_at: "cinco e quinze" })] },
-    { recordId: rid });
+    { recordId: rid, speaker: FALANTE });
 
   const q = await pool.query("SELECT occurred_at, state_channel FROM facts");
   assert.equal(q.rowCount, 1, "o fato nao pode ser perdido por causa de um campo");

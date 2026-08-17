@@ -27,6 +27,40 @@ export const SELF_STATE_CHANNELS = new Set([
 ]);
 
 /**
+ * Um auto-relato só vale se quem falou for O SUJEITO. Decidido pelo registro,
+ * nunca pelo modelo — o extrator lê texto e não tem como saber de quem é a boca.
+ *
+ * Medido antes de escrever isto: os QUATRO primeiros auto-relatos com canal que
+ * chegaram ao banco vinham de registros `role=assistant`,
+ * `prov_actor=model_generated`. Eram o companion falando:
+ *
+ *   "o corpo está mais acelerado que o de costume"   (descrevendo a cena)
+ *   "não tenho humor, tenho postura"                 (falando de SI MESMO)
+ *   "você me disse que estava irritado comigo"       (lembrando o que ELE disse)
+ *
+ * O "self" do auto-relato era a máquina. Corroborar isso contra a fisiologia
+ * dele seria confrontar a prosa do companion com a HRV de um humano — o modo de
+ * falha que a quarentena de proveniência existe para impedir, acontecendo em
+ * silêncio.
+ *
+ * A regra é dura de propósito. Na fila pessoal há 3.072 registros `assistant`
+ * para 31 `user`: sem esta guarda, 99% do "substrato" seria a própria voz do
+ * sistema voltando como evidência sobre o corpo dele.
+ *
+ * @param {{prov_actor?:string|null, role?:string|null}} rec
+ * @returns {boolean}
+ */
+export function speakerIsSubject(rec = {}) {
+  const role = typeof rec.role === "string" ? rec.role.trim().toLowerCase() : null;
+  if (role) return role === "user";
+  // Sem `role` declarado, o ator do registro é o que sobra. Note que
+  // `user_stated` é frouxo (inclui ruído de harness de agente), mas texto de
+  // harness não produz auto-relato de estado — e frouxo aqui erra para o lado
+  // de aceitar fala humana, não para o de aceitar a máquina.
+  return rec.prov_actor === "user_stated";
+}
+
+/**
  * Proveniência do fato, CARIMBADA PELO SISTEMA.
  *
  * Antes, a coluna `provenance` recebia `f.provenance` — o objeto que o próprio
@@ -233,7 +267,12 @@ export async function extractGraph(record, { llmFn } = {}) {
  * @returns {Promise<{entitiesResolved:number, factsInserted:number, factsInvalidated:number}>}
  */
 export async function applyExtraction(pool, extraction, opts = {}) {
-  const { recordId = null, embedFn = null, occurredAt = null, model = null } = opts;
+  const { recordId = null, embedFn = null, occurredAt = null, model = null,
+          speaker = null } = opts;
+  // Quem falou decide se auto-relato é admissível. Ausência de `speaker` é
+  // tratada como "não é ele": um chamador que não sabe de quem é a fala não pode
+  // autorizar uma alegação sobre o estado dele.
+  const auto_ok = speaker ? speakerIsSubject(speaker) : false;
   const stampedAt = new Date().toISOString();
   const entities = extraction.entities || [];
   const facts = extraction.facts || [];
@@ -299,7 +338,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     // criterion joins on this column — letting the model coin a channel would
     // let it quietly invent a new kind of evidence. The DB CHECK would reject it
     // anyway; doing it here means one bad field costs a null, not the whole fact.
-    const selfReport = f.self_report === true;
+    const selfReport = f.self_report === true && auto_ok;
     const proposed = typeof f.state_channel === "string" ? f.state_channel.trim().toLowerCase() : null;
     const stateChannel = selfReport && SELF_STATE_CHANNELS.has(proposed) ? proposed : null;
     const content_sha256 = sha256hex(

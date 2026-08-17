@@ -24,6 +24,12 @@ const DSN = process.env.MEMORY_PG_TEST_DSN;
 if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
 const pool = makePool(DSN);
 
+// Estes testes exercitam canal/proveniencia, nao a guarda de falante. Declaram
+// explicitamente que a fala e dele — antes isso era suposto em silencio, e a
+// suposicao silenciosa foi exatamente o que deixou a voz do companion virar
+// auto-relato em producao.
+const FALANTE = { role: "user", prov_actor: "user_stated" };
+
 before(async () => { await ensureSchema(pool); });
 beforeEach(async () => { await pool.query("TRUNCATE entities, facts, records CASCADE"); });
 after(async () => { await pool.end(); });
@@ -47,7 +53,7 @@ test("o modelo que extraiu fica gravado no fato", async () => {
   const rid = await mkRecord("estava tenso");
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }], facts: [umFato()] },
-    { recordId: rid, model: "qwen2.5-coder:32b" });
+    { recordId: rid, speaker: FALANTE, model: "qwen2.5-coder:32b" });
 
   const q = await pool.query("SELECT provenance FROM facts");
   assert.equal(q.rows[0].provenance.extracted_by.model, "qwen2.5-coder:32b");
@@ -60,7 +66,7 @@ test("o modelo NAO consegue forjar extracted_by", async () => {
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }],
       facts: [umFato({ provenance: { extracted_by: { model: "modelo-que-eu-inventei" } } })] },
-    { recordId: rid, model: "qwen2.5-coder:32b" });
+    { recordId: rid, speaker: FALANTE, model: "qwen2.5-coder:32b" });
 
   const p = (await pool.query("SELECT provenance FROM facts")).rows[0].provenance;
   assert.equal(p.extracted_by.model, "qwen2.5-coder:32b", "vale o que o sistema observou");
@@ -73,7 +79,7 @@ test("o que o modelo alega e' preservado, so que separado", async () => {
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }],
       facts: [umFato({ provenance: { inferido: true, base: "frase anterior" } })] },
-    { recordId: rid, model: "m1" });
+    { recordId: rid, speaker: FALANTE, model: "m1" });
 
   const p = (await pool.query("SELECT provenance FROM facts")).rows[0].provenance;
   assert.equal(p.model_claimed.inferido, true);
@@ -85,7 +91,7 @@ test("sem alegacao do modelo, so o carimbo do sistema", async () => {
   const rid = await mkRecord("x");
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }], facts: [umFato()] },
-    { recordId: rid, model: "m1" });
+    { recordId: rid, speaker: FALANTE, model: "m1" });
 
   const p = (await pool.query("SELECT provenance FROM facts")).rows[0].provenance;
   assert.equal(p.model_claimed, undefined);
@@ -98,7 +104,7 @@ test("sem modelo informado o campo fica null, nunca ausente", async () => {
   const rid = await mkRecord("x");
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }], facts: [umFato()] },
-    { recordId: rid });
+    { recordId: rid, speaker: FALANTE });
 
   const p = (await pool.query("SELECT provenance FROM facts")).rows[0].provenance;
   assert.ok("extracted_by" in p);
@@ -119,11 +125,11 @@ test("da para contar auto-relatos com canal POR modelo", async () => {
   const r2 = await mkRecord("b");
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }], facts: [umFato()] },
-    { recordId: r1, model: "qwen2.5-coder:32b" });
+    { recordId: r1, speaker: FALANTE, model: "qwen2.5-coder:32b" });
   await applyExtraction(pool,
     { entities: [{ name: "Demetrios", type: "person" }],
       facts: [umFato({ statement: "outro", state_channel: null })] },
-    { recordId: r2, model: "r1-distill-70b" });
+    { recordId: r2, speaker: FALANTE, model: "r1-distill-70b" });
 
   const q = await pool.query(
     `SELECT provenance->'extracted_by'->>'model' m,
