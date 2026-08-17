@@ -27,6 +27,30 @@ export const SELF_STATE_CHANNELS = new Set([
 ]);
 
 /**
+ * Aceita um instante só se for realmente um instante. O modelo escreve prosa
+ * onde se pediu ISO — "cinco e quinze" apareceu em produção — e um valor assim
+ * derruba o INSERT, levando o registro inteiro para a DLQ por causa de um campo.
+ *
+ * Devolve uma string ISO ou null. Não tenta adivinhar o que a prosa queria
+ * dizer: interpretar "cinco e quinze" seria a máquina inventando o QUANDO de um
+ * auto-relato, e o quando é justamente o que torna a corroboração possível.
+ *
+ * @param {unknown} v
+ * @returns {string|null}
+ */
+export function coerceTimestamp(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  // Datas absurdas quase sempre são alucinação de formato, não história.
+  const year = d.getUTCFullYear();
+  if (year < 1900 || year > 2200) return null;
+  return d.toISOString();
+}
+
+/**
  * Build the strict extraction prompt. Asks for ONLY a JSON object so parsing is
  * robust; the model is told to scope facts temporally and mark multi-valued
  * relations (so we don't over-invalidate).
@@ -230,8 +254,12 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       }
     }
     const objectLiteral = f.object ? null : (f.object_literal ?? null);
-    const validFrom = f.valid_from || occurredAt || null;
-    const occ = f.occurred_at || occurredAt || null;
+    // Um instante que o Postgres não sabe ler derruba o registro inteiro e o
+    // manda para a DLQ depois de três tentativas. Visto em produção na primeira
+    // hora depois do conserto: o modelo devolveu occurred_at="cinco e quinze".
+    // Campo malformado custa um nulo, nunca o fato — a mesma regra do canal.
+    const validFrom = coerceTimestamp(f.valid_from) ?? occurredAt ?? null;
+    const occ = coerceTimestamp(f.occurred_at) ?? occurredAt ?? null;
 
     // The model proposes; the schema decides. A channel outside the closed
     // vocabulary is dropped rather than stored, because the corroboration

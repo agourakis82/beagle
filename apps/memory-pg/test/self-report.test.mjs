@@ -16,7 +16,7 @@ import { test, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { makePool, ensureSchema } from "../src/db.mjs";
-import { applyExtraction, buildExtractionPrompt, SELF_STATE_CHANNELS } from "../src/graph-extract.mjs";
+import { applyExtraction, buildExtractionPrompt, SELF_STATE_CHANNELS, coerceTimestamp } from "../src/graph-extract.mjs";
 
 const DSN = process.env.MEMORY_PG_TEST_DSN;
 if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
@@ -125,4 +125,28 @@ test("o índice da Fase 2 encontra auto-relatos com canal e tempo", async () => 
       WHERE self_report AND state_channel IS NOT NULL AND occurred_at IS NOT NULL
       ORDER BY state_channel`);
   assert.deepEqual(q.rows.map((r) => r.state_channel), ["arousal", "sleep"]);
+});
+
+// Achado em producao na primeira hora depois do conserto: o modelo devolveu
+// occurred_at="cinco e quinze". Sob o codigo antigo isso seria mais um facts=0
+// mudo; com o erro visivel, virou um bug consertavel.
+test("instante em prosa vira null e o fato sobrevive", async () => {
+  const rid = await mkRecord("dormi mal");
+  await applyExtraction(pool,
+    { entities: [{ name: "Demetrios", type: "person" }],
+      facts: [selfFact({ occurred_at: "cinco e quinze" })] },
+    { recordId: rid });
+
+  const q = await pool.query("SELECT occurred_at, state_channel FROM facts");
+  assert.equal(q.rowCount, 1, "o fato nao pode ser perdido por causa de um campo");
+  assert.equal(q.rows[0].occurred_at, null);
+  assert.equal(q.rows[0].state_channel, "sleep");
+});
+
+test("coerceTimestamp: aceita instante, recusa prosa e ano absurdo", () => {
+  assert.equal(coerceTimestamp("2026-08-10T06:00:00Z"), "2026-08-10T06:00:00.000Z");
+  assert.equal(coerceTimestamp("cinco e quinze"), null);
+  assert.equal(coerceTimestamp(""), null);
+  assert.equal(coerceTimestamp(null), null);
+  assert.equal(coerceTimestamp("0001-01-01T00:00:00Z"), null, "ano absurdo = alucinacao de formato");
 });
