@@ -31,9 +31,17 @@ test("buildVerbatimPayload shapes a beagle-core ingest_chat session", () => {
   assert.equal(p.metadata.timezone, "America/Sao_Paulo");
 });
 
-test("buildVerbatimPayload returns null when a side is empty", () => {
+// O contrato deixou de ser simetrico, de proposito. Sem a fala DELE nao ha o que
+// capturar; sem a resposta do companion ha — e uma nota avulsa, o formato mais
+// provavel de um auto-relato ("peito apertado" as tres da manha). Exigir o par
+// fazia toda nota solta morrer num 400.
+test("buildVerbatimPayload exige a fala dele, mas nao a resposta", () => {
   assert.equal(buildVerbatimPayload({ sessionId: "s", userText: "", assistantText: "hi" }), null);
-  assert.equal(buildVerbatimPayload({ sessionId: "s", userText: "hi", assistantText: "" }), null);
+
+  const nota = buildVerbatimPayload({ sessionId: "s", userText: "hi", assistantText: "" });
+  assert.ok(nota, "nota avulsa e capturavel");
+  assert.deepEqual(nota.turns.map((t) => t.role), ["user"],
+    "sem turno fantasma do companion no historico");
 });
 
 // --- Task 2: verbatim ingest IO ---
