@@ -18,14 +18,15 @@ function arg(name, fallback = null) {
 
 const apply = process.argv.includes("--apply");
 const parkExcept = arg("park-except");
+const roleArg = arg("role");
 const pool = makePool();
 
 try {
   if (parkExcept) {
     // Encolhe a fila para um único space. Reversível: o que sai volta a ser
     // encontrável por --since, porque o critério é "done, na janela, sem fatos".
-    const res = await parkQueuedExcept(pool, { keepSpace: parkExcept, apply });
-    console.log(`mantendo na fila : space='${parkExcept}' -> ${res.kept} registros`);
+    const res = await parkQueuedExcept(pool, { keepSpace: parkExcept, keepRole: roleArg, apply });
+    console.log(`mantendo na fila : space='${parkExcept}'${roleArg ? ` role='${roleArg}'` : ''} -> ${res.kept} registros`);
     if (res.applied) {
       console.log(`estacionados     : ${res.parked} (voltam com --since quando for a vez)`);
     } else {
@@ -35,8 +36,8 @@ try {
   } else {
     const since = arg("since");
     if (!since) {
-      console.error("uso: --since <ISO> [--until <ISO>] [--space S] [--limit N] [--apply]");
-      console.error("     --park-except <space> [--apply]");
+      console.error("uso: --since <ISO> [--until <ISO>] [--space S] [--role R] [--limit N] [--apply]");
+      console.error("     --park-except <space> [--role R] [--apply]");
       console.error("  --since é obrigatório: é a janela da pane, não o corpus inteiro.");
       process.exit(2);
     }
@@ -44,9 +45,10 @@ try {
     const limitRaw = arg("limit");
     const limit = limitRaw ? Number(limitRaw) : null;
     const space = arg("space");
+    const role = arg("role");
 
-    const res = await reenqueueEmptyExtractions(pool, { since, until, apply, limit, space });
-    console.log(`janela      : ${since} → ${until ?? "agora"}${space ? `   space='${space}'` : ""}`);
+    const res = await reenqueueEmptyExtractions(pool, { since, until, apply, limit, space, role });
+    console.log(`janela      : ${since} → ${until ?? "agora"}${space ? `   space='${space}'` : ""}${role ? `   role='${role}'` : ""}`);
     console.log(`candidatos  : ${res.candidates}  (marcados done, zero fatos)`);
     if (res.applied) {
       console.log(`reenfileirados: ${res.requeued}${limit ? ` (teto ${limit})` : ""}`);

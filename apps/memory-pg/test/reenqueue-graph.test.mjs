@@ -165,3 +165,46 @@ test("park-except em simulacao nao altera nada", async () => {
 test("park-except sem space se recusa a rodar", async () => {
   await assert.rejects(() => parkQueuedExcept(pool, { apply: true }), /keepSpace/);
 });
+
+// Na fila pessoal ha 3.072 registros `assistant` para 31 `user`: priorizar "o
+// pessoal" ainda significa processar 99% de voz da maquina. `role` separa a fala
+// DELE, que e a unica que a guarda de falante deixa virar auto-relato.
+test("--role restringe a fala do proprio sujeito", async () => {
+  await pool.query(
+    `INSERT INTO records (source_type, content, content_sha256, created_at, metadata)
+     VALUES ('note','dele','sha-user',$1,'{"space":"personal","role":"user"}'),
+            ('note','dela','sha-asst',$1,'{"space":"personal","role":"assistant"}')`,
+    [DENTRO]);
+  await pool.query(
+    `INSERT INTO pending_graph (record_id, status)
+     SELECT id,'done' FROM records WHERE content_sha256 IN ('sha-user','sha-asst')`);
+
+  const res = await reenqueueEmptyExtractions(pool,
+    { since: JANELA, apply: true, space: "personal", role: "user" });
+  assert.equal(res.candidates, 1);
+
+  const q = await pool.query(
+    `SELECT r.content FROM pending_graph pg JOIN records r ON r.id=pg.record_id
+      WHERE pg.status='pending'`);
+  assert.deepEqual(q.rows.map((x) => x.content), ["dele"]);
+});
+
+test("park-except tambem filtra por papel", async () => {
+  await pool.query(
+    `INSERT INTO records (source_type, content, content_sha256, created_at, metadata)
+     VALUES ('note','dele','sha-u2',$1,'{"space":"personal","role":"user"}'),
+            ('note','dela','sha-a2',$1,'{"space":"personal","role":"assistant"}')`,
+    [DENTRO]);
+  await pool.query(
+    `INSERT INTO pending_graph (record_id, status)
+     SELECT id,'pending' FROM records WHERE content_sha256 IN ('sha-u2','sha-a2')`);
+
+  const res = await parkQueuedExcept(pool, { keepSpace: "personal", keepRole: "user", apply: true });
+  assert.equal(res.kept, 1);
+  assert.equal(res.parked, 1);
+
+  const q = await pool.query(
+    `SELECT r.content FROM pending_graph pg JOIN records r ON r.id=pg.record_id
+      WHERE pg.status='pending'`);
+  assert.deepEqual(q.rows.map((x) => x.content), ["dele"]);
+});

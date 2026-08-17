@@ -55,14 +55,21 @@ const WHERE_VAZIO = `
  *   limit  teto de registros por execução, para drenar em lotes
  *   space  restringe a metadata->>'space' (ex.: "personal"). É o que separa o
  *          corpus pessoal do log de trabalho.
+ *   role   restringe a metadata->>'role' (ex.: "user"). Separa a fala DELE da do
+ *          companion dentro do mesmo space.
  * @returns {Promise<{candidates:number, requeued:number, applied:boolean}>}
  */
 export async function reenqueueEmptyExtractions(pool, opts = {}) {
-  const { since, until = null, apply = false, limit = null, space = null } = opts;
+  const { since, until = null, apply = false, limit = null, space = null, role = null } = opts;
   if (!since) throw new Error("reenqueueEmptyExtractions: `since` é obrigatório (janela da pane)");
 
-  const where = WHERE_VAZIO + (space ? ` AND r.metadata->>'space' = $3` : "");
-  const base = space ? [since, until, space] : [since, until];
+  // `role` separa a fala DELE da do companion dentro do mesmo space. Na fila
+  // pessoal ha 3.072 registros `assistant` para 31 `user`: sem este filtro, dar
+  // prioridade ao "pessoal" ainda significa processar 99% de voz da maquina.
+  const base = [since, until];
+  let where = WHERE_VAZIO;
+  if (space) { base.push(space); where += ` AND r.metadata->>'space' = $${base.length}`; }
+  if (role) { base.push(role); where += ` AND r.metadata->>'role' = $${base.length}`; }
 
   const count = await pool.query(
     `SELECT count(*)::int AS n FROM pending_graph pg JOIN records r ON r.id = pg.record_id WHERE ${where}`,
@@ -100,17 +107,19 @@ export async function reenqueueEmptyExtractions(pool, opts = {}) {
  * @param {{ keepSpace: string, apply?: boolean }} opts
  * @returns {Promise<{parked:number, kept:number, applied:boolean}>}
  */
-export async function parkQueuedExcept(pool, { keepSpace, apply = false } = {}) {
+export async function parkQueuedExcept(pool, { keepSpace, keepRole = null, apply = false } = {}) {
   if (!keepSpace) throw new Error("parkQueuedExcept: `keepSpace` é obrigatório");
 
   const cond = `pg.status = 'pending'
-                AND (r.metadata->>'space' IS DISTINCT FROM $1)`;
+                AND ((r.metadata->>'space' IS DISTINCT FROM $1)
+                  OR ($2::text IS NOT NULL AND r.metadata->>'role' IS DISTINCT FROM $2))`;
   const c = await pool.query(
     `SELECT
        (SELECT count(*)::int FROM pending_graph pg JOIN records r ON r.id=pg.record_id WHERE ${cond}) AS fora,
        (SELECT count(*)::int FROM pending_graph pg JOIN records r ON r.id=pg.record_id
-         WHERE pg.status='pending' AND r.metadata->>'space' = $1) AS dentro`,
-    [keepSpace],
+         WHERE pg.status='pending' AND r.metadata->>'space' = $1
+           AND ($2::text IS NULL OR r.metadata->>'role' = $2)) AS dentro`,
+    [keepSpace, keepRole],
   );
   const parked = c.rows[0].fora, kept = c.rows[0].dentro;
   if (!apply) return { parked: 0, kept, applied: false, candidates: parked };
@@ -118,7 +127,7 @@ export async function parkQueuedExcept(pool, { keepSpace, apply = false } = {}) 
   const res = await pool.query(
     `UPDATE pending_graph SET status='done', locked_until=NULL
       WHERE id IN (SELECT pg.id FROM pending_graph pg JOIN records r ON r.id=pg.record_id WHERE ${cond})`,
-    [keepSpace],
+    [keepSpace, keepRole],
   );
   return { parked: res.rowCount ?? 0, kept, applied: true };
 }
