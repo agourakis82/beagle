@@ -55,8 +55,13 @@ test("o prompt instrui auto-relato, canal e tempo do EVENTO", () => {
   for (const c of SELF_STATE_CHANNELS) assert.ok(p.includes(c), `canal ${c} citado no prompt`);
   // A distinção que faz a corroboração ser por evento, e não por tema.
   assert.match(p, /WHEN THE STATE HAPPENED, not when it was said/);
-  // Sem tempo, o fato não deve existir — melhor perder o fato que inventar a hora.
-  assert.match(p, /omit the fact rather/);
+  // A regra deixou de ser "sem hora, descarta" — isso perdia 52 dos 84 turnos
+  // dele, que sao curtos e no presente. Agora separa presente de passado:
+  // no presente a hora da fala serve; no passado sem data, descarta mesmo.
+  assert.match(p, /PRESENT TENSE/);
+  assert.match(p, /LEAVE occurred_at OUT and keep the fact/);
+  assert.match(p, /PAST, with no date given/);
+  assert.match(p, /OMIT THE FACT/);
 });
 
 test("auto-relato com canal é persistido com self_report e state_channel", async () => {
