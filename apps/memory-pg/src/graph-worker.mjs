@@ -14,11 +14,12 @@ import { extractGraph, applyExtraction } from "./graph-extract.mjs";
  *   embedFn?: (texts:string[])=>Promise<number[][]>,
  *   batch?: number,
  *   maxRetries?: number,
+ *   model?: string|null,
  * }} opts
  * @returns {Promise<{claimed:number, processed:number, facts:number, entities:number, failed:number, errors:string[]}>}
  */
 export async function runGraphOnce(pool, opts) {
-  const { llmFn, embedFn = null, batch = 8, maxRetries = 3 } = opts || {};
+  const { llmFn, embedFn = null, batch = 8, maxRetries = 3, model = null } = opts || {};
   if (typeof llmFn !== "function") throw new Error("runGraphOnce: llmFn required");
 
   const claimed = await pool.query(
@@ -51,6 +52,9 @@ export async function runGraphOnce(pool, opts) {
         recordId: row.record_id,
         embedFn,
         occurredAt: rec.rows[0].occurred_at,
+        // Quem extraiu vai junto do fato: sem isso, saber qual modelo produziu o
+        // que exige cruzar recorded_at com a data dos ReplicaSets.
+        model,
       });
       stats.facts += applied.factsInserted;
       stats.entities += applied.entitiesResolved;

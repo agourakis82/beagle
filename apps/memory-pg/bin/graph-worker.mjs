@@ -52,7 +52,7 @@ async function main() {
   while (!stopping) {
     let res;
     try {
-      res = await runGraphOnce(pool, { llmFn, embedFn, batch, maxRetries });
+      res = await runGraphOnce(pool, { llmFn, embedFn, batch, maxRetries, model });
     } catch (err) {
       console.error(`[graph-worker] runGraphOnce error: ${err.message}`);
       await sleep(idle);

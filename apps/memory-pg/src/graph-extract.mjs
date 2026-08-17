@@ -27,6 +27,38 @@ export const SELF_STATE_CHANNELS = new Set([
 ]);
 
 /**
+ * Proveniência do fato, CARIMBADA PELO SISTEMA.
+ *
+ * Antes, a coluna `provenance` recebia `f.provenance` — o objeto que o próprio
+ * modelo tinha emitido. Num sistema cuja tese inteira é que uma alegação carrega
+ * como veio a ser acreditada, o extrator estava assinando o próprio atestado.
+ *
+ * Agora o que o modelo diz sobre si fica em quarentena sob `model_claimed`, e o
+ * que o sistema sabe fica em `extracted_by`. Um modelo que emita
+ * `{"provenance":{"extracted_by":{"model":"gpt-5"}}}` aterrissa em
+ * `model_claimed.extracted_by` e nunca no topo — a chave de cima é escrita
+ * depois, por quem observou a chamada.
+ *
+ * Também resolve o problema prático que motivou isto: até aqui, saber qual
+ * modelo produziu um fato exigia cruzar `recorded_at` com a data de criação dos
+ * ReplicaSets. Funcionou porque a janela era limpa; não é auditoria.
+ *
+ * @param {unknown} claimed  o que o modelo emitiu no campo provenance
+ * @param {{model?:string|null, at?:string}} sistema
+ */
+export function stampProvenance(claimed, sistema = {}) {
+  const out = {};
+  if (claimed && typeof claimed === "object" && !Array.isArray(claimed)) {
+    out.model_claimed = claimed;
+  }
+  out.extracted_by = {
+    model: sistema.model ?? null,
+    at: sistema.at ?? new Date().toISOString(),
+  };
+  return out;
+}
+
+/**
  * Aceita um instante só se for realmente um instante. O modelo escreve prosa
  * onde se pediu ISO — "cinco e quinze" apareceu em produção — e um valor assim
  * derruba o INSERT, levando o registro inteiro para a DLQ por causa de um campo.
@@ -201,7 +233,8 @@ export async function extractGraph(record, { llmFn } = {}) {
  * @returns {Promise<{entitiesResolved:number, factsInserted:number, factsInvalidated:number}>}
  */
 export async function applyExtraction(pool, extraction, opts = {}) {
-  const { recordId = null, embedFn = null, occurredAt = null } = opts;
+  const { recordId = null, embedFn = null, occurredAt = null, model = null } = opts;
+  const stampedAt = new Date().toISOString();
   const entities = extraction.entities || [];
   const facts = extraction.facts || [];
 
@@ -301,7 +334,8 @@ export async function applyExtraction(pool, extraction, opts = {}) {
          RETURNING id`,
         [
           subjectId, f.predicate, objectId, objectLiteral, f.statement || "", embLit,
-          validFrom, occ, recordId, JSON.stringify(f.provenance || {}),
+          validFrom, occ, recordId,
+          JSON.stringify(stampProvenance(f.provenance, { model, at: stampedAt })),
           f.confidence ?? 1.0, content_sha256,
           selfReport, stateChannel,
         ],
