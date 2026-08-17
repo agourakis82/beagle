@@ -38,7 +38,7 @@ spec:
             - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
           containers:
             - name: fleet-health
-              image: 192.168.3.207:5003/memory-pg-embed-worker:p27-esquema-6486ecc5
+              image: 192.168.3.207:5003/memory-pg-embed-worker:p28-niveis-52662523
               command: ["node", "bin/fleet-health.mjs"]
               securityContext:
                 seccompProfile: { type: Unconfined }
@@ -50,10 +50,12 @@ spec:
                 # vigiaria metade da frota achando que vigia a frota inteira.
                 - name: FLEET_MODELS
                   value: "qwen2.5:14b@http://192.168.3.24:11434,r1-distill-70b@http://router.llm-router.svc.cluster.local:4000"
-                # 30s para UM token já é um modelo que não serve: o teto do timeout de
-                # extração é 300s e um prompt real é centenas de vezes maior que isto.
+                # CALIBRADO POR MEDIÇÃO, não por intuição. Sob carga normal dos próprios
+                # workers, o 14b levou 21,9 s para um token — um limiar de 30 s dispararia
+                # à toa, e alarme que toca à toa é silenciado. O caso a pegar é o modelo na
+                # CPU: 268 s para dois tokens. 90 s separa os dois com folga.
                 - name: FLEET_SLOW_MS
-                  value: "30000"
+                  value: "90000"
                 - name: NTFY_URL
                   value: "http://ntfy.beagle.svc.cluster.local"
                 - name: NTFY_TOPIC

@@ -34,7 +34,7 @@ spec:
         - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
       containers:
         - name: graph-worker
-          image: 192.168.3.207:5003/memory-pg-embed-worker:p27-esquema-6486ecc5
+          image: 192.168.3.207:5003/memory-pg-embed-worker:p28-niveis-52662523
           command: ["node", "bin/graph-worker.mjs"]
           securityContext:
             seccompProfile: { type: Unconfined }
