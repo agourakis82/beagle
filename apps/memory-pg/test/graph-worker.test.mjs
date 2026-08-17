@@ -109,6 +109,36 @@ test("after maxRetries the record reaches the DLQ carrying its reason", async ()
   assert.match(dlq.rows[0].last_error, /router 500/);
 });
 
+// A DLQ que so diz PORQUE ainda nao diz DESDE QUANDO.
+//
+// `created_at` e copiado da fila — hora do ENFILEIRAMENTO, nao da falha. Medido em producao
+// (17-ago-2026): as 9 falhas ocorridas naquele dia carregavam created_at de 04-jul a 17-ago.
+// Perguntar "quando isto comecou a quebrar?" pela DLQ dava a data errada por semanas.
+//
+// O teste faz a distincao doer: o registro e enfileirado com um created_at ANTIGO e falha
+// AGORA. Se alguem voltar a copiar created_at para failed_at, ou preencher failed_at pelo
+// default da tabela, esta asercao quebra.
+test("a DLQ registra QUANDO falhou, nao quando foi enfileirado", async () => {
+  await enqueue("something worth extracting");
+  await pool.query("UPDATE pending_graph SET created_at = now() - interval '30 days'");
+
+  await runGraphOnce(pool, { llmFn: deadRouterLlm, maxRetries: 1 });
+  await runGraphOnce(pool, { llmFn: deadRouterLlm, maxRetries: 1 });
+
+  const d = await pool.query(
+    `SELECT created_at, failed_at,
+            extract(epoch FROM (now() - failed_at)) seg_desde_falha,
+            extract(epoch FROM (now() - created_at)) seg_desde_fila
+       FROM failed_graph`);
+  const r = d.rows[0];
+  assert.ok(r.failed_at, "failed_at foi gravado");
+  assert.ok(Number(r.seg_desde_falha) < 120, "a falha foi agora");
+  assert.ok(Number(r.seg_desde_fila) > 86400, "o enfileiramento foi ha muito tempo");
+  // As duas colunas respondem perguntas diferentes e nao podem colapsar numa so.
+  assert.ok(Number(r.seg_desde_fila) - Number(r.seg_desde_falha) > 86400,
+    "created_at mede espera na fila; failed_at mede quando quebrou");
+});
+
 test("well-formed but empty extraction is still a success", async () => {
   // Silence must be allowed to mean silence: a record with nothing in it is
   // processed and done, and that is not what the outage looked like.

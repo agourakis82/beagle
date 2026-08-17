@@ -72,9 +72,14 @@ export async function runGraphOnce(pool, opts) {
       console.error(`[graph-worker] record=${row.record_id} try=${next}/${maxRetries} ${reason.slice(0, 240)}`);
       stats.errors.push(reason.slice(0, 240));
       if (next > maxRetries) {
+        // `created_at` continua sendo copiado da fila — e a hora do ENFILEIRAMENTO, e serve
+        // para medir quanto tempo o registro esperou. Mas ela nao responde "desde quando
+        // esta quebrando?", que e a pergunta que a fila morta existe para responder: as 9
+        // falhas de 17-ago-2026 carregavam created_at de 04-jul a 17-ago. Por isso
+        // `failed_at` e gravado aqui, explicitamente, no instante da falha.
         await pool.query(
-          "INSERT INTO failed_graph (id, record_id, status, retry_count, created_at, last_error) " +
-            "SELECT id, record_id, 'failed', $2, created_at, $3 FROM pending_graph WHERE id=$1",
+          "INSERT INTO failed_graph (id, record_id, status, retry_count, created_at, last_error, failed_at) " +
+            "SELECT id, record_id, 'failed', $2, created_at, $3, now() FROM pending_graph WHERE id=$1",
           [row.id, next, reason.slice(0, 2000)],
         );
         await pool.query("DELETE FROM pending_graph WHERE id=$1", [row.id]);
