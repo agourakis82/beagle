@@ -1,0 +1,62 @@
+# graph-worker-voz.yaml — a faixa CARA da fila, para a fala dele.
+#
+# Medido em 17-ago-2026: o `r1-distill-70b` leva ~150 s por registro e tem 4 slots — teto de
+# ~96/hora contra ~875/hora de entrada. Ele NÃO serve para varrer 9 mil registros; apontar a
+# fila inteira para ele fez as conexões estourarem e cada falha empurrou um registro para a
+# fila morta.
+#
+# Mas ele é o melhor modelo que existe aqui, e o que merece o melhor modelo não é o volume: é
+# a fala DELE — ~170 registros `user_stated`, que é o substrato da corroboração multimodal.
+#
+# A partição é por `prov_actor` (ver TIERS em src/graph-worker.mjs) e é disjunta e exaustiva:
+# este worker pega `voice`, o outro pega `bulk`, nenhum registro fica sem dono e nenhum é
+# disputado.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-pg-graph-worker-voz
+  namespace: beagle
+spec:
+  # UMA réplica com lote 2 = 2 chamadas simultâneas, dentro dos 4 slots do llama.cpp. Foi
+  # estourar esse teto (3 réplicas × lote 2 = 6) que derrubou as conexões antes.
+  replicas: 1
+  selector:
+    matchLabels: { app: memory-pg-graph-worker-voz }
+  template:
+    metadata:
+      labels: { app: memory-pg-graph-worker-voz }
+    spec:
+      # O roteador só é alcançável de dentro do cluster, e o t560 é o nó que o enxerga.
+      nodeSelector:
+        kubernetes.io/hostname: t560-proxmox
+      tolerations:
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+      containers:
+        - name: graph-worker
+          image: 192.168.3.207:5003/memory-pg-embed-worker:p27-esquema-6486ecc5
+          command: ["node", "bin/graph-worker.mjs"]
+          securityContext:
+            seccompProfile: { type: Unconfined }
+          env:
+            - name: GRAPH_TIER
+              value: "voice"
+            - name: GRAPH_MODEL
+              value: "r1-distill-70b"
+            - name: GRAPH_LLM_URL
+              value: "http://router.llm-router.svc.cluster.local:4000"
+            # ~150 s por chamada em condições normais; 10 min dá folga para fila interna do
+            # llama.cpp sem mascarar um modelo realmente fora do ar.
+            - name: GRAPH_LLM_TIMEOUT_MS
+              value: "600000"
+            - name: GRAPH_BATCH
+              value: "2"
+            # Copiados do worker de volume que já roda — nome errado aqui faria este subir
+            # mudo, drenando a faixa da fala dele sem gravar nada.
+            - name: MEMORY_PG_DSN
+              valueFrom: { secretKeyRef: { name: memory-pg, key: DATABASE_URL } }
+            - name: BEAGLE_TEI_EMBED_URL
+              value: "http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80/embed"
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 1, memory: 1Gi }

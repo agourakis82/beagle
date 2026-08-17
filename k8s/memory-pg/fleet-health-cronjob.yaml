@@ -1,0 +1,67 @@
+# fleet-health-cronjob.yaml — o alarme da frota de modelos.
+#
+# NÃO vigia "deployment em zero réplicas". O zero é DELIBERADO: a config do roteador diz
+# `RTX 8000 scale-to-0; só 1 ativo por vez via rtx8000-switch.sh`, porque os científicos
+# dividem a mesma GPU física. Um alarme que tocasse a cada zero tocaria sempre, seria
+# silenciado, e aí ninguém olharia quando estivesse certo.
+#
+# Vigia a única pergunta que importa: os modelos DE QUE O SISTEMA DEPENDE respondem agora?
+# `FLEET_MODELS` é uma declaração explícita — o que mantém a ausência de um modelo uma decisão
+# visível em vez de um desaparecimento silencioso.
+#
+# Pega os dois modos reais:
+#   • fora do ar  — `r1-distill-70b` apareceu em /v1/models com o backend desligado;
+#   • vivo e inútil — `coder:32b` na CPU levava 4min28s para dois tokens, sem erro nenhum.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-pg-fleet-health
+  namespace: beagle
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          # O roteador só é alcançável de dentro do cluster, e o t560 é o nó que enxerga
+          # tanto o roteador quanto o Spark. Ver a nota sobre rede entre nós.
+          nodeSelector:
+            kubernetes.io/hostname: t560-proxmox
+          tolerations:
+            - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+            - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+          containers:
+            - name: fleet-health
+              image: 192.168.3.207:5003/memory-pg-embed-worker:p27-esquema-6486ecc5
+              command: ["node", "bin/fleet-health.mjs"]
+              securityContext:
+                seccompProfile: { type: Unconfined }
+              env:
+                # Declaração de dependência. Acrescentar um modelo aqui é dizer "disto eu
+                # dependo"; tirar é uma decisão registrada, não um sumiço.
+                # `modelo@endereco`: as duas faixas vivem em endpoints diferentes — o de
+                # volume no Ollama do Spark, o r1 atrás do roteador — e declarar só um
+                # vigiaria metade da frota achando que vigia a frota inteira.
+                - name: FLEET_MODELS
+                  value: "qwen2.5:14b@http://192.168.3.24:11434,r1-distill-70b@http://router.llm-router.svc.cluster.local:4000"
+                # 30s para UM token já é um modelo que não serve: o teto do timeout de
+                # extração é 300s e um prompt real é centenas de vezes maior que isto.
+                - name: FLEET_SLOW_MS
+                  value: "30000"
+                - name: NTFY_URL
+                  value: "http://ntfy.beagle.svc.cluster.local"
+                - name: NTFY_TOPIC
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: topic, optional: true } }
+                - name: NTFY_USER
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: user, optional: true } }
+                - name: NTFY_PASSWORD
+                  valueFrom: { secretKeyRef: { name: ntfy-auth, key: password, optional: true } }
+              resources:
+                requests: { cpu: 50m, memory: 128Mi }
+                limits: { cpu: 500m, memory: 512Mi }

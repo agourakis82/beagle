@@ -152,3 +152,79 @@ test("well-formed but empty extraction is still a success", async () => {
   const q = await pool.query("SELECT status FROM pending_graph");
   assert.equal(q.rows[0].status, "done");
 });
+
+// --- As duas faixas da fila ---
+//
+// O `r1-distill-70b` leva ~150 s por registro com 4 slots: teto de ~96/hora contra ~875/hora
+// de entrada. Ele nao serve para varrer 9 mil registros — mas e o melhor modelo que existe
+// aqui, e o que merece o melhor modelo nao e o volume, e a FALA DELE (~170 registros).
+//
+// A particao tem que ser DISJUNTA (senao os dois workers disputam a mesma linha) e EXAUSTIVA
+// (senao registros ficam sem dono e ninguem nota, porque a fila continua drenando).
+
+/** Registro + fila, com o ator declarado. */
+async function enfileiraCom(provActor, conteudo) {
+  const sha = createHash("sha256").update(conteudo).digest("hex");
+  const r = await pool.query(
+    `INSERT INTO records (source_type, content, content_sha256, prov_actor)
+     VALUES ('note',$1,$2,$3) RETURNING id`, [conteudo, sha, provActor]);
+  await pool.query("INSERT INTO pending_graph (record_id, status) VALUES ($1,'pending')", [r.rows[0].id]);
+  return r.rows[0].id;
+}
+
+const umFato = async () => JSON.stringify({
+  entities: [{ name: "X", type: "thing" }],
+  facts: [{ subject: "X", predicate: "p", object_literal: "v", statement: "uma sentenca" }],
+});
+
+test("a faixa `voice` so pega a fala DELE", async () => {
+  await enfileiraCom("user_stated", "dele");
+  await enfileiraCom("model_generated", "da maquina");
+  const s = await runGraphOnce(pool, { llmFn: umFato, tier: "voice", batch: 10 });
+  assert.equal(s.claimed, 1);
+  const q = await pool.query(
+    `SELECT r.content FROM pending_graph pg JOIN records r ON r.id=pg.record_id
+      WHERE pg.status='done'`);
+  assert.deepEqual(q.rows.map((x) => x.content), ["dele"]);
+});
+
+test("a faixa `bulk` pega todo o resto", async () => {
+  await enfileiraCom("user_stated", "dele");
+  await enfileiraCom("model_generated", "da maquina");
+  await enfileiraCom("model_distilled", "destilado");
+  const s = await runGraphOnce(pool, { llmFn: umFato, tier: "bulk", batch: 10 });
+  assert.equal(s.claimed, 2);
+});
+
+// 🚨 A cobertura tem que vir do SCHEMA, nao de uma lista que eu digitei.
+//
+// `prov_actor` e NOT NULL e tem CHECK com vocabulario fechado. Este teste LE esse vocabulario
+// do banco e exige que cada valor permitido caia em EXATAMENTE UMA faixa. Se alguem
+// acrescentar um ator numa migracao futura, o teste cobra a revisao da particao em vez de
+// deixar o registro sumir entre as duas — processado por ninguem, sem erro nenhum aparecer.
+//
+// Por isso `bulk` e definido como NEGACAO de `voice`, e nao como enumeracao: enumeracao
+// envelhece em silencio.
+test("todo ator que o schema permite cai em exatamente uma faixa", async () => {
+  const c = await pool.query(
+    `SELECT pg_get_constraintdef(oid) d FROM pg_constraint WHERE conname='records_prov_actor_chk'`);
+  assert.ok(c.rowCount === 1, "o vocabulario e fechado por CHECK");
+  const atores = [...c.rows[0].d.matchAll(/'([a-z_]+)'::text/g)].map((m) => m[1]);
+  assert.ok(atores.length >= 4, `vocabulario lido do schema: ${atores.join(", ")}`);
+
+  for (const a of atores) await enfileiraCom(a, "reg-" + a);
+
+  const voz = await runGraphOnce(pool, { llmFn: umFato, tier: "voice", batch: 100 });
+  const massa = await runGraphOnce(pool, { llmFn: umFato, tier: "bulk", batch: 100 });
+
+  assert.equal(voz.claimed + massa.claimed, atores.length,
+    "cada ator contado UMA vez — sem sobreposicao, sem buraco");
+  assert.equal(voz.claimed, 1, "so `user_stated` e fala dele");
+  const sobra = await pool.query("SELECT count(*)::int n FROM pending_graph WHERE status<>'done'");
+  assert.equal(sobra.rows[0].n, 0, "nenhum ator ficou sem dono");
+});
+
+test("faixa desconhecida e erro, nao 'processa tudo'", async () => {
+  await assert.rejects(
+    () => runGraphOnce(pool, { llmFn: umFato, tier: "vooz" }), /tier desconhecido/);
+});

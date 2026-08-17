@@ -10,6 +10,7 @@
 //   MEMORY_PG_DSN          postgres DSN (required)
 //   GRAPH_LLM_URL          LiteLLM router base (default router.llm-router.svc:4000)
 //   GRAPH_MODEL            sovereign model (default r1-distill-70b)
+//   GRAPH_TIER             faixa da fila: voice | bulk | all (default all)
 //   BEAGLE_TEI_EMBED_URL   Spark/TEI embed endpoint (required for fact embeddings)
 //   GRAPH_BATCH            rows claimed per iteration (default 4)
 //   GRAPH_MAX_RETRIES      retries before failed_graph DLQ (default 3)
@@ -42,17 +43,20 @@ async function main() {
   const batch = intEnv("GRAPH_BATCH", 4);
   const maxRetries = intEnv("GRAPH_MAX_RETRIES", 3);
   const idle = intEnv("GRAPH_IDLE_SLEEP_MS", 5000);
+  // Faixa da fila que ESTE worker serve. Ver TIERS em src/graph-worker.mjs: `voice` (a fala
+  // dele, modelo caro) e `bulk` (todo o resto, modelo rapido) sao disjuntas e exaustivas.
+  const tier = process.env.GRAPH_TIER || "all";
 
   let stopping = false;
   const stop = () => (stopping = true);
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  console.log(`[graph-worker] started model=${model} batch=${batch}`);
+  console.log(`[graph-worker] started tier=${tier} model=${model} batch=${batch}`);
 
   while (!stopping) {
     let res;
     try {
-      res = await runGraphOnce(pool, { llmFn, embedFn, batch, maxRetries, model });
+      res = await runGraphOnce(pool, { llmFn, embedFn, batch, maxRetries, model, tier });
     } catch (err) {
       console.error(`[graph-worker] runGraphOnce error: ${err.message}`);
       await sleep(idle);

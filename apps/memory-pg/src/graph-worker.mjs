@@ -18,17 +18,48 @@ import { extractGraph, applyExtraction } from "./graph-extract.mjs";
  * }} opts
  * @returns {Promise<{claimed:number, processed:number, facts:number, entities:number, failed:number, errors:string[]}>}
  */
+/**
+ * A fila partida em DUAS FAIXAS, servidas por modelos diferentes.
+ *
+ * Medido em 17-ago-2026: o `r1-distill-70b` leva ~150 s por registro e tem 4 slots — teto de
+ * ~96/hora contra ~875/hora de entrada. Ele nao serve para varrer 9 mil registros; cada
+ * estouro de conexao mandava um registro para a DLQ. Mas ele e o melhor modelo disponivel, e
+ * o que merece o melhor modelo nao e o volume: e a FALA DELE, que sao ~170 registros.
+ *
+ * A particao e por `prov_actor` e e EXAUSTIVA E DISJUNTA de proposito: todo registro cai em
+ * exatamente uma faixa. Faixas que se sobrepoem fariam os dois workers disputar a mesma
+ * linha; faixas que deixam buraco fariam registros nunca serem processados — e ninguem
+ * notaria, porque a fila continuaria drenando.
+ *
+ *   voice  `prov_actor = 'user_stated'`            — o que ele disse
+ *   bulk   `prov_actor IS DISTINCT FROM ...`       — todo o resto
+ *
+ * `IS DISTINCT FROM` e nao `<>` porque `prov_actor` pode ser NULL, e `NULL <> 'x'` e NULL,
+ * nao true: com `<>` os registros sem ator sumiriam das DUAS faixas.
+ */
+export const TIERS = {
+  voice: "r.prov_actor = 'user_stated'",
+  bulk: "r.prov_actor IS DISTINCT FROM 'user_stated'",
+  all: "true",
+};
+
 export async function runGraphOnce(pool, opts) {
-  const { llmFn, embedFn = null, batch = 8, maxRetries = 3, model = null } = opts || {};
+  const { llmFn, embedFn = null, batch = 8, maxRetries = 3, model = null, tier = "all" } = opts || {};
   if (typeof llmFn !== "function") throw new Error("runGraphOnce: llmFn required");
+  // Faixa desconhecida e erro, nunca "processa tudo": um typo no env viraria os dois workers
+  // varrendo a fila inteira e brigando por cada linha.
+  const cond = Object.prototype.hasOwnProperty.call(TIERS, tier) ? TIERS[tier] : null;
+  if (cond === null) throw new Error(`runGraphOnce: tier desconhecido "${tier}"`);
 
   const claimed = await pool.query(
     `UPDATE pending_graph
         SET status='processing', locked_until = now() + interval '10 minutes'
       WHERE id IN (
-        SELECT id FROM pending_graph
-         WHERE status='pending' OR (status='processing' AND locked_until < now())
-         ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $1)
+        SELECT pg.id FROM pending_graph pg
+          JOIN records r ON r.id = pg.record_id
+         WHERE (pg.status='pending' OR (pg.status='processing' AND pg.locked_until < now()))
+           AND ${cond}
+         ORDER BY pg.id FOR UPDATE OF pg SKIP LOCKED LIMIT $1)
       RETURNING id, record_id, retry_count`,
     [batch],
   );
