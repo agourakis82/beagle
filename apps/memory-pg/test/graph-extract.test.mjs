@@ -224,3 +224,28 @@ test("o prompt mostra o que NAO serve como statement", () => {
   const p = buildExtractionPrompt("x");
   assert.match(p, /contains_pr_state/, "usa o lixo real medido como contraexemplo");
 });
+
+// O esquema do prompt tem que ser JSON VALIDO.
+//
+// Era escrito em abreviacao — `{"entities":[{"name","type"}]}` — que nao parseia. Medido em
+// 17-ago-2026: o modelo copiava `{"name", "type"}` para a saida, o JSON ficava impossivel de
+// ler, e o registro ia para a DLQ apos tres tentativas. Acontecia com o prompt antigo tanto
+// quanto com o novo, entao nao era regressao: era defeito de origem.
+//
+// Um esquema que o proprio modelo nao consegue copiar sem errar e um esquema mal escrito.
+test("o exemplo de esquema no prompt e JSON valido", () => {
+  const p = buildExtractionPrompt("texto");
+  const i = p.indexOf('{"entities"');
+  assert.ok(i >= 0, "o exemplo esta no prompt");
+  // Recorta o objeto balanceado a partir dali e exige que o JSON.parse aceite.
+  let d = 0, fim = -1;
+  for (let k = i; k < p.length; k++) {
+    if (p[k] === "{") d++;
+    else if (p[k] === "}") { d--; if (!d) { fim = k; break; } }
+  }
+  assert.ok(fim > i, "objeto balanceado");
+  const bruto = p.slice(i, fim + 1).replace(/\n\s*/g, " ");
+  const obj = JSON.parse(bruto); // lanca se voltarmos a abreviar
+  assert.ok(Array.isArray(obj.entities) && obj.entities[0].name, "entidade com name");
+  assert.ok(Array.isArray(obj.facts) && obj.facts[0].statement, "fato com statement");
+});

@@ -123,10 +123,21 @@ export function coerceTimestamp(v) {
  */
 export function buildExtractionPrompt(content) {
   return [
-    "Extract a knowledge graph from the text. Return ONLY a JSON object, no prose:",
-    '{"entities":[{"name","type"}],"facts":[{"subject","predicate","object"|"object_literal",',
-    '"statement","occurred_at"?,"valid_from"?,"confidence"?,"multi_valued"?,',
-    '"self_report"?,"state_channel"?}]}',
+    "Extract a knowledge graph from the text. Return ONLY a JSON object, no prose.",
+    // O esquema era escrito em ABREVIACAO — `{"entities":[{"name","type"}]}` — que NAO e JSON
+    // valido. Medido em 17-ago-2026: o modelo copiava `{"name", "type"}` literalmente para a
+    // saida, produzindo JSON impossivel de parsear, o registro ia para a DLQ depois de tres
+    // tentativas, e isso acontecia com o prompt antigo tanto quanto com o novo.
+    //
+    // Um esquema que o proprio modelo nao consegue copiar sem errar e um esquema mal escrito.
+    // Agora vai um EXEMPLO completo e valido, que copiar acerta.
+    "Shape (this is a valid example, follow it exactly):",
+    '{"entities":[{"name":"Sounio","type":"system"}],',
+    ' "facts":[{"subject":"Sounio","predicate":"passed_gate","object_literal":"madaros",',
+    '           "statement":"O compilador Sounio passou no gate de madaros.",',
+    '           "occurred_at":"2026-08-17T03:00:00Z","multi_valued":false,',
+    '           "self_report":false}]}',
+    "Optional keys: occurred_at, valid_from, confidence, multi_valued, self_report, state_channel.",
     "Rules: entities are people/projects/places/systems/concepts. predicate is a short snake_case",
     "relation. Set multi_valued=true for relations that can hold many objects at once (knows,",
     "uses, mentions). Use object_literal for non-entity objects (dates, numbers, free text).",
