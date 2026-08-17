@@ -195,6 +195,10 @@ struct ThinkingAloudSessionView: View {
     let onCandidates: ([CaptureReviewCandidate]) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    /// Para a fila durável da nota falada. Sem rede — corredor de hospital, madrugada — a
+    /// fala precisa sobreviver até o próximo `flushOutbox`, e é exatamente nessa hora que
+    /// ela mais importa.
+    @Environment(\.modelContext) private var modelContext
     @State private var captureSession: CaptureSession?
     @State private var statusLine = "Ready"
     @State private var isReviewing = false
@@ -358,6 +362,28 @@ struct ThinkingAloudSessionView: View {
                     ])
                 )
             )
+        }
+
+        // O OUVIDO. Até aqui a fala dele era transcrita no aparelho, virava "candidatos" e
+        // ia para o `captureReview` — que, medido em 17-ago-2026, tem ZERO registros no
+        // memory-pg. Falar produzia nada na espinha de memória. Quem grava é esta linha.
+        //
+        // Vai o TRANSCRITO, não os candidatos. Candidato é objeto derivado: tem confiança
+        // inventada, um `epistemicStatus` e um `nextAction` que a máquina escreveu. Gravar
+        // isso como `user_stated` seria lavar inferência de máquina como fala dele — o modo
+        // de falha exato que a proveniência existe para impedir. O que ele disse é o
+        // transcrito; o resto é leitura sobre o que ele disse, e segue por outro cano.
+        //
+        // `spoken: true` porque isto chega verbatim do reconhecedor. O áudio já foi
+        // descartado no aparelho e nunca sai.
+        let gravou = await BeagleClient.shared.capturarNota(text: transcript, spoken: true)
+        if !gravou {
+            OutboxStore(context: modelContext).enqueue(
+                sessionId: "nota-voz-\(UUID().uuidString)",
+                userText: transcript,
+                clientTime: ISO8601DateFormatter().string(from: Date()),
+                timezone: TimeZone.current.identifier,
+                spoken: true)
         }
 
         candidates = CaptureCandidateBuilder.voiceCandidates(

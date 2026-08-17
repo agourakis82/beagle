@@ -137,6 +137,15 @@ public final class ConversationStore {
     /// o tom da fala anterior, e o companion falaria de um "agora" que já passou.
     public var sinalDeVozDoTurno: (wpm: Double?, pausa: Double)?
 
+    /// Ele FALOU este turno. Separado de `sinalDeVozDoTurno` de propósito: aquele é TOM
+    /// (ritmo, pausa) e o turno de voz do chat desliga o upload acústico, então ele pode
+    /// vir nulo mesmo tendo havido fala. Derivar a modalidade do tom faria a proveniência
+    /// depender de um sinal que a política de privacidade pode remover.
+    ///
+    /// Isto é um booleano seco: afirma que houve fala, e nada sobre como ela saiu.
+    /// Consumido uma vez por turno, pelo mesmo motivo que o tom.
+    public var turnoFoiFalado = false
+
     /// `nil` onde não há runtime local (widget, relógio, macOS) — ausência é
     /// estado legítimo, não falha. Ver MotorLocal.swift.
     private var llm: MotorLocal? { MotoresLocais.motor }
@@ -237,7 +246,7 @@ public final class ConversationStore {
         // O tom vale para ESTE turno. `defer` roda depois de todos os awaits, então
         // o sinal chega às chamadas do cliente e some antes do turno seguinte —
         // senão a próxima mensagem digitada herdaria a fala anterior.
-        defer { sinalDeVozDoTurno = nil }
+        defer { sinalDeVozDoTurno = nil; turnoFoiFalado = false }
         // Light, casual messages → instant on-device Apple Intelligence (when available).
         if isLight(text), fastAvailable, fastResponder != nil {
             await sendMessageFast(text)
@@ -305,7 +314,8 @@ public final class ConversationStore {
             let result = await client.ingestTurn(IngestTurnRequest(
                 session_id: item.sessionId, userText: item.userText,
                 assistantText: resposta.isEmpty ? nil : resposta,
-                clientTime: item.clientTime, timezone: item.timezone))
+                clientTime: item.clientTime, timezone: item.timezone,
+                spoken: item.spoken == true ? true : nil))
             if result.value != nil { store.delete(item) }
         }
     }
@@ -349,6 +359,7 @@ public final class ConversationStore {
                     flowState: flowState, physioPolicy: physioPolicy,
                     hrvMs: physioSummary?.hrvMs,
             voiceWpm: sinalDeVozDoTurno?.wpm, voicePausa: sinalDeVozDoTurno?.pausa,
+            spoken: turnoFoiFalado,
             readiness: physioSummary?.readiness.rawValue,
                     sleepHours: physioSummary?.sleepHours,
                     heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind, stateOfMindLabel: physioSummary?.stateOfMindLabel,
@@ -693,6 +704,7 @@ public final class ConversationStore {
             history: history,
             hrvMs: physioSummary?.hrvMs,
             voiceWpm: sinalDeVozDoTurno?.wpm, voicePausa: sinalDeVozDoTurno?.pausa,
+            spoken: turnoFoiFalado,
             readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
             heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind, stateOfMindLabel: physioSummary?.stateOfMindLabel,
@@ -821,6 +833,7 @@ public final class ConversationStore {
             history: history,
             hrvMs: physioSummary?.hrvMs,
             voiceWpm: sinalDeVozDoTurno?.wpm, voicePausa: sinalDeVozDoTurno?.pausa,
+            spoken: turnoFoiFalado,
             readiness: physioSummary?.readiness.rawValue,
             sleepHours: physioSummary?.sleepHours,
             heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind, stateOfMindLabel: physioSummary?.stateOfMindLabel,

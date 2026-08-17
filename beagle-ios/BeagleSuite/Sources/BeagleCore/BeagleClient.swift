@@ -530,7 +530,7 @@ public actor BeagleClient {
         // Melhor-esforço: aqui não há `ModelContext`, logo não há outbox durável de
         // fallback. Se a rede falhar, a nota se perde — a durabilidade existe no
         // caminho do `CognitiveStore`, que é o da tela de captura e do widget.
-        await gravarNotaNaEspinha(text: text)
+        await capturarNota(text: text)
 
         let result = await assistedImportBatch(request)
         guard let importResult = result.value else {
@@ -559,15 +559,24 @@ public actor BeagleClient {
     /// Nota avulsa na espinha de memória. `assistantText` nulo: sem resposta do
     /// companion, um turno vazio poria a voz da máquina no histórico dele.
     /// `clientTime` é a hora do EVENTO — sem ela a nota não casa com a fisiologia.
-    private func gravarNotaNaEspinha(text: String) async {
+    ///
+    /// `spoken` marca a MODALIDADE. Só passe `true` para texto que ele de fato falou e que
+    /// chega aqui **verbatim** — a transcrição crua. Nunca para um resumo, um "candidato"
+    /// ou qualquer coisa que a máquina tenha derivado da fala dele: isso gravaria inferência
+    /// de máquina sob `user_stated`, que é precisamente o modo de falha que a proveniência
+    /// existe para impedir.
+    @discardableResult
+    public func capturarNota(text: String, spoken: Bool = false) async -> Bool {
         let nota = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !nota.isEmpty else { return }
-        _ = await ingestTurn(IngestTurnRequest(
+        guard !nota.isEmpty else { return false }
+        let r = await ingestTurn(IngestTurnRequest(
             session_id: "nota-\(UUID().uuidString)",
             userText: nota,
             assistantText: nil,
             clientTime: ISO8601DateFormatter().string(from: Date()),
-            timezone: TimeZone.current.identifier))
+            timezone: TimeZone.current.identifier,
+            spoken: spoken ? true : nil))
+        return r.value != nil
     }
 
     // MARK: - Triad (adversarial review)
@@ -1315,6 +1324,10 @@ public actor BeagleClient {
         hrvMs: Double? = nil,
         voiceWpm: Double? = nil,
         voicePausa: Double? = nil,
+        /// Ele falou este turno. Booleano seco — a MODALIDADE, não o tom. Vai separado de
+        /// `voiceWpm`/`voicePausa` porque o turno de voz do chat desliga o upload acústico:
+        /// amarrar a proveniência ao tom faria a modalidade sumir junto com ele.
+        spoken: Bool = false,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
@@ -1369,6 +1382,10 @@ public actor BeagleClient {
         if let voiceModel, !voiceModel.isEmpty {
             body["voiceModel"] = voiceModel
         }
+        // Só presente quando houve fala. Ausência significa "digitei", e o servidor marca a
+        // proveniência apenas quando a chave existe — nunca mandar `false`, porque a chave
+        // só deve existir quando há o que afirmar.
+        if spoken { body["spoken"] = true }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
@@ -1493,6 +1510,10 @@ public actor BeagleClient {
         hrvMs: Double? = nil,
         voiceWpm: Double? = nil,
         voicePausa: Double? = nil,
+        /// Ele falou este turno. Booleano seco — a MODALIDADE, não o tom. Vai separado de
+        /// `voiceWpm`/`voicePausa` porque o turno de voz do chat desliga o upload acústico:
+        /// amarrar a proveniência ao tom faria a modalidade sumir junto com ele.
+        spoken: Bool = false,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
@@ -1515,7 +1536,7 @@ public actor BeagleClient {
             physioPolicy: physioPolicy,
             lastContactAt: lastContactAt,
             history: history,
-            hrvMs: hrvMs, voiceWpm: voiceWpm, voicePausa: voicePausa,
+            hrvMs: hrvMs, voiceWpm: voiceWpm, voicePausa: voicePausa, spoken: spoken,
             readiness: readiness, sleepHours: sleepHours,
             heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
@@ -1817,6 +1838,10 @@ public actor BeagleClient {
         hrvMs: Double? = nil,
         voiceWpm: Double? = nil,
         voicePausa: Double? = nil,
+        /// Ele falou este turno. Booleano seco — a MODALIDADE, não o tom. Vai separado de
+        /// `voiceWpm`/`voicePausa` porque o turno de voz do chat desliga o upload acústico:
+        /// amarrar a proveniência ao tom faria a modalidade sumir junto com ele.
+        spoken: Bool = false,
         readiness: String? = nil,
         sleepHours: Double? = nil,
         heartRate: Double? = nil,
@@ -1869,6 +1894,10 @@ public actor BeagleClient {
         if let voiceModel, !voiceModel.isEmpty {
             body["voiceModel"] = voiceModel
         }
+        // Só presente quando houve fala. Este é o caminho PRINCIPAL do chat — o streaming —
+        // e sem esta linha o turno falado chegaria ao banco indistinguível de um digitado,
+        // que é exatamente o defeito medido em 17-ago-2026.
+        if spoken { body["spoken"] = true }
         // Deep-think gear: asks the server to route this turn through the grounded/agentic
         // path (web + cluster + fs tools) instead of the fast conversational default.
         if deepThink {

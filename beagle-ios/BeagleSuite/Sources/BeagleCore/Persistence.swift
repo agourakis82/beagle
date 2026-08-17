@@ -202,9 +202,16 @@ public final class PendingIngest {
     public var clientTime: String
     public var timezone: String
     public var createdAt: Date
+    /// Ele falou este turno. Opcional para a migração leve do SwiftData — registros que já
+    /// estavam na fila quando isto foi adicionado ficam `nil`, e `nil` significa "não sei",
+    /// não "digitou". Sem isto, uma nota FALADA que caísse na fila offline voltaria à espinha
+    /// marcada como digitada — a fila apagaria a modalidade justamente no caso em que ela
+    /// mais importa: sem rede, de madrugada.
+    public var spoken: Bool?
 
     public init(id: UUID = UUID(), sessionId: String, userText: String, assistantText: String,
-                clientTime: String, timezone: String, createdAt: Date = Date()) {
+                clientTime: String, timezone: String, createdAt: Date = Date(),
+                spoken: Bool? = nil) {
         self.id = id
         self.sessionId = sessionId
         self.userText = userText
@@ -212,6 +219,7 @@ public final class PendingIngest {
         self.clientTime = clientTime
         self.timezone = timezone
         self.createdAt = createdAt
+        self.spoken = spoken
     }
 }
 
