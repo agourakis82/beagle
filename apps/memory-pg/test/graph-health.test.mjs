@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { makePool, ensureSchema } from "../src/db.mjs";
 import { resolveEntity } from "../src/graph.mjs";
-import { graphHealth } from "../src/graph-health.mjs";
+import { graphHealth, avisar } from "../src/graph-health.mjs";
 
 const DSN = process.env.MEMORY_PG_TEST_DSN;
 if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
@@ -111,4 +111,49 @@ test("relata o ultimo fato conhecido, para dimensionar ha quanto tempo parou", a
   assert.equal(h.ok, false, "fato antigo nao conta como producao recente");
   assert.ok(h.ultimoFato, "mas o ultimo fato conhecido vai no aviso");
   assert.match(h.motivo, /último fato/);
+});
+
+// ⚠️ O bug que quase deixou este alarme mudo. Cabecalho HTTP e ByteString: so
+// latin-1. A primeira versao do Title tinha travessao e "extracao", e o fetch
+// LANCAVA antes de publicar — o alarme existiria, rodaria, e nunca alcancaria
+// ninguem. Pego ao provar o canal, nao pelos testes de logica.
+//
+// Este teste captura a CLASSE: qualquer cabecalho fora de latin-1 falha aqui,
+// antes de chegar em producao.
+test("nenhum cabecalho do aviso escapa de latin-1", async () => {
+  const capturados = [];
+  const fetchReal = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    capturados.push(opts.headers ?? {});
+    return { ok: true, text: async () => "" };
+  };
+  try {
+    await avisar("extracao parada: 218 registros e zero fatos",
+      { NTFY_TOPIC: "t", NTFY_USER: "u", NTFY_PASSWORD: "p" });
+  } finally {
+    globalThis.fetch = fetchReal;
+  }
+
+  assert.ok(capturados.length >= 1, "tentou publicar");
+  for (const h of capturados) {
+    for (const [k, v] of Object.entries(h)) {
+      for (const ch of String(v)) {
+        assert.ok(ch.codePointAt(0) <= 255,
+          `cabecalho ${k} tem caractere fora de latin-1: ${JSON.stringify(ch)}`);
+      }
+    }
+  }
+});
+
+test("sem topico o aviso nao tenta publicar", async () => {
+  const fetchReal = globalThis.fetch;
+  let chamou = false;
+  globalThis.fetch = async () => { chamou = true; return { ok: true, text: async () => "" }; };
+  try {
+    const r = await avisar("x", {});
+    assert.equal(r, false);
+    assert.equal(chamou, false, "sem destino, nem tenta");
+  } finally {
+    globalThis.fetch = fetchReal;
+  }
 });

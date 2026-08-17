@@ -97,7 +97,12 @@ export async function avisar(texto, env = process.env) {
       method: "POST",
       headers: {
         authorization: auth,
-        Title: "Beagle — extração de fatos parada",
+        // ⚠️ Cabeçalho HTTP é ByteString: só aceita latin-1. Um travessão ou um
+        // "ç" aqui faz o fetch LANÇAR antes de publicar, e o alarme morre calado
+        // — exatamente o modo de falha que ele existe para denunciar. Pego ao
+        // provar o canal: a primeira versão deste Title tinha "—" e "extração".
+        // Acento vai no CORPO, que é UTF-8 e aceita.
+        Title: "Beagle: extracao de fatos parada",
         Priority: "high",
         Tags: "rotating_light",
       },
