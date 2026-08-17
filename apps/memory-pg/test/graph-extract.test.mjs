@@ -8,7 +8,7 @@
 import { test, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { makePool, ensureSchema } from "../src/db.mjs";
-import { extractGraph, applyExtraction, GraphExtractionError } from "../src/graph-extract.mjs";
+import { extractGraph, applyExtraction, GraphExtractionError, buildExtractionPrompt } from "../src/graph-extract.mjs";
 
 const DSN = process.env.MEMORY_PG_TEST_DSN;
 if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
@@ -201,4 +201,26 @@ test("extracao inteiramente boa nao recusa nada", async () => {
   }, { recordId: null });
   assert.equal(r.semSentenca, 0);
   assert.equal(r.factsInserted, 1);
+});
+
+// O prompt precisa PEDIR o statement, nao so desenhar o formato.
+//
+// Medido em 17-ago-2026, depois da guarda entrar: 66% dos fatos do `qwen2.5:14b` e ate 19 de
+// um unico registro no `r1-distill-70b` chegavam sem `statement`. A conclusao facil seria
+// "modelo ruim" — e estaria errada. `statement` aparecia apenas na FORMA do JSON, sem nunca
+// ser declarado obrigatorio nem explicado, entao todo modelo o tratava como enfeite.
+test("o prompt declara statement OBRIGATORIO e diz o que e", () => {
+  const p = buildExtractionPrompt("qualquer texto");
+  assert.match(p, /STATEMENT IS MANDATORY/,
+    "sem esta linha, o modelo trata statement como opcional");
+  assert.match(p, /self-contained/i, "diz que a sentenca se sustenta sozinha");
+  assert.match(p, /DROP IT/,
+    "manda descartar em vez de emitir vazio — senao o modelo 'obedece' com aspas vazias");
+});
+
+// Exemplo negativo importa tanto quanto o positivo: os vazios reais vinham exatamente
+// nesse formato — o predicado repetido como sentenca, ou um literal solto.
+test("o prompt mostra o que NAO serve como statement", () => {
+  const p = buildExtractionPrompt("x");
+  assert.match(p, /contains_pr_state/, "usa o lixo real medido como contraexemplo");
 });

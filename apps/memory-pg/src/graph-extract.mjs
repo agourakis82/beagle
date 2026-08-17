@@ -132,6 +132,20 @@ export function buildExtractionPrompt(content) {
     "uses, mentions). Use object_literal for non-entity objects (dates, numbers, free text).",
     "Scope facts in time when the text implies it. Extract only what the text supports.",
     "",
+    // `statement` aparecia apenas na FORMA do JSON, sem nunca ser declarado obrigatorio nem
+    // explicado — e todo modelo o tratava como enfeite. Medido em 17-ago-2026: 66% dos fatos
+    // do `qwen2.5:14b` e ate 19 de um so registro no `r1-distill-70b` chegavam sem ele.
+    //
+    // Nao era defeito de modelo: era o prompt nao pedindo. E um fato sem `statement` nunca
+    // pode ser recuperado, porque e esse texto que vai para o indice semantico.
+    "STATEMENT IS MANDATORY. Every fact MUST have a non-empty `statement`: one self-contained",
+    "sentence, in the language of the text, that a person could read on its own and understand",
+    "without seeing subject/predicate/object. It is what makes the fact findable later.",
+    "  good: \"Ele acordou as tres da manha com o peito apertado.\"",
+    "  bad:  \"\"  (empty), \"blocked\", \"55\", \"contains_pr_state\"",
+    "A fact you cannot phrase as a sentence is not a fact worth extracting — DROP IT instead of",
+    "emitting it with an empty statement.",
+    "",
     "SELF-REPORTS. When the speaker says something about their OWN state, set self_report=true",
     "and set state_channel to the one measurable quantity that could test it:",
     "  sleep    slept badly/well, hours slept, woke during the night",
