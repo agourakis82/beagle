@@ -301,8 +301,10 @@ public final class ConversationStore {
         guard let ctx = modelContext else { return }
         let store = OutboxStore(context: ctx)
         for item in store.pending() {
+            let resposta = item.assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
             let result = await client.ingestTurn(IngestTurnRequest(
-                session_id: item.sessionId, userText: item.userText, assistantText: item.assistantText,
+                session_id: item.sessionId, userText: item.userText,
+                assistantText: resposta.isEmpty ? nil : resposta,
                 clientTime: item.clientTime, timezone: item.timezone))
             if result.value != nil { store.delete(item) }
         }

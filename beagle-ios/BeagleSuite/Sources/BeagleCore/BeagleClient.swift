@@ -521,6 +521,17 @@ public actor BeagleClient {
             )
         }
 
+        // Também para a ESPINHA DE MEMÓRIA. Este caminho é o do Watch, do Siri e do
+        // onboarding — os que NÃO passam pelo `CognitiveStore` e por isso ficariam de
+        // fora do conserto feito lá. Ditado do Siri e fala no Watch são justamente as
+        // superfícies de fala dele com hora, que o `assisted-import` sozinho nunca
+        // levou ao memory-pg (medido: zero registros em 60 dias).
+        //
+        // Melhor-esforço: aqui não há `ModelContext`, logo não há outbox durável de
+        // fallback. Se a rede falhar, a nota se perde — a durabilidade existe no
+        // caminho do `CognitiveStore`, que é o da tela de captura e do widget.
+        await gravarNotaNaEspinha(text: text)
+
         let result = await assistedImportBatch(request)
         guard let importResult = result.value else {
             return .staleError(result.error ?? "Assisted import failed", source: result.source)
@@ -543,6 +554,20 @@ public actor BeagleClient {
             source: result.source,
             error: result.error
         )
+    }
+
+    /// Nota avulsa na espinha de memória. `assistantText` nulo: sem resposta do
+    /// companion, um turno vazio poria a voz da máquina no histórico dele.
+    /// `clientTime` é a hora do EVENTO — sem ela a nota não casa com a fisiologia.
+    private func gravarNotaNaEspinha(text: String) async {
+        let nota = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !nota.isEmpty else { return }
+        _ = await ingestTurn(IngestTurnRequest(
+            session_id: "nota-\(UUID().uuidString)",
+            userText: nota,
+            assistantText: nil,
+            clientTime: ISO8601DateFormatter().string(from: Date()),
+            timezone: TimeZone.current.identifier))
     }
 
     // MARK: - Triad (adversarial review)
