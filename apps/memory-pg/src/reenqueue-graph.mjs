@@ -132,4 +132,59 @@ export async function parkQueuedExcept(pool, { keepSpace, keepRole = null, apply
   return { parked: res.rowCount ?? 0, kept, applied: true };
 }
 
-export default { reenqueueEmptyExtractions, parkQueuedExcept };
+/**
+ * Devolve à fila registros que estão na DLQ — o caminho de volta que não existia.
+ *
+ * **Cair na fila morta era definitivo.** O backfill exclui do reenfileiramento tudo que está
+ * lá (`AND NOT EXISTS (SELECT 1 FROM failed_graph ...)`) e o worker contínuo só olha
+ * `pending_graph`. Medido em 17-ago-2026: **3.045** registros na DLQ nunca produziram fato
+ * nenhum, e **175** deles são `user_stated` — fala DELE que nunca virou conhecimento.
+ *
+ * E boa parte foi descartada barato: o backfill roda com `maxRetries: 2` fixo no código
+ * (`bin/graph-backfill.mjs`), contra 3 do worker contínuo. Dois tropeços do LLM, numa época
+ * em que a frota estava instável, bastavam para excluir um registro para sempre.
+ *
+ * A linha da DLQ é **preservada**, não apagada: ela é o registro histórico de que aquela
+ * tentativa falhou, e apagá-la para "limpar" destruiria a única evidência do episódio. O que
+ * se cria é uma nova entrada na fila viva.
+ *
+ * @param {import("pg").Pool} pool
+ * @param {{ provActor?: string|null, apply?: boolean, limit?: number|null }} opts
+ *   provActor  restringe por quem falou (ex.: "user_stated"). A fila é lenta e o corpus é
+ *              majoritariamente máquina; sem isto, priorizar a fala dele é impossível.
+ *   apply      false (padrão) apenas conta. Reenfileirar 3 mil registros não pode ser o
+ *              comportamento acidental de rodar o comando sem argumentos.
+ *   limit      teto por execução, para drenar em lotes.
+ * @returns {Promise<{candidates:number, requeued:number, applied:boolean}>}
+ */
+export async function requeueFromDlq(pool, { provActor = null, apply = false, limit = null } = {}) {
+  const args = [];
+  let cond = `NOT EXISTS (SELECT 1 FROM facts x WHERE x.source_record_id = f.record_id)
+              AND NOT EXISTS (SELECT 1 FROM pending_graph g WHERE g.record_id = f.record_id)`;
+  if (provActor) { args.push(provActor); cond += ` AND r.prov_actor = $${args.length}`; }
+
+  const c = await pool.query(
+    `SELECT count(*)::int n FROM failed_graph f JOIN records r ON r.id = f.record_id WHERE ${cond}`,
+    args,
+  );
+  const candidates = c.rows[0].n;
+  if (!apply) return { candidates, requeued: 0, applied: false };
+
+  // `retry_count` volta a zero: a falha anterior foi da infraestrutura (LLM fora do ar,
+  // resposta impossível de parsear), não uma propriedade do registro. Herdar tentativas o
+  // mandaria de volta para a DLQ ao primeiro tropeço.
+  const res = await pool.query(
+    `INSERT INTO pending_graph (record_id, status, retry_count)
+     SELECT f.record_id, 'pending', 0
+       FROM failed_graph f JOIN records r ON r.id = f.record_id
+      WHERE ${cond}
+      ORDER BY r.created_at
+      ${limit ? `LIMIT $${args.length + 1}` : ""}
+     ON CONFLICT DO NOTHING
+     RETURNING 1`,
+    limit ? [...args, limit] : args,
+  );
+  return { candidates, requeued: res.rowCount ?? 0, applied: true };
+}
+
+export default { reenqueueEmptyExtractions, parkQueuedExcept, requeueFromDlq };

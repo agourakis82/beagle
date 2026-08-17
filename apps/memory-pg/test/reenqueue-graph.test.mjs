@@ -9,7 +9,7 @@ import { test, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { makePool, ensureSchema } from "../src/db.mjs";
-import { reenqueueEmptyExtractions, parkQueuedExcept } from "../src/reenqueue-graph.mjs";
+import { reenqueueEmptyExtractions, parkQueuedExcept, requeueFromDlq } from "../src/reenqueue-graph.mjs";
 import { resolveEntity } from "../src/graph.mjs";
 
 const DSN = process.env.MEMORY_PG_TEST_DSN;
@@ -17,7 +17,10 @@ if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
 const pool = makePool(DSN);
 
 before(async () => { await ensureSchema(pool); });
-beforeEach(async () => { await pool.query("TRUNCATE entities, facts, pending_graph, records CASCADE"); });
+// `failed_graph` entra na limpeza: ela NAO tem chave estrangeira para records (nasce de
+// `LIKE pending_graph`, que nao copia FKs), entao o CASCADE nao a alcanca e as linhas
+// vazariam de um teste para o outro — fazendo as contagens mentirem.
+beforeEach(async () => { await pool.query("TRUNCATE entities, facts, pending_graph, failed_graph, records CASCADE"); });
 after(async () => { await pool.end(); });
 
 /** Registro + linha de fila ja `done`, com data e space controlados. */
@@ -207,4 +210,85 @@ test("park-except tambem filtra por papel", async () => {
     `SELECT r.content FROM pending_graph pg JOIN records r ON r.id=pg.record_id
       WHERE pg.status='pending'`);
   assert.deepEqual(q.rows.map((x) => x.content), ["dele"]);
+});
+
+// --- O caminho de volta da fila morta ---
+//
+// Cair na DLQ era DEFINITIVO: o backfill exclui do reenfileiramento tudo que esta la
+// (`AND NOT EXISTS (SELECT 1 FROM failed_graph ...)`) e o worker continuo so olha
+// `pending_graph`. Medido em 17-ago-2026: 3.045 registros na DLQ nunca produziram fato, e
+// 175 deles sao `user_stated` — fala DELE que nunca virou conhecimento.
+//
+// E boa parte foi descartada barato: o backfill roda com `maxRetries: 2` fixo no codigo,
+// contra 3 do worker continuo. Dois tropecos do LLM bastavam para excluir um registro para
+// sempre, numa epoca em que a frota estava instavel.
+
+/** Registro que caiu na DLQ, sem nenhum fato. */
+async function naDlq(content, provActor = "user_stated") {
+  const sha = createHash("sha256").update(content).digest("hex");
+  const r = await pool.query(
+    `INSERT INTO records (source_type, content, content_sha256, prov_actor, created_at)
+     VALUES ('note',$1,$2,$3, now() - interval '30 days') RETURNING id`,
+    [content, sha, provActor]);
+  const id = r.rows[0].id;
+  await pool.query(
+    `INSERT INTO failed_graph (record_id, status, retry_count, last_error)
+     VALUES ($1,'failed',3,'LLM call failed')`, [id]);
+  return id;
+}
+
+test("a simulacao e o padrao: conta e nao reenfileira", async () => {
+  await naDlq("peito apertado");
+  const r = await requeueFromDlq(pool, {});
+  assert.equal(r.candidates, 1);
+  assert.equal(r.requeued, 0);
+  assert.equal(r.applied, false);
+  const q = await pool.query("SELECT count(*)::int n FROM pending_graph");
+  assert.equal(q.rows[0].n, 0, "nada entrou na fila sem apply");
+});
+
+test("com apply, o registro volta a fila com tentativas ZERADAS", async () => {
+  await naDlq("peito apertado");
+  const r = await requeueFromDlq(pool, { apply: true });
+  assert.equal(r.requeued, 1);
+  const q = await pool.query("SELECT status, retry_count FROM pending_graph");
+  assert.equal(q.rows[0].status, "pending");
+  // A falha anterior foi da infraestrutura, nao do registro. Herdar tentativas o mandaria
+  // de volta para a DLQ ao primeiro tropeco.
+  assert.equal(q.rows[0].retry_count, 0);
+});
+
+// 🚨 A linha da DLQ e a UNICA evidencia de que aquele episodio aconteceu. "Limpar" a fila
+// morta ao reprocessar destruiria o historico da avaria — exatamente o tipo de apagamento
+// silencioso que este trabalho inteiro existe para impedir.
+test("a linha da DLQ SOBREVIVE ao reenfileiramento", async () => {
+  await naDlq("peito apertado");
+  await requeueFromDlq(pool, { apply: true });
+  const d = await pool.query("SELECT count(*)::int n, max(last_error) e FROM failed_graph");
+  assert.equal(d.rows[0].n, 1, "a evidencia do episodio continua la");
+  assert.match(d.rows[0].e, /LLM call failed/);
+});
+
+test("filtra por quem falou: a fala DELE primeiro", async () => {
+  await naDlq("dele", "user_stated");
+  await naDlq("da maquina", "model_generated");
+  const r = await requeueFromDlq(pool, { provActor: "user_stated", apply: true });
+  assert.equal(r.requeued, 1);
+  const q = await pool.query(
+    `SELECT r.content FROM pending_graph pg JOIN records r ON r.id=pg.record_id`);
+  assert.deepEqual(q.rows.map((x) => x.content), ["dele"]);
+});
+
+test("nao ressuscita o que ja produziu fato", async () => {
+  const id = await naDlq("ja extraido");
+  await giveFact(id);
+  const r = await requeueFromDlq(pool, {});
+  assert.equal(r.candidates, 0, "tem fato: nao ha o que reprocessar");
+});
+
+test("nao duplica o que ja esta na fila", async () => {
+  const id = await naDlq("ja na fila");
+  await pool.query("INSERT INTO pending_graph (record_id, status) VALUES ($1,'pending')", [id]);
+  const r = await requeueFromDlq(pool, {});
+  assert.equal(r.candidates, 0);
 });
