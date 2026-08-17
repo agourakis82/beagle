@@ -9,7 +9,7 @@ import { test, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { makePool, ensureSchema } from "../src/db.mjs";
-import { reenqueueEmptyExtractions } from "../src/reenqueue-graph.mjs";
+import { reenqueueEmptyExtractions, parkQueuedExcept } from "../src/reenqueue-graph.mjs";
 import { resolveEntity } from "../src/graph.mjs";
 
 const DSN = process.env.MEMORY_PG_TEST_DSN;
@@ -20,12 +20,13 @@ before(async () => { await ensureSchema(pool); });
 beforeEach(async () => { await pool.query("TRUNCATE entities, facts, pending_graph, records CASCADE"); });
 after(async () => { await pool.end(); });
 
-/** Registro + linha de fila já `done`, com data controlada. */
-async function done(content, createdAt) {
+/** Registro + linha de fila ja `done`, com data e space controlados. */
+async function done(content, createdAt, space = null) {
   const sha = createHash("sha256").update(content).digest("hex");
   const r = await pool.query(
-    "INSERT INTO records (source_type, content, content_sha256, created_at) VALUES ('note',$1,$2,$3) RETURNING id",
-    [content, sha, createdAt],
+    `INSERT INTO records (source_type, content, content_sha256, created_at, metadata)
+     VALUES ('note',$1,$2,$3,$4::jsonb) RETURNING id`,
+    [content, sha, createdAt, JSON.stringify(space ? { space } : {})],
   );
   const id = r.rows[0].id;
   await pool.query("INSERT INTO pending_graph (record_id, status) VALUES ($1,'done')", [id]);
@@ -105,4 +106,62 @@ test("--limit drena em lotes e informa o que sobra", async () => {
 
 test("sem janela a ferramenta se recusa a rodar", async () => {
   await assert.rejects(() => reenqueueEmptyExtractions(pool, { apply: true }), /since/);
+});
+
+// O backlog e 84% log de trabalho do compilador. A ~75s por extracao, varrer 21
+// mil logs tecnicos para colher algumas dezenas de auto-relatos e semanas de GPU
+// pelo material errado. `space` e o discriminador — `prov_actor='user_stated'`
+// NAO serve: 774 dos 1.174 pendentes sao ruido de harness de agente.
+test("--space restringe o reenfileiramento ao corpus pedido", async () => {
+  await done("conversa com o companion", DENTRO, "personal");
+  await done("log do compilador", DENTRO, null);
+  await done("outro log", DENTRO, "work");
+
+  const res = await reenqueueEmptyExtractions(pool, { since: JANELA, apply: true, space: "personal" });
+  assert.equal(res.candidates, 1);
+  assert.equal(res.requeued, 1);
+
+  const q = await pool.query(
+    `SELECT r.metadata->>'space' sp FROM pending_graph pg JOIN records r ON r.id=pg.record_id
+      WHERE pg.status='pending'`);
+  assert.deepEqual(q.rows.map((x) => x.sp), ["personal"]);
+});
+
+test("park-except encolhe a fila para um space, sem perder nada", async () => {
+  const pessoal = await done("conversa", DENTRO, "personal");
+  await done("log a", DENTRO, null);
+  await done("log b", DENTRO, "work");
+  await reenqueueEmptyExtractions(pool, { since: JANELA, apply: true });
+
+  let q = await pool.query("SELECT count(*)::int n FROM pending_graph WHERE status='pending'");
+  assert.equal(q.rows[0].n, 3, "os tres estao na fila");
+
+  const res = await parkQueuedExcept(pool, { keepSpace: "personal", apply: true });
+  assert.equal(res.parked, 2);
+  assert.equal(res.kept, 1);
+
+  q = await pool.query(
+    `SELECT r.id FROM pending_graph pg JOIN records r ON r.id=pg.record_id WHERE pg.status='pending'`);
+  assert.deepEqual(q.rows.map((x) => x.id), [pessoal], "so o pessoal continua na fila");
+
+  // Reversivel: o criterio e idempotente, entao os estacionados sao
+  // reencontrados quando for a vez deles. Estacionar muda a ORDEM, nao o conjunto.
+  const volta = await reenqueueEmptyExtractions(pool, { since: JANELA, apply: true });
+  assert.equal(volta.candidates, 2, "os dois estacionados voltam a ser candidatos");
+});
+
+test("park-except em simulacao nao altera nada", async () => {
+  await done("conversa", DENTRO, "personal");
+  await done("log", DENTRO, null);
+  await reenqueueEmptyExtractions(pool, { since: JANELA, apply: true });
+
+  const res = await parkQueuedExcept(pool, { keepSpace: "personal" });
+  assert.equal(res.applied, false);
+  assert.equal(res.parked, 0);
+  const q = await pool.query("SELECT count(*)::int n FROM pending_graph WHERE status='pending'");
+  assert.equal(q.rows[0].n, 2, "nada foi estacionado sem --apply");
+});
+
+test("park-except sem space se recusa a rodar", async () => {
+  await assert.rejects(() => parkQueuedExcept(pool, { apply: true }), /keepSpace/);
 });
