@@ -338,7 +338,13 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     // hora depois do conserto: o modelo devolveu occurred_at="cinco e quinze".
     // Campo malformado custa um nulo, nunca o fato — a mesma regra do canal.
     const validFrom = coerceTimestamp(f.valid_from) ?? occurredAt ?? null;
-    const occ = coerceTimestamp(f.occurred_at) ?? occurredAt ?? null;
+    // A hora do fato vem do texto ou e' deduzida do instante da fala. As duas
+    // valem, mas nao valem o mesmo: "acordei com o peito apertado" acordou ha
+    // horas, e com janela de +-60min contra a fisiologia isso confronta o relato
+    // com o corpo de outro momento. Marcado em vez de indistinguivel.
+    const declarado = coerceTimestamp(f.occurred_at);
+    const occ = declarado ?? occurredAt ?? null;
+    const occImputado = declarado === null && occ !== null;
 
     // The model proposes; the schema decides. A channel outside the closed
     // vocabulary is dropped rather than stored, because the corroboration
@@ -373,9 +379,9 @@ export async function applyExtraction(pool, extraction, opts = {}) {
         `INSERT INTO facts
            (subject_id, predicate, object_id, object_literal, statement, embedding,
             valid_from, occurred_at, source_record_id, provenance, confidence, content_sha256,
-            self_report, state_channel)
+            self_report, state_channel, occurred_at_imputed)
          VALUES ($1,$2,$3,$4,$5,$6::halfvec,
-                 COALESCE($7::timestamptz, now()),$8,$9,$10::jsonb,$11,$12,$13,$14)
+                 COALESCE($7::timestamptz, now()),$8,$9,$10::jsonb,$11,$12,$13,$14,$15)
          ON CONFLICT (content_sha256) DO NOTHING
          RETURNING id`,
         [
@@ -383,7 +389,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
           validFrom, occ, recordId,
           JSON.stringify(stampProvenance(f.provenance, { model, at: stampedAt })),
           f.confidence ?? 1.0, content_sha256,
-          selfReport, stateChannel,
+          selfReport, stateChannel, occImputado,
         ],
       );
       // Record the source→claim support for the quorum, even when the fact already
