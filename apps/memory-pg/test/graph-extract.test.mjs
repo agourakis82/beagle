@@ -249,3 +249,88 @@ test("o exemplo de esquema no prompt e JSON valido", () => {
   assert.ok(Array.isArray(obj.entities) && obj.entities[0].name, "entidade com name");
   assert.ok(Array.isArray(obj.facts) && obj.facts[0].statement, "fato com statement");
 });
+
+// --- O SINAL do auto-relato ---
+//
+// Sem polaridade a direcao pre-registrada nao se aplica a nada, e todo julgamento saía
+// INELEGIVEL. `alta` e sempre MAIS do estado que o canal nomeia, nunca "melhor" — bom e ruim
+// trocam de lado conforme o canal.
+//
+// ⚠️ O extrator le APENAS o texto dele: nao ve frequencia cardiaca, nem SDNN, nem percentil.
+// Nao pode ajustar a polaridade para produzir acordo porque nao sabe para que lado o acordo
+// cairia. E o analogo possivel de cegamento num sistema de sujeito unico.
+
+const relatoCom = (extra) => ({
+  entities: [{ name: "ele", type: "person" }],
+  facts: [{
+    subject: "ele", predicate: "dormiu", object_literal: "mal",
+    statement: "Ele dormiu mal ontem.", self_report: true, state_channel: "sleep", ...extra,
+  }],
+});
+const falante = { prov_actor: "user_stated", role: "user" };
+
+test("a polaridade e gravada quando o texto a declara", async () => {
+  await applyExtraction(pool, relatoCom({ state_polarity: "baixa" }),
+    { recordId: null, speaker: falante });
+  const q = await pool.query("SELECT state_channel, state_polarity FROM facts");
+  assert.equal(q.rows[0].state_channel, "sleep");
+  assert.equal(q.rows[0].state_polarity, "baixa");
+});
+
+// 🚨 Um palpite aqui nao deixaria o julgamento indeciso: fabricaria acordo ou desacordo em
+// metade dos casos. Ausencia e o resultado honesto, e tem que sobreviver ate o banco.
+test("sem polaridade declarada, a coluna fica NULA — nao chuta", async () => {
+  await applyExtraction(pool, relatoCom({}), { recordId: null, speaker: falante });
+  const q = await pool.query("SELECT state_polarity FROM facts");
+  assert.equal(q.rows[0].state_polarity, null);
+});
+
+// O modelo propoe; o esquema decide. Um terceiro valor deixaria o criterio de corroboracao a
+// merce do humor do modelo em cada extracao.
+test("valor fora do vocabulario vira NULO, nao entra", async () => {
+  for (const lixo of ["media", "ALTA!", "high", "1", "", "  "]) {
+    await pool.query("TRUNCATE facts CASCADE");
+    await applyExtraction(pool, relatoCom({ state_polarity: lixo }),
+      { recordId: null, speaker: falante });
+    const q = await pool.query("SELECT state_polarity FROM facts");
+    assert.equal(q.rows[0].state_polarity, null, `'${lixo}' nao pode entrar`);
+  }
+});
+
+test("maiuscula e espaco sao normalizados, nao recusados", async () => {
+  await applyExtraction(pool, relatoCom({ state_polarity: "  BAIXA " }),
+    { recordId: null, speaker: falante });
+  const q = await pool.query("SELECT state_polarity FROM facts");
+  assert.equal(q.rows[0].state_polarity, "baixa");
+});
+
+// Sinal sem canal nao julga nada, e guarda-lo daria a impressao de um dado utilizavel.
+test("polaridade sem canal nao e guardada", async () => {
+  await applyExtraction(pool, {
+    entities: [{ name: "ele", type: "person" }],
+    facts: [{ subject: "ele", predicate: "p", object_literal: "v", statement: "uma sentenca",
+              self_report: true, state_polarity: "alta" }],
+  }, { recordId: null, speaker: falante });
+  const q = await pool.query("SELECT state_channel, state_polarity FROM facts");
+  assert.equal(q.rows[0].state_channel, null);
+  assert.equal(q.rows[0].state_polarity, null);
+});
+
+// A guarda de falante manda em tudo: se quem falou nao e o sujeito, nao ha auto-relato, e
+// portanto nao ha sinal a guardar.
+test("fala da MAQUINA nao produz polaridade", async () => {
+  await applyExtraction(pool, relatoCom({ state_polarity: "baixa" }),
+    { recordId: null, speaker: { prov_actor: "model_generated", role: "assistant" } });
+  const q = await pool.query("SELECT self_report, state_channel, state_polarity FROM facts");
+  assert.equal(q.rows[0].self_report, false);
+  assert.equal(q.rows[0].state_polarity, null);
+});
+
+test("o prompt pede o sinal e manda OMITIR quando nao esta claro", () => {
+  const p = buildExtractionPrompt("x");
+  assert.match(p, /state_polarity/);
+  assert.match(p, /OMIT state_polarity/);
+  assert.match(p, /Do not guess/);
+  // "alta" tem que ser MAIS do estado, nunca "melhor": bom e ruim trocam de lado por canal.
+  assert.match(p, /never better\/worse/);
+});
