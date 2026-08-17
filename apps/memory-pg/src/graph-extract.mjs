@@ -17,6 +17,16 @@ function sha256hex(s) {
 }
 
 /**
+ * Closed vocabulary of self-state channels — the measurable quantity that could
+ * bear on a self-report. Mirrors the CHECK constraint in sql/008_self_report.sql;
+ * both exist because the schema is the authority and this is the fast path that
+ * keeps a malformed field from costing the whole fact.
+ */
+export const SELF_STATE_CHANNELS = new Set([
+  "sleep", "arousal", "valence", "pain", "fatigue", "oncall",
+]);
+
+/**
  * Build the strict extraction prompt. Asks for ONLY a JSON object so parsing is
  * robust; the model is told to scope facts temporally and mark multi-valued
  * relations (so we don't over-invalidate).
@@ -25,11 +35,25 @@ export function buildExtractionPrompt(content) {
   return [
     "Extract a knowledge graph from the text. Return ONLY a JSON object, no prose:",
     '{"entities":[{"name","type"}],"facts":[{"subject","predicate","object"|"object_literal",',
-    '"statement","occurred_at"?,"valid_from"?,"confidence"?,"multi_valued"?}]}',
+    '"statement","occurred_at"?,"valid_from"?,"confidence"?,"multi_valued"?,',
+    '"self_report"?,"state_channel"?}]}',
     "Rules: entities are people/projects/places/systems/concepts. predicate is a short snake_case",
     "relation. Set multi_valued=true for relations that can hold many objects at once (knows,",
     "uses, mentions). Use object_literal for non-entity objects (dates, numbers, free text).",
     "Scope facts in time when the text implies it. Extract only what the text supports.",
+    "",
+    "SELF-REPORTS. When the speaker says something about their OWN state, set self_report=true",
+    "and set state_channel to the one measurable quantity that could test it:",
+    "  sleep    slept badly/well, hours slept, woke during the night",
+    "  arousal  tense, agitated, wired, calm, relaxed",
+    "  valence  feeling good/bad, down, content",
+    "  pain     headache or any reported pain",
+    "  fatigue  tired, exhausted, drained",
+    "  oncall   working a shift / on call (context, not a state)",
+    "Set occurred_at to WHEN THE STATE HAPPENED, not when it was said: a self-report with no time",
+    "cannot be checked against a measurement. If the text does not say when, omit the fact rather",
+    "than guessing. If no channel fits, leave state_channel out; never force one. Statements about",
+    "code, systems or other people are NOT self-reports.",
     "",
     "TEXT:",
     String(content || "").slice(0, 8000),
@@ -208,6 +232,15 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     const objectLiteral = f.object ? null : (f.object_literal ?? null);
     const validFrom = f.valid_from || occurredAt || null;
     const occ = f.occurred_at || occurredAt || null;
+
+    // The model proposes; the schema decides. A channel outside the closed
+    // vocabulary is dropped rather than stored, because the corroboration
+    // criterion joins on this column — letting the model coin a channel would
+    // let it quietly invent a new kind of evidence. The DB CHECK would reject it
+    // anyway; doing it here means one bad field costs a null, not the whole fact.
+    const selfReport = f.self_report === true;
+    const proposed = typeof f.state_channel === "string" ? f.state_channel.trim().toLowerCase() : null;
+    const stateChannel = selfReport && SELF_STATE_CHANNELS.has(proposed) ? proposed : null;
     const content_sha256 = sha256hex(
       [subjectId, f.predicate, objectId ?? "", objectLiteral ?? "", f.statement || ""].join("|"),
     );
@@ -232,15 +265,17 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       const ins = await client.query(
         `INSERT INTO facts
            (subject_id, predicate, object_id, object_literal, statement, embedding,
-            valid_from, occurred_at, source_record_id, provenance, confidence, content_sha256)
+            valid_from, occurred_at, source_record_id, provenance, confidence, content_sha256,
+            self_report, state_channel)
          VALUES ($1,$2,$3,$4,$5,$6::halfvec,
-                 COALESCE($7::timestamptz, now()),$8,$9,$10::jsonb,$11,$12)
+                 COALESCE($7::timestamptz, now()),$8,$9,$10::jsonb,$11,$12,$13,$14)
          ON CONFLICT (content_sha256) DO NOTHING
          RETURNING id`,
         [
           subjectId, f.predicate, objectId, objectLiteral, f.statement || "", embLit,
           validFrom, occ, recordId, JSON.stringify(f.provenance || {}),
           f.confidence ?? 1.0, content_sha256,
+          selfReport, stateChannel,
         ],
       );
       // Record the source→claim support for the quorum, even when the fact already
