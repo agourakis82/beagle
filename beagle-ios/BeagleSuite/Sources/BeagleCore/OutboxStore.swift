@@ -8,12 +8,19 @@ public final class OutboxStore {
     private let context: ModelContext
     public init(context: ModelContext) { self.context = context }
 
-    public func enqueue(sessionId: String, userText: String, assistantText: String, clientTime: String, timezone: String) {
+    /// Sem `assistantText` isto é uma NOTA AVULSA: ele disse algo e ninguém respondeu.
+    /// A guarda antiga exigia os dois lados e descartava a nota em silêncio, aqui, antes
+    /// de qualquer rede — o mesmo contrato simétrico que o servidor deixou de exigir.
+    /// Nota avulsa é justamente o formato de um auto-relato ("peito apertado", às três
+    /// da manhã), que é o substrato da corroboração multimodal.
+    public func enqueue(sessionId: String, userText: String, assistantText: String = "",
+                        clientTime: String, timezone: String, spoken: Bool = false) {
         let u = userText.trimmingCharacters(in: .whitespacesAndNewlines)
         let a = assistantText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !u.isEmpty, !a.isEmpty else { return }
+        guard !u.isEmpty else { return }
         context.insert(PendingIngest(sessionId: sessionId, userText: u, assistantText: a,
-                                     clientTime: clientTime, timezone: timezone))
+                                     clientTime: clientTime, timezone: timezone,
+                                     spoken: spoken ? true : nil))
         try? context.save()
     }
 
@@ -30,18 +37,30 @@ public final class OutboxStore {
 
 /// Body for POST /api/mobile/v1/ingest. Field names match what the cockpit handler reads
 /// (session_id, userText, assistantText, clientTime, timezone).
+/// `assistantText` é opcional e OMITIDO quando nulo (o Encodable sintetizado usa
+/// `encodeIfPresent`): mandar string vazia faria o servidor gravar um turno fantasma
+/// do companion no histórico — a voz da máquina entrando onde não deve.
 public struct IngestTurnRequest: Encodable, Sendable {
     public let session_id: String
     public let userText: String
-    public let assistantText: String
+    public let assistantText: String?
     public let clientTime: String
     public let timezone: String
-    public init(session_id: String, userText: String, assistantText: String, clientTime: String, timezone: String) {
+    /// Ele FALOU este turno, em vez de digitar. Booleano seco: diz que falou, e nada sobre
+    /// COMO — sem ritmo, sem pausa, sem áudio. Omitido (não `false`) quando digitou, porque
+    /// a chave só deve existir quando há o que afirmar.
+    ///
+    /// ⚠️ Falado e digitado são o MESMO canal — auto-relato — em duas formas. Isto serve
+    /// para auditar e estratificar, nunca como corroboração: a independência vem do corpo.
+    public let spoken: Bool?
+    public init(session_id: String, userText: String, assistantText: String?, clientTime: String,
+                timezone: String, spoken: Bool? = nil) {
         self.session_id = session_id
         self.userText = userText
         self.assistantText = assistantText
         self.clientTime = clientTime
         self.timezone = timezone
+        self.spoken = spoken
     }
 }
 

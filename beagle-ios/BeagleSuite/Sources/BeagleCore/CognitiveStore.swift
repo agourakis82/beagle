@@ -199,6 +199,19 @@ public final class CognitiveStore {
             }
         }
 
+        // A captura também vai para a ESPINHA DE MEMÓRIA, não só para o assisted-import.
+        // Medido no banco em 17-ago-2026: em 60 dias, ZERO registros do assisted-import
+        // chegaram no memory-pg. A tela de captura nunca esteve morta — ela escrevia num
+        // cano paralelo que não desemboca onde a extração de fatos lê. Por isso voz e
+        // widget não apareciam como `prov_surface` nenhuma: a única superfície que
+        // gravava fala dele era o chat do `companion-ios`.
+        //
+        // Conteúdo restrito NÃO sobe: a guarda de privacidade já o reteve localmente, e
+        // subir aqui furaria essa guarda por uma porta lateral.
+        if request.privacyClass != "restricted" {
+            await gravarNaEspinha(text: text)
+        }
+
         // Bilingual processing: detect language and enqueue translation if Portuguese
         let textToAnalyze = thought.refinedText ?? thought.rawText ?? text
         let detectedLang = TranslationEngine.shared.detectLanguage(textToAnalyze)
@@ -232,6 +245,33 @@ public final class CognitiveStore {
         indexToSpotlight(thought)
 
         return thought
+    }
+
+    /// Grava uma NOTA AVULSA na espinha de memória: ele disse algo e ninguém respondeu.
+    ///
+    /// `assistantText` vai NULO de propósito — sem resposta do companion, inventar um
+    /// turno vazio seria pôr a voz da máquina no histórico dele. O servidor grava um
+    /// único registro `role=user`, com `prov_surface: "companion-ios-nota"`.
+    ///
+    /// `clientTime` é a hora do EVENTO, não a de chegada. Sem ela a nota fica fora da
+    /// junta com a fisiologia — que é toda a razão de ela existir: "peito apertado" às
+    /// três da manhã só corrobora se der para casar com o que o corpo registrou naquele
+    /// instante. Imputar a hora depois, no servidor, seria inventar o dado.
+    ///
+    /// Falha de rede NÃO perde a nota: cai na outbox durável e o `flushOutbox` a leva.
+    private func gravarNaEspinha(text: String) async {
+        let nota = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !nota.isEmpty else { return }
+        let agora = Self.isoFormatter.string(from: .now)
+        let fuso = TimeZone.current.identifier
+        let sessao = "nota-\(UUID().uuidString)"
+
+        let r = await BeagleClient.shared.ingestTurn(IngestTurnRequest(
+            session_id: sessao, userText: nota, assistantText: nil,
+            clientTime: agora, timezone: fuso))
+        guard r.value == nil, let ctx = modelContext else { return }
+        OutboxStore(context: ctx).enqueue(
+            sessionId: sessao, userText: nota, clientTime: agora, timezone: fuso)
     }
 
     /// Drain queued assisted-import requests back to the cluster when connectivity

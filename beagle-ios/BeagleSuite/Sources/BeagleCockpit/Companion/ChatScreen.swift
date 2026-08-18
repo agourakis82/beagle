@@ -58,6 +58,9 @@ public struct ChatScreen: View {
     /// UUID e não Bool: dois pedidos seguidos precisam disparar duas vezes.
     var pedidoDeVoz: UUID?
     @State private var draft = ""
+    /// O último texto que veio do ditado, para saber se o que ele enviou ainda é o que foi
+    /// ouvido. Zerado a cada envio.
+    @State private var ditadoPendente: String?
     /// Dictation language, toggled by the composer's PT/EN chip. Persisted; pt_BR default.
     @AppStorage("dictationLocaleID") private var dictationLocaleID = "pt_BR"
     /// Última vez que o usuário mexeu em alguma coisa. `nil` → ainda não mexeu nesta
@@ -649,6 +652,10 @@ public struct ChatScreen: View {
             // "não falei" — não "falei normal".
             onVoiceCommit: { falado in
                 store.sinalDeVozDoTurno = voice.sinalDoUltimoTurno
+                // O TOM pode vir nulo (o turno de voz do chat desliga o upload acústico);
+                // a MODALIDADE não. Sem esta linha, o turno falado chegava ao banco
+                // indistinguível de um digitado — medido em 17-ago-2026.
+                store.turnoFoiFalado = true
                 turnoVeioDeVoz = true
                 sendText(falado)
             },
@@ -666,7 +673,7 @@ public struct ChatScreen: View {
         // Voice→text: stream the live transcript into the field while dictating. The mic only
         // appears when the field is empty, so this never clobbers typed text.
         .onChange(of: speech.transcript) { _, newValue in
-            if speech.isRecording { draft = newValue }
+            if speech.isRecording { draft = newValue; ditadoPendente = newValue }
         }
     }
 
@@ -769,6 +776,17 @@ public struct ChatScreen: View {
             activeSheet = .goDeep(text)
             return
         }
+        // Ditado também é fala — mas só enquanto o texto enviado AINDA É o que foi ouvido.
+        // Se ele reescreveu, "falado" deixaria de ser verdade sobre este texto, e uma marca
+        // de proveniência imprecisa é pior que marca nenhuma. Comparação exata, de propósito.
+        //
+        // Só afirma; nunca nega. O caminho de segurar-para-falar já marcou antes de chegar
+        // aqui, e um `false` aqui apagaria a marca dele.
+        if let ditado = ditadoPendente?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !ditado.isEmpty, ditado == text {
+            store.turnoFoiFalado = true
+        }
+        ditadoPendente = nil
         draft = ""
         store.voiceModel = depth.voiceModel   // Rápido → default voice; Pensar → stronger model
         store.deepThink = depth.isDeepThink    // Agente → agentic read-only tool path (server side)
