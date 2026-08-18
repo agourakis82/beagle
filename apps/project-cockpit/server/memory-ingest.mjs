@@ -12,14 +12,21 @@ function clean(s) {
 export function buildVerbatimPayload({ sessionId, userText, assistantText, clientTime, timezone } = {}) {
   const u = clean(userText);
   const a = clean(assistantText);
-  if (!u || !a) return null;
+  // Nota avulsa: ele diz algo e ninguém responde. Toda a espinha de memória
+  // pressupunha troca conversacional, e é justamente o formato mais provável de
+  // um auto-relato — "peito apertado", "dormi mal" — dito às três da manhã sem
+  // querer conversa.
+  //
+  // O turno do assistente é OMITIDO, nunca preenchido com vazio: um turno
+  // fantasma do companion no histórico seria a voz da máquina entrando onde não
+  // deve, que é o erro que a guarda de falante existe para impedir.
+  if (!u) return null;
   return {
     source: "companion-personal",
     session_id: clean(sessionId) || "companion-default",
-    turns: [
-      { role: "user", content: u },
-      { role: "assistant", content: a },
-    ],
+    turns: a
+      ? [{ role: "user", content: u }, { role: "assistant", content: a }]
+      : [{ role: "user", content: u }],
     tags: ["companion", "personal", "verbatim"],
     metadata: {
       space: "personal",
@@ -183,7 +190,13 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     try { occurredAt = clientTime ? new Date(clientTime).toISOString() : new Date().toISOString(); }
     catch { occurredAt = new Date().toISOString(); }
 
-    const atoms = await distillFn({ userText, assistantText }, { routerUrl, model, fetchImpl });
+    // Nota avulsa não se destila. Destilar "peito apertado" produziria um átomo
+    // `model_distilled` que é a máquina parafraseando três palavras — ruído com
+    // aparência de conhecimento, e um segundo registro sobre o mesmo evento que
+    // não é modalidade nova nenhuma.
+    const atoms = clean(assistantText)
+      ? await distillFn({ userText, assistantText }, { routerUrl, model, fetchImpl })
+      : [];
 
     // PROVENANCE FIRST. The user/assistant turns are written to the canonical store
     // (memory-pg) with provenance BEFORE the beagle-core path, which (synchronously)
@@ -197,9 +210,14 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     let userId = null;
     if (u) {
       const r = await captureFn(
+        // A superfície distingue nota de turno de chat. Proveniência é sobre COMO
+        // a alegação veio a ser acreditada, e "ele digitou sozinho no widget" não
+        // é a mesma coisa que "ele respondeu ao companion".
         { source_type: "ConversationPassage", content: u, prov_actor: "user_stated",
-          prov_surface: "companion-ios", prov_confidence: 1.0, occurred_at: occurredAt,
-          metadata: { space: "personal", session_id: sid, role: "user" } },
+          prov_surface: clean(assistantText) ? "companion-ios" : "companion-ios-nota",
+          prov_confidence: 1.0, occurred_at: occurredAt,
+          metadata: { space: "personal", session_id: sid, role: "user",
+                      standalone: clean(assistantText) ? undefined : true } },
         capDeps,
       );
       userId = r && r.id ? r.id : null;
@@ -246,7 +264,10 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
 export async function handleIngestRequest(body = {}, { ingestFn = ingestPersonalTurn, tokenFn } = {}) {
   const userText = clean(body.userText || body.user_text);
   const assistantText = clean(body.assistantText || body.assistant_text);
-  if (!userText || !assistantText) return { status: 400, body: { error: "userText and assistantText required" } };
+  // `assistantText` passa a ser OPCIONAL: uma captura rápida do widget é uma nota
+  // solta, e exigir o par fazia toda nota avulsa morrer num 400. Só `userText` é
+  // obrigatório — sem ele não há o que capturar.
+  if (!userText) return { status: 400, body: { error: "userText required" } };
   ingestFn({
     sessionId: clean(body.session_id || body.sessionId),
     userText, assistantText,
