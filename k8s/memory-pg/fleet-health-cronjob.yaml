@@ -45,11 +45,18 @@ spec:
               env:
                 # Declaração de dependência. Acrescentar um modelo aqui é dizer "disto eu
                 # dependo"; tirar é uma decisão registrada, não um sumiço.
-                # `modelo@endereco`: as duas faixas vivem em endpoints diferentes — o de
-                # volume no Ollama do Spark, o r1 atrás do roteador — e declarar só um
-                # vigiaria metade da frota achando que vigia a frota inteira.
+                # `modelo@endereco`: as faixas vivem em endpoints diferentes — o de volume
+                # no Ollama do Spark, o r1 atrás do roteador — e declarar só um vigiaria
+                # metade da frota achando que vigia a frota inteira.
+                #
+                # `qwen2.5-14b` entrou em 18-ago-2026. Ele apontava para
+                # `vllm.vllm-r770-eagle3`, um namespace VAZIO, e ninguém soube: o `fallbacks`
+                # do LiteLLM desviava para o Spark e devolvia 200 por cima de um primário
+                # morto. Alarme que só olha o que já está na lista nunca descobre o que caiu
+                # fora dela — e fallback silencioso é justamente o caso em que o alarme é a
+                # única testemunha possível. Agora aponta para a L4 do r770 e é vigiado.
                 - name: FLEET_MODELS
-                  value: "qwen2.5:14b@http://192.168.3.24:11434,r1-distill-70b@http://router.llm-router.svc.cluster.local:4000"
+                  value: "qwen2.5:14b@http://192.168.3.24:11434,r1-distill-70b@http://router.llm-router.svc.cluster.local:4000,qwen2.5-14b@http://router.llm-router.svc.cluster.local:4000"
                 # CALIBRADO POR MEDIÇÃO, não por intuição. Sob carga normal dos próprios
                 # workers, o 14b levou 21,9 s para um token — um limiar de 30 s dispararia
                 # à toa, e alarme que toca à toa é silenciado. O caso a pegar é o modelo na
