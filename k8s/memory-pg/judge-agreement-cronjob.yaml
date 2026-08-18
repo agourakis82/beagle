@@ -34,7 +34,7 @@ spec:
             - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
           containers:
             - name: judge
-              image: 192.168.3.207:5003/memory-pg-embed-worker:p30-julga-3d6a1dcd
+              image: 192.168.3.207:5003/memory-pg-embed-worker:p35-prereg-v2-a494b3d5
               command: ["node", "bin/judge-agreement.mjs", "--apply"]
               securityContext:
                 seccompProfile: { type: Unconfined }
