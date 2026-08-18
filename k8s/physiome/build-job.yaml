@@ -25,7 +25,7 @@ spec:
         - name: clone
           image: alpine/git:latest
           # Pinned to an immutable commit SHA (not a mutable branch) for reproducible, tamper-resistant builds. Bump per release.
-          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 3df75104501785c4f82c12f864157fa8eb801183 && git checkout -q FETCH_HEAD"]
+          command: ["/bin/sh","-lc","cd /workspace && git init -q && git remote add origin https://github.com/agourakis82/beagle.git && git fetch -q --depth=1 origin 1b6d0e3232bbd949323a81bf7637eae88078e7eb && git checkout -q FETCH_HEAD"]
           volumeMounts: [{ name: workspace, mountPath: /workspace }]
       containers:
         - name: kaniko
@@ -33,7 +33,7 @@ spec:
           args:
             - "--dockerfile=/workspace/apps/physiome/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/physiome:instrumentado-3df75104"
+            - "--destination=192.168.3.207:5003/physiome:instante-1b6d0e32"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
