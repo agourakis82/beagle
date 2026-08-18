@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gpu-chat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gpu-chat
+  template:
+    metadata:
+      labels:
+        app: gpu-chat
+    spec:
+      containers:
+        - name: gpu-chat
+          image: gpu-chat:latest
+          ports:
+            - containerPort: 8090
+          env:
+            - name: LITELLM_BASE_URL
+              value: http://litellm:4000
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gpu-chat-data
