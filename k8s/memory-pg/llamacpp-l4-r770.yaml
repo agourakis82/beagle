@@ -1,0 +1,150 @@
+# llamacpp-l4-r770.yaml — serving na L4 do r770, com llama.cpp em vez de vLLM.
+#
+# ## Por que llama.cpp aqui, e não vLLM
+#
+# Tentei vLLM primeiro e **causei pressão de disco no r770**. Medido depois: o nó tem 93,9 GB
+# de raiz, 44,5 GB já ocupados pelo `containerd`, e 19,3 GB livres. A imagem
+# `vllm/vllm-openai` não cabe — puxá-la cruza o limiar do kubelet, que passa a DESPEJAR pod
+# novo. (Contido: escalei a zero, a GC do kubelet liberou, `DiskPressure` voltou a False, e os
+# 128 workers do `dosa` nunca pararam. O único despejado foi minha sonda.)
+#
+# A memória do cluster já registrava um incidente igual neste mesmo nó, com um PoC do sglang.
+# Repeti. Fica escrito aqui para o próximo não repetir de novo.
+#
+# `ghcr.io/ggml-org/llama.cpp:server-cuda` resolve pelos dois lados:
+#   - imagem pequena, cabe nos 19 GB livres;
+#   - o peso GGUF vai para o PVC em CephFS (`LLAMA_CACHE`), **não** para o disco do nó.
+#
+# E não é aposta: é EXATAMENTE a imagem que o `vllm-r1` roda hoje no r740, em produção.
+#
+# ## Modelo
+#
+# `bartowski/Qwen2.5-14B-Instruct-GGUF:Q4_K_M` — ~9 GB, cabe nos 24 GB da L4 com folga para o
+# KV cache em 8192 de contexto. MESMA FAMÍLIA do `qwen2.5:14b` que já roda a extração em
+# produção: trocar família junto com hardware misturaria duas variáveis, e hoje eu já errei
+# uma vez concluindo qualidade a partir de vazão.
+#
+# Repositório e quantização VERIFICADOS na API da HuggingFace antes de escrever isto — hoje já
+# levei 404 por chutar nome de arquivo.
+#
+# O PVC do cache mora em `hf-cache-l4-pvc.yaml`, SEPARADO deste arquivo: um `kubectl delete -f`
+# aqui levou o PVC junto com o Deployment uma vez. Dado com ciclo de vida próprio (o download
+# de 9 GB) não mora no mesmo arquivo do que é descartável.
+#
+# ## O r770 tem UMA L4, não quatro
+#
+# O nó anuncia `nvidia.com/gpu: 4` e eu li isso como quatro placas. É **uma só**, fatiada em
+# quatro por time-slicing — `kube-system/nvidia-l4-timeslice` traz `sharing.timeSlicing.
+# resources[nvidia.com/gpu].replicas: 4`. Time-slicing REPLICA a mesma placa; não isola VRAM.
+#
+# Medido, não deduzido: subi 4 réplicas e as quatro receberam
+# `NVIDIA_VISIBLE_DEVICES=GPU-b3ffdfa8-…` — o MESMO UUID. Duas carregaram (9 GB cada em 23 GB),
+# as outras duas morreram em `cudaMalloc failed: out of memory` na device 0. Um pod de censo
+# com `NVIDIA_VISIBLE_DEVICES=all` (host inteiro visível) confirmou: `nvidia-smi -L` lista
+# exatamente uma L4.
+#
+# Por isso **uma réplica**, e a concorrência vem de `--parallel` DENTRO do processo: um servidor
+# com batching contínuo usa a placa melhor que N processos disputando-a por fatia de tempo, e
+# não paga a VRAM do modelo N vezes.
+#
+# ⚠️ Escalar este Deployment não adiciona capacidade — só reparte a mesma L4 e arrisca OOM.
+# Capacidade nova exige placa nova, não réplica.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llamacpp-l4
+  namespace: beagle
+  labels: { app: llamacpp-l4 }
+spec:
+  replicas: 1
+  # `Recreate`, nunca RollingUpdate: numa placa unica o pod novo tenta carregar 9 GB enquanto o
+  # velho ainda os segura, e morre em `cudaMalloc failed: out of memory` — foi o que aconteceu
+  # no primeiro `kubectl apply` deste arquivo. VRAM nao e um recurso que o rolling update saiba
+  # esperar. O preco e uma janela de indisponibilidade a cada deploy; e o preco correto aqui,
+  # porque a alternativa nao e disponibilidade, e um pod que nunca sobe.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: llamacpp-l4 }
+  template:
+    metadata:
+      labels: { app: llamacpp-l4 }
+    spec:
+      # Sem ele o hook da NVIDIA não injeta o driver e o processo morre sem enxergar GPU —
+      # foi assim que a tentativa com vLLM falhou antes de eu copiar isto do `vllm-r1`.
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: r770-proxmox
+      tolerations:
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          args:
+            - -hf
+            - bartowski/Qwen2.5-14B-Instruct-GGUF:Q4_K_M
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+            - -ngl
+            - "99"          # todas as camadas na GPU; 9 GB num cartão de 24 GB cabe inteiro
+            - -c
+            - "32768"       # dividido entre os slots de --parallel: 8k uteis por slot
+            - --parallel
+            - "4"           # 4 requisicoes simultaneas num processo so, com batching continuo
+            - --jinja
+            - --alias
+            - qwen2.5-14b-l4
+          env:
+            - name: LLAMA_CACHE
+              value: /cache
+            - name: HF_HUB_DOWNLOAD_TIMEOUT
+              value: "1800"
+            # NVIDIA_VISIBLE_DEVICES fica de FORA: o device plugin injeta o UUID sozinho.
+            # Eu escrevi aqui, antes, que isso garantiria "uma GPU distinta por contêiner" —
+            # é falso sob time-slicing, que entrega o MESMO UUID a todos. Fica registrado
+            # porque a frase errada é mais perigosa que a ausência dela.
+          ports:
+            - { name: http, containerPort: 8000 }
+          # startupProbe, nunca `initialDelaySeconds` grande: o download frio leva minutos e o
+          # quente ~1. Atraso fixo dimensionado para o pior caso deixa o serviço sem endpoint
+          # mesmo com cache pronto — foi o defeito do `vllm-r1` (20 min de espera cega).
+          startupProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 160    # até ~40 min para o download frio de 9 GB
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            # Reserva modesta: servidor preso à GPU não precisa segurar cores, e reserva
+            # inflada em nó de GPU foi o que bloqueou serving três vezes hoje (buildkitd com
+            # 48 cores usando 1 milicore, slurm-pilot com 8 usando 1).
+            requests: { cpu: "2", memory: 8Gi, nvidia.com/gpu: "1" }
+            limits: { cpu: "16", memory: 32Gi, nvidia.com/gpu: "1" }
+          volumeMounts:
+            - { name: cache, mountPath: /cache }
+          securityContext:
+            # AppArmor, e não só seccomp: o perfil padrão deste cluster já derrubou serviço por
+            # negar AF_UNIX, e seccomp sozinho não cobre esse caso.
+            appArmorProfile: { type: Unconfined }
+            seccompProfile: { type: Unconfined }
+      volumes:
+        - name: cache
+          persistentVolumeClaim: { claimName: hf-cache-l4-r770 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llamacpp-l4
+  namespace: beagle
+spec:
+  selector: { app: llamacpp-l4 }
+  ports:
+    - { name: http, port: 8000, targetPort: 8000 }

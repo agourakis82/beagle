@@ -1,0 +1,22 @@
+# Cache dos pesos GGUF das L4 do r770, em arquivo SEPARADO do Deployment.
+#
+# Estava junto do manifesto do serving, e um `kubectl delete -f` levou o PVC junto com o
+# Deployment — comando que age sobre mais coisa do que se tinha em mente, que é o mesmo
+# padrão que hoje já me custou 4.982 registros num DELETE expandido por chave.
+#
+# Dado com ciclo de vida próprio (o download de 9 GB) não mora no mesmo arquivo do que é
+# descartável (o Deployment). Separar torna o acidente impossível em vez de improvável.
+#
+# RWX porque as réplicas compartilham UM download: os `hf-cache-*` que já existem são RWO e
+# só uma réplica conseguiria montar.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hf-cache-l4-r770
+  namespace: beagle
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs-scratch
+  resources:
+    requests:
+      storage: 120Gi

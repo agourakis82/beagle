@@ -1,12 +1,16 @@
 # SOTA 2026 router — Darwin cluster (v3: + ensemble exotico chines)
 model_list:
-  # === SOTA primary: 14B + EAGLE-3 speculative ===
+  # === 14B primario: llama.cpp na L4 do r770 (k8s/memory-pg/llamacpp-l4-r770.yaml) ===
+  # Apontava para `vllm.vllm-r770-eagle3` — namespace VAZIO em 18-ago-2026. `qwen2.5-14b` e o
+  # alias `chat-fast` roteavam para o nada; o `fallbacks` la embaixo mandava tudo para o Spark
+  # e escondia isso. Destino de router nao se verifica por estar no arquivo, so por responder.
+  # Medido no substituto: ~26 tok/s numa requisicao, ~65 tok/s agregados com 4 concorrentes.
   - model_name: qwen2.5-14b
     litellm_params:
-      model: openai/qwen2.5-14b
-      api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+      model: openai/qwen2.5-14b-l4
+      api_base: http://llamacpp-l4.beagle.svc.cluster.local:8000/v1
       api_key: noauth
-      rpm: 600
+      rpm: 60          # a L4 entrega ~65 tok/s agregados; 600 era numero de backend fantasma
 
   # === SOTA coder: 32B AWQ RTX 8000 ===
   - model_name: qwen2.5-coder-32b
@@ -19,8 +23,8 @@ model_list:
   # === Aliases por GPU/use-case ===
   - model_name: chat-fast
     litellm_params:
-      model: openai/qwen2.5-14b
-      api_base: http://vllm.vllm-r770-eagle3.svc.cluster.local:8000/v1
+      model: openai/qwen2.5-14b-l4
+      api_base: http://llamacpp-l4.beagle.svc.cluster.local:8000/v1
       api_key: noauth
 
   - model_name: code
@@ -162,7 +166,187 @@ model_list:
       api_key: noauth
       timeout: 600
 
+
+
+  # Claude Sonnet 4.6 via OAuth proxy on t560:9500 (Darwin Max sub)
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: openai/claude-sonnet-4-6
+      api_base: http://10.100.100.2:9500/v1
+      api_key: noauth
+      timeout: 600
+      rpm: 200
+
+  - model_name: claude-sonnet4.6
+    litellm_params:
+      model: openai/claude-sonnet-4-6
+      api_base: http://10.100.100.2:9500/v1
+      api_key: noauth
+      timeout: 600
+      rpm: 200
+
+  - model_name: claude-sonnet-4.6
+    litellm_params:
+      model: openai/claude-sonnet-4-6
+      api_base: http://10.100.100.2:9500/v1
+      api_key: noauth
+      timeout: 600
+      rpm: 200
+
+  # === DeepSeek V4 (official API) — fast closed-set planner + general ===
+  # Key: DEEPSEEK_API_KEY in llm-provider-keys secret.
+  # Official supported names (2026-08): deepseek-v4-flash | deepseek-v4-pro
+  - model_name: deepseek-v4-flash
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      timeout: 120
+      rpm: 600
+
+  - model_name: deepseek-flash
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      timeout: 120
+      rpm: 600
+
+  - model_name: deepseek-v4-pro
+    litellm_params:
+      model: openai/deepseek-v4-pro
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      timeout: 300
+      rpm: 200
+
+
+  # === Z.AI / GLM (coding package) — ZAI_API_KEY in llm-provider-keys ===
+  # Coding endpoint is the live subscription; general paas/v4 is out of balance.
+  - model_name: glm-4.7
+    litellm_params:
+      model: openai/glm-4.7
+      api_base: https://api.z.ai/api/coding/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      timeout: 180
+      rpm: 300
+
+  - model_name: glm-5
+    litellm_params:
+      model: openai/glm-5
+      api_base: https://api.z.ai/api/coding/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      timeout: 300
+      rpm: 200
+
+  - model_name: zai
+    litellm_params:
+      model: openai/glm-4.7
+      api_base: https://api.z.ai/api/coding/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      timeout: 180
+      rpm: 300
+
+  - model_name: glm
+    litellm_params:
+      model: openai/glm-4.7
+      api_base: https://api.z.ai/api/coding/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      timeout: 180
+      rpm: 300
+
+  - model_name: glm-4.5
+    litellm_params:
+      model: openai/glm-4.5
+      api_base: https://api.z.ai/api/coding/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      timeout: 180
+      rpm: 300
+
+
+  - model_name: deepseek-chat
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      timeout: 120
+      rpm: 600
+
+  - model_name: deepseek
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      timeout: 120
+      rpm: 600
+
+  - model_name: deepseek-reasoner
+    litellm_params:
+      model: openai/deepseek-v4-pro
+      api_base: https://api.deepseek.com/v1
+      api_key: os.environ/DEEPSEEK_API_KEY
+      timeout: 300
+      rpm: 200
+
+
+  # === DGX Spark .24 (Ollama) — LOCAL, sempre ligado, nao disputa GPU com Slurm ===
+  - model_name: spark-qwen-14b
+    litellm_params:
+      model: openai/qwen2.5:14b
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+  - model_name: spark-coder-32b
+    litellm_params:
+      model: openai/qwen2.5-coder:32b
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+  - model_name: spark-qwq-32b
+    litellm_params:
+      model: openai/qwq:32b
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+  - model_name: spark-glm-air
+    litellm_params:
+      model: openai/MichelRosselli/GLM-4.5-Air:Q4_K_M
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+  - model_name: spark-phi4-reasoning
+    litellm_params:
+      model: openai/phi4-reasoning:14b
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+  - model_name: spark-deepseek-coder-16b
+    litellm_params:
+      model: openai/deepseek-coder-v2:16b
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+  - model_name: local-chat
+    litellm_params:
+      model: openai/qwen2.5:14b
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+  - model_name: local-code
+    litellm_params:
+      model: openai/qwen2.5-coder:32b
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+  - model_name: local-think
+    litellm_params:
+      model: openai/qwq:32b
+      api_base: http://192.168.3.24:11434/v1
+      api_key: noauth
+      rpm: 120
+
 router_settings:
+  fallbacks: [{"chat-fast": ["spark-qwen-14b"]}, {"code": ["spark-coder-32b"]}, {"qwen2.5-14b": ["spark-qwen-14b"]}, {"qwen2.5-coder-32b": ["spark-coder-32b"]}, {"science": ["spark-phi4-reasoning"]}, {"mind": ["spark-qwq-32b"]}]
   routing_strategy: latency-based-routing
   retry_after: 5
   num_retries: 2
