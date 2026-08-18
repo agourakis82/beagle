@@ -66,7 +66,7 @@ export async function runGraphOnce(pool, opts) {
 
   // `oversized` sai daqui pelo mesmo motivo que `semSentenca` e `sujeitoAlheio`: um registro
   // posto de lado sem numero visivel e um registro perdido em silencio.
-  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, oversized: 0, semSentenca: 0, sujeitoAlheio: 0, errors: [] };
+  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, oversized: 0, instanteRecusado: 0, semSentenca: 0, sujeitoAlheio: 0, errors: [] };
 
   for (const row of claimed.rows) {
     try {
@@ -103,6 +103,10 @@ export async function runGraphOnce(pool, opts) {
       // legitimos. O custo foi aceito; invisivel ele nao pode ser — sem este numero ninguem
       // descobre que a lista branca esta comendo demais.
       stats.sujeitoAlheio += applied.sujeitoAlheio ?? 0;
+      // Instante declarado recusado por implausivel: o relato cai para hora imputada e, sob a
+      // direcao-v2, deixa de ser elegivel. Rebaixamento em silencio seria indistinguivel de um
+      // relato que nunca declarou hora.
+      stats.instanteRecusado += applied.instanteRecusado ?? 0;
       if (applied.sujeitoAlheio) {
         console.error(
           `[graph-worker] record=${row.record_id} ${applied.sujeitoAlheio} auto-relato(s) recusado(s): sujeito nao e o falante`,

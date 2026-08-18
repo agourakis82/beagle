@@ -230,3 +230,53 @@ fica zerado. Duas frentes, nenhuma delas feita ainda:
 **Verificação:** 44/44 em `judge`, `agreement` e `physio-join`, incluindo o teste que confirma
 que apontar o juiz para o v1 agora **explode** em vez de julgar em silêncio sob a regra antiga.
 Por reversão: removida a linha que exclui hora imputada, o teste da quarentena falha.
+
+
+---
+
+## 2026-08-18 — Medido: o prompt NÃO é o gargalo; o corpus é. E o modelo inventa a data.
+
+**Pergunta:** o `occurred_at` nunca vinha preenchido porque o prompt não insiste, ou porque os
+relatos não dizem quando? São consertos diferentes — um no extrator, outro no app.
+
+**Resposta: nenhum dos dois, exatamente.** Três medidas:
+
+**1. O prompt extrai a hora quando o texto a declara.** Sonda contra o servidor de produção
+(`qwen2.5-14b-l4`), com o prompt vigente:
+
+| entrada | `occurred_at` devolvido |
+|---|---|
+| "Ontem, 17 de agosto de 2026, as 22h30, eu estava exausto." | `2026-08-17T22:30:00Z` ✓ |
+| "Hoje acordei as 5h20 com o peito apertado…" | `2023-10-04T05:20:00Z` ✗ **data alucinada** |
+| "Estou ansioso agora." (controle) | `null` ✓ |
+| "Acordei com o peito apertado." (controle) | `null` ✓ |
+
+A leitura inicial de que o prompt "proibia" o campo estava errada: a proibição vale só para o
+presente, que é o comportamento desejado. Com data no texto, ele acerta.
+
+**2. O corpus não tem instantes.** Em 60 dias, **zero** dos 26.617 registros `user_stated` traz
+hora explícita — os 5 que meu regex apontou eram falsos positivos, um "h" no meio do texto. Dos
+23 auto-relatos com canal, as âncoras existentes são todas de granularidade grossa: "hoje",
+"acordei", "hoje passei o dia". Nenhuma é um instante.
+
+**Portanto o conserto do prompt não moveria o funil de zero.** O gargalo é a captura na origem,
+como a `direcao-v2` já previa.
+
+**3. Achado novo, e é o perigoso: com hora sem data, o modelo inventa a data.** Sob a
+`direcao-v2` o instante declarado é o **único** caminho para o confronto — e portanto o único
+lugar onde uma alucinação vira evidência. O primeiro relato com hora entraria contra a
+fisiologia de 2023.
+
+**Guarda instalada:** `instanteDeclaradoPlausivel` só aceita instante declarado dentro de
+±7 dias do momento da fala; fora disso o fato cai para hora imputada e, sob a v2, torna-se
+inelegível. Sem âncora para validar, **recusa** — o custo de recusar é perder um caso, o de
+confiar é um instante inventado passar por declarado. O contador `instanteRecusado` sai nos
+logs do worker, porque rebaixamento silencioso é indistinguível de relato que nunca teve hora.
+
+Sete dias e não trinta: a janela existe para pegar data alucinada, não para acomodar relato
+antigo. Um estado lembrado com precisão de instante mais de uma semana depois não sustenta um
+confronto de ±60 min de qualquer jeito.
+
+**Conclusão para o roadmap:** a frente 2 (prompt) está **encerrada** — não havia defeito de
+insistência, e o defeito que havia foi corrigido com guarda. Resta a frente 1: **o app precisa
+capturar o instante do estado**. Enquanto isso não existir, o funil fica em zero, corretamente.

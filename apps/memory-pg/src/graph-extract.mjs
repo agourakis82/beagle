@@ -337,6 +337,45 @@ function parseLlmJson(reply) {
   return null;
 }
 
+/**
+ * Janela em que um instante DECLARADO pelo modelo e plausivel, em dias em torno da fala.
+ *
+ * Existe porque o modelo inventa a DATA quando o texto so da a HORA. Medido em 18-ago-2026
+ * contra o servidor de producao: "Hoje acordei as 5h20 com o peito apertado" voltou como
+ * `occurred_at = "2023-10-04T05:20:00Z"` — hora certa, data tres anos no passado. Com a
+ * `direcao-v2`, que so admite hora declarada, seria exatamente esse fato a entrar no confronto,
+ * contra a fisiologia de 2023.
+ *
+ * Sete dias, e nao trinta: a janela nao existe para acomodar relato antigo, existe para pegar
+ * data alucinada. Um estado lembrado com precisao de instante mais de uma semana depois nao
+ * sustenta um confronto de +-60 min de qualquer forma — aceita-lo largaria a guarda sem ganhar
+ * um caso utilizavel.
+ */
+export const JANELA_INSTANTE_DIAS = 7;
+
+/**
+ * Aceita o instante declarado so se ele for plausivel perto do momento da fala.
+ *
+ * Sem ancora (o registro nao tem hora), NAO da para validar — e a resposta e recusar, nao
+ * confiar. O custo de recusar e o fato cair para hora imputada, que sob a `direcao-v2` o torna
+ * inelegivel: perde-se um caso. O custo de confiar e um instante inventado entrar no confronto
+ * parecendo declarado, que e o unico erro que esta fase nao pode cometer.
+ *
+ * @returns {{ok:true, at:string}|{ok:false, motivo:string}}
+ */
+export function instanteDeclaradoPlausivel(declarado, ancora, janelaDias = JANELA_INSTANTE_DIAS) {
+  if (declarado === null || declarado === undefined) return { ok: false, motivo: "ausente" };
+  if (!ancora) return { ok: false, motivo: "sem ancora para validar" };
+  const d = Date.parse(declarado);
+  const a = Date.parse(ancora);
+  if (!Number.isFinite(d) || !Number.isFinite(a)) return { ok: false, motivo: "instante ilegivel" };
+  const dias = Math.abs(d - a) / 86400000;
+  if (dias > janelaDias) {
+    return { ok: false, motivo: `declarado a ${dias.toFixed(0)} dias da fala (teto ${janelaDias})` };
+  }
+  return { ok: true, at: declarado };
+}
+
 /** A broken extraction, as opposed to an empty one. Carries the reason to the DLQ. */
 export class GraphExtractionError extends Error {
   constructor(message, { kind }) {
@@ -512,6 +551,11 @@ export async function applyExtraction(pool, extraction, opts = {}) {
    * invisivel. Sem este numero, ninguem descobre que a guarda esta comendo demais.
    */
   let sujeitoAlheio = 0;
+  // Instante declarado que a guarda recusou. Sai daqui pelo mesmo motivo que os outros dois:
+  // um relato rebaixado de "hora declarada" para "hora imputada" muda de ELEGIVEL para
+  // INELEGIVEL sob a direcao-v2, e um rebaixamento silencioso e indistinguivel de um relato
+  // que nunca teve hora.
+  let instanteRecusado = 0;
   for (let fi = 0; fi < facts.length; fi++) {
     const f = facts[fi];
 
@@ -556,7 +600,13 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     // valem, mas nao valem o mesmo: "acordei com o peito apertado" acordou ha
     // horas, e com janela de +-60min contra a fisiologia isso confronta o relato
     // com o corpo de outro momento. Marcado em vez de indistinguivel.
-    const declarado = coerceTimestamp(f.occurred_at);
+    // O instante declarado passa por uma checagem de plausibilidade antes de valer como
+    // declarado. Ver `instanteDeclaradoPlausivel`: o modelo alucina a DATA quando o texto so
+    // da a HORA, e sob a direcao-v2 e justamente o instante declarado que entra no confronto.
+    const declaradoCru = coerceTimestamp(f.occurred_at);
+    const plaus = instanteDeclaradoPlausivel(declaradoCru, occurredAt);
+    const declarado = plaus.ok ? plaus.at : null;
+    if (declaradoCru !== null && !plaus.ok) instanteRecusado++;
     const occ = declarado ?? occurredAt ?? null;
     const occImputado = declarado === null && occ !== null;
 
@@ -642,7 +692,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       client.release();
     }
   }
-  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca, sujeitoAlheio };
+  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca, sujeitoAlheio, instanteRecusado };
 }
 
 export default applyExtraction;
