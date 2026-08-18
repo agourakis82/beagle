@@ -57,7 +57,7 @@ export function registerChatRoutes(app: FastifyInstance, db: Database.Database, 
     try {
       for await (const token of streamChatCompletion(litellmBaseUrl, conversation.model, chatMessages)) {
         assembled += token
-        reply.raw.write(`data: ${token}\n\n`)
+        reply.raw.write(`data: ${JSON.stringify(token)}\n\n`)
       }
     } catch {
       truncated = true

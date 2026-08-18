@@ -18,7 +18,7 @@ export function registerCompareRoutes(app: FastifyInstance, db: Database.Databas
       models.map(async (model) => {
         try {
           for await (const token of streamChatCompletion(litellmBaseUrl, model, messages)) {
-            reply.raw.write(`event: ${model}\ndata: ${token}\n\n`)
+            reply.raw.write(`event: ${model}\ndata: ${JSON.stringify(token)}\n\n`)
           }
         } catch {
           // upstream error for this model surfaces as an early [DONE]; the UI marks it incomplete

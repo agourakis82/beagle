@@ -77,7 +77,7 @@ export async function streamMessage(
         onDone()
         return
       }
-      onToken(data)
+      onToken(JSON.parse(data))
     }
   }
   onDone()

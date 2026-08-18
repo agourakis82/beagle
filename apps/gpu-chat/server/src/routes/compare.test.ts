@@ -20,8 +20,8 @@ describe('POST /api/compare', () => {
       payload: { prompt: 'hi', models: ['qwen2.5-7b', 'qwen2.5-14b'] },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.body).toContain('event: qwen2.5-7b\ndata: a')
-    expect(res.body).toContain('event: qwen2.5-14b\ndata: b')
+    expect(res.body).toContain('event: qwen2.5-7b\ndata: "a"')
+    expect(res.body).toContain('event: qwen2.5-14b\ndata: "b"')
   })
 
   it('still emits [DONE] for a model whose stream throws mid-way, without affecting other models', async () => {
@@ -39,9 +39,9 @@ describe('POST /api/compare', () => {
       payload: { prompt: 'hi', models: ['qwen2.5-7b', 'qwen2.5-14b'] },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.body).toContain('event: qwen2.5-7b\ndata: ok')
+    expect(res.body).toContain('event: qwen2.5-7b\ndata: "ok"')
     expect(res.body).toContain('event: qwen2.5-7b\ndata: [DONE]')
-    expect(res.body).toContain('event: qwen2.5-14b\ndata: b')
+    expect(res.body).toContain('event: qwen2.5-14b\ndata: "b"')
     expect(res.body).toContain('event: qwen2.5-14b\ndata: [DONE]')
   })
 })

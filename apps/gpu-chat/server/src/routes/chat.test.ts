@@ -43,8 +43,8 @@ describe('POST /api/conversations/:id/messages', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toContain('text/event-stream')
-    expect(res.body).toContain('data: Hel')
-    expect(res.body).toContain('data: lo')
+    expect(res.body).toContain('data: "Hel"')
+    expect(res.body).toContain('data: "lo"')
     expect(res.body).toContain('data: [DONE]')
 
     const messagesRes = await app.inject({ method: 'GET', url: `/api/conversations/${conv.id}/messages` })
@@ -77,5 +77,28 @@ describe('POST /api/conversations/:id/messages', () => {
     const messagesRes = await app.inject({ method: 'GET', url: `/api/conversations/${conv.id}/messages` })
     const messages = messagesRes.json()
     expect(messages[1]).toMatchObject({ content: 'Par', truncated: 1 })
+  })
+
+  it('preserves embedded newlines in a token when persisted', async () => {
+    vi.spyOn(litellmClient, 'streamChatCompletion').mockReturnValue(fakeStream(['Hello\nWorld']))
+    const app = buildApp({ dbPath: ':memory:', litellmBaseUrl: 'http://unused:4000' })
+
+    const conv = (
+      await app.inject({
+        method: 'POST',
+        url: '/api/conversations',
+        payload: { title: 'Test chat', model: 'qwen2.5-7b' },
+      })
+    ).json()
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${conv.id}/messages`,
+      payload: { content: 'hi there' },
+    })
+
+    const messagesRes = await app.inject({ method: 'GET', url: `/api/conversations/${conv.id}/messages` })
+    const messages = messagesRes.json()
+    expect(messages[1]).toMatchObject({ role: 'assistant', content: 'Hello\nWorld', truncated: 0 })
   })
 })
