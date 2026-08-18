@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-pg-graph-health
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: graph-health
+spec:
+  # A extração está PRODUZINDO? O alarme que faltava.
+  #
+  # `memory-pg-capture-health` já existia e esteve OK durante os 29 dias em que a
+  # extração estava morta: ele vigia a CAPTURA — "o app está gravando registros?"
+  # — e a captura nunca parou. Quem parou foi a etapa seguinte. Um alarme no
+  # lugar errado é pior que nenhum, porque dá sensação de cobertura.
+  #
+  # O sinal NÃO é "nenhum fato em X horas": zero fatos é correto numa noite
+  # quieta com a fila vazia, e um alarme que toca à toa é silenciado — é assim
+  # que alarmes morrem. A assinatura da pane é a CONJUNÇÃO: entrou material novo
+  # (ou há fila) e não saiu fato nenhum.
+  #
+  # Linha de base medida com o pipeline são: ~150 fatos/hora. Três horas de zero
+  # com entrada é inequívoco.
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 300
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          restartPolicy: Never
+          # Só o t560 alcança o memory-pg no Spark. Sem isto o Job cairia em
+          # r740/r770 com EHOSTUNREACH e falharia por rota — um alarme que só
+          # sabe gritar "não consegui olhar" é ruído, não vigilância.
+          nodeSelector:
+            kubernetes.io/hostname: t560-proxmox
+          tolerations:
+            - key: sounio.dev/pool
+              operator: Equal
+              value: gpu-batch
+              effect: NoSchedule
+            - key: sounio.dev/compute
+              operator: Equal
+              value: heavy
+              effect: NoSchedule
+          containers:
+            - name: graph-health
+              image: 192.168.3.207:5003/memory-pg-embed-worker:p24-alarme-49c20ce0
+              command: ["node", "bin/graph-health.mjs", "--window", "3"]
+              env:
+                - name: MEMORY_PG_DSN
+                  valueFrom:
+                    secretKeyRef:
+                      name: memory-pg
+                      key: DATABASE_URL
+                # ntfy próprio do cluster: o alarme precisa alcançar alguém fora
+                # daqui. Um Job falho só existe para quem já foi olhar — e
+                # ninguém foi olhar por 29 dias.
+                - name: NTFY_URL
+                  value: "http://ntfy.beagle.svc.cluster.local"
+                - name: NTFY_TOPIC
+                  valueFrom:
+                    secretKeyRef: { name: ntfy-auth, key: topic, optional: true }
+                - name: NTFY_USER
+                  valueFrom:
+                    secretKeyRef: { name: ntfy-auth, key: user, optional: true }
+                - name: NTFY_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: ntfy-auth, key: password, optional: true }
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: 128Mi
+                limits:
+                  cpu: "500m"
+                  memory: 512Mi

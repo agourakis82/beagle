@@ -17,19 +17,188 @@ function sha256hex(s) {
 }
 
 /**
+ * Closed vocabulary of self-state channels — the measurable quantity that could
+ * bear on a self-report. Mirrors the CHECK constraint in sql/008_self_report.sql;
+ * both exist because the schema is the authority and this is the fast path that
+ * keeps a malformed field from costing the whole fact.
+ */
+export const SELF_STATE_CHANNELS = new Set([
+  "sleep", "arousal", "valence", "pain", "fatigue", "oncall",
+]);
+
+/**
+ * O SINAL do auto-relato. Espelha o CHECK de sql/015_state_polarity.sql.
+ *
+ * `alta` é sempre MAIS do estado que o canal nomeia, nunca "melhor" — bom e ruim trocam de
+ * lado conforme o canal (dormir mais é bom, ficar mais tenso não), e um vocabulário avaliativo
+ * faria o extrator escorregar exatamente onde a direção pré-registrada precisa dele firme.
+ */
+export const SELF_STATE_POLARITIES = new Set(["alta", "baixa"]);
+
+/**
+ * Um auto-relato só vale se quem falou for O SUJEITO. Decidido pelo registro,
+ * nunca pelo modelo — o extrator lê texto e não tem como saber de quem é a boca.
+ *
+ * Medido antes de escrever isto: os QUATRO primeiros auto-relatos com canal que
+ * chegaram ao banco vinham de registros `role=assistant`,
+ * `prov_actor=model_generated`. Eram o companion falando:
+ *
+ *   "o corpo está mais acelerado que o de costume"   (descrevendo a cena)
+ *   "não tenho humor, tenho postura"                 (falando de SI MESMO)
+ *   "você me disse que estava irritado comigo"       (lembrando o que ELE disse)
+ *
+ * O "self" do auto-relato era a máquina. Corroborar isso contra a fisiologia
+ * dele seria confrontar a prosa do companion com a HRV de um humano — o modo de
+ * falha que a quarentena de proveniência existe para impedir, acontecendo em
+ * silêncio.
+ *
+ * A regra é dura de propósito. Na fila pessoal há 3.072 registros `assistant`
+ * para 31 `user`: sem esta guarda, 99% do "substrato" seria a própria voz do
+ * sistema voltando como evidência sobre o corpo dele.
+ *
+ * @param {{prov_actor?:string|null, role?:string|null}} rec
+ * @returns {boolean}
+ */
+export function speakerIsSubject(rec = {}) {
+  const role = typeof rec.role === "string" ? rec.role.trim().toLowerCase() : null;
+  if (role) return role === "user";
+  // Sem `role` declarado, o ator do registro é o que sobra. Note que
+  // `user_stated` é frouxo (inclui ruído de harness de agente), mas texto de
+  // harness não produz auto-relato de estado — e frouxo aqui erra para o lado
+  // de aceitar fala humana, não para o de aceitar a máquina.
+  return rec.prov_actor === "user_stated";
+}
+
+/**
+ * Proveniência do fato, CARIMBADA PELO SISTEMA.
+ *
+ * Antes, a coluna `provenance` recebia `f.provenance` — o objeto que o próprio
+ * modelo tinha emitido. Num sistema cuja tese inteira é que uma alegação carrega
+ * como veio a ser acreditada, o extrator estava assinando o próprio atestado.
+ *
+ * Agora o que o modelo diz sobre si fica em quarentena sob `model_claimed`, e o
+ * que o sistema sabe fica em `extracted_by`. Um modelo que emita
+ * `{"provenance":{"extracted_by":{"model":"gpt-5"}}}` aterrissa em
+ * `model_claimed.extracted_by` e nunca no topo — a chave de cima é escrita
+ * depois, por quem observou a chamada.
+ *
+ * Também resolve o problema prático que motivou isto: até aqui, saber qual
+ * modelo produziu um fato exigia cruzar `recorded_at` com a data de criação dos
+ * ReplicaSets. Funcionou porque a janela era limpa; não é auditoria.
+ *
+ * @param {unknown} claimed  o que o modelo emitiu no campo provenance
+ * @param {{model?:string|null, at?:string}} sistema
+ */
+export function stampProvenance(claimed, sistema = {}) {
+  const out = {};
+  if (claimed && typeof claimed === "object" && !Array.isArray(claimed)) {
+    out.model_claimed = claimed;
+  }
+  out.extracted_by = {
+    model: sistema.model ?? null,
+    at: sistema.at ?? new Date().toISOString(),
+  };
+  return out;
+}
+
+/**
+ * Aceita um instante só se for realmente um instante. O modelo escreve prosa
+ * onde se pediu ISO — "cinco e quinze" apareceu em produção — e um valor assim
+ * derruba o INSERT, levando o registro inteiro para a DLQ por causa de um campo.
+ *
+ * Devolve uma string ISO ou null. Não tenta adivinhar o que a prosa queria
+ * dizer: interpretar "cinco e quinze" seria a máquina inventando o QUANDO de um
+ * auto-relato, e o quando é justamente o que torna a corroboração possível.
+ *
+ * @param {unknown} v
+ * @returns {string|null}
+ */
+export function coerceTimestamp(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString();
+  if (typeof v !== "string" && typeof v !== "number") return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  // Datas absurdas quase sempre são alucinação de formato, não história.
+  const year = d.getUTCFullYear();
+  if (year < 1900 || year > 2200) return null;
+  return d.toISOString();
+}
+
+/**
  * Build the strict extraction prompt. Asks for ONLY a JSON object so parsing is
  * robust; the model is told to scope facts temporally and mark multi-valued
  * relations (so we don't over-invalidate).
  */
 export function buildExtractionPrompt(content) {
   return [
-    "Extract a knowledge graph from the text. Return ONLY a JSON object, no prose:",
-    '{"entities":[{"name","type"}],"facts":[{"subject","predicate","object"|"object_literal",',
-    '"statement","occurred_at"?,"valid_from"?,"confidence"?,"multi_valued"?}]}',
+    "Extract a knowledge graph from the text. Return ONLY a JSON object, no prose.",
+    // O esquema era escrito em ABREVIACAO — `{"entities":[{"name","type"}]}` — que NAO e JSON
+    // valido. Medido em 17-ago-2026: o modelo copiava `{"name", "type"}` literalmente para a
+    // saida, produzindo JSON impossivel de parsear, o registro ia para a DLQ depois de tres
+    // tentativas, e isso acontecia com o prompt antigo tanto quanto com o novo.
+    //
+    // Um esquema que o proprio modelo nao consegue copiar sem errar e um esquema mal escrito.
+    // Agora vai um EXEMPLO completo e valido, que copiar acerta.
+    "Shape (this is a valid example, follow it exactly):",
+    '{"entities":[{"name":"Sounio","type":"system"}],',
+    ' "facts":[{"subject":"Sounio","predicate":"passed_gate","object_literal":"madaros",',
+    '           "statement":"O compilador Sounio passou no gate de madaros.",',
+    '           "occurred_at":"2026-08-17T03:00:00Z","multi_valued":false,',
+    '           "self_report":false}]}',
+    "Optional keys: occurred_at, valid_from, confidence, multi_valued, self_report, state_channel.",
     "Rules: entities are people/projects/places/systems/concepts. predicate is a short snake_case",
     "relation. Set multi_valued=true for relations that can hold many objects at once (knows,",
     "uses, mentions). Use object_literal for non-entity objects (dates, numbers, free text).",
     "Scope facts in time when the text implies it. Extract only what the text supports.",
+    "",
+    // `statement` aparecia apenas na FORMA do JSON, sem nunca ser declarado obrigatorio nem
+    // explicado — e todo modelo o tratava como enfeite. Medido em 17-ago-2026: 66% dos fatos
+    // do `qwen2.5:14b` e ate 19 de um so registro no `r1-distill-70b` chegavam sem ele.
+    //
+    // Nao era defeito de modelo: era o prompt nao pedindo. E um fato sem `statement` nunca
+    // pode ser recuperado, porque e esse texto que vai para o indice semantico.
+    "STATEMENT IS MANDATORY. Every fact MUST have a non-empty `statement`: one self-contained",
+    "sentence, in the language of the text, that a person could read on its own and understand",
+    "without seeing subject/predicate/object. It is what makes the fact findable later.",
+    "  good: \"Ele acordou as tres da manha com o peito apertado.\"",
+    "  bad:  \"\"  (empty), \"blocked\", \"55\", \"contains_pr_state\"",
+    "A fact you cannot phrase as a sentence is not a fact worth extracting — DROP IT instead of",
+    "emitting it with an empty statement.",
+    "",
+    "SELF-REPORTS. When the speaker says something about their OWN state, set self_report=true",
+    "and set state_channel to the one measurable quantity that could test it:",
+    "  sleep    slept badly/well, hours slept, woke during the night",
+    "  arousal  tense, agitated, wired, calm, relaxed",
+    "  valence  feeling good/bad, down, content",
+    "  pain     headache or any reported pain",
+    "  fatigue  tired, exhausted, drained",
+    "  oncall   working a shift / on call (context, not a state)",
+    "occurred_at for a self-report is WHEN THE STATE HAPPENED, not when it was said. Two cases,",
+    "and the difference matters:",
+    "  PRESENT TENSE (\"estou irritado\", \"hoje está pior\", \"não durmo bem\") — the moment of",
+    "  speaking IS the moment of the state. LEAVE occurred_at OUT and keep the fact; the system",
+    "  stamps it with the utterance time. Do NOT drop these.",
+    "  PAST, with no date given (\"semana passada dormi mal\", \"outro dia tive dor\") — you do not",
+    "  know when. OMIT THE FACT. Do not guess a date, and do not leave occurred_at out either:",
+    "  an absent time would be filled in with the moment of speaking, which would file last",
+    "  week's state under today.",
+    "If no channel fits, leave state_channel out; never force one. Statements about code, systems",
+    "or other people are NOT self-reports.",
+    "",
+    // O SINAL. Sem ele a direcao pre-registrada nao se aplica a nada. `alta` e sempre "mais do
+    // estado que o canal nomeia" — nunca "melhor" ou "pior", porque bom e ruim trocam de lado
+    // conforme o canal e um vocabulario avaliativo faz o modelo escorregar.
+    "state_polarity: the DIRECTION of the state, \"alta\" or \"baixa\". It means MORE or LESS of",
+    "the state the channel names — never better/worse:",
+    "  sleep    alta = slept MORE/better    baixa = slept LESS/worse (\"dormi mal\" -> baixa)",
+    "  arousal  alta = tense, agitated      baixa = calm, relaxed",
+    "  fatigue  alta = tired, exhausted     baixa = rested",
+    "  valence  alta = feeling good         baixa = feeling bad",
+    // Palpite de moeda nao deixaria o julgamento indeciso: produziria acordo ou desacordo
+    // INVENTADO em metade dos casos. Omitir e o resultado honesto.
+    "If the text does not make the direction clear, OMIT state_polarity. Do not guess: a coin",
+    "flip here manufactures agreement. Omitting is a valid, expected answer.",
     "",
     "TEXT:",
     String(content || "").slice(0, 8000),
@@ -94,22 +263,52 @@ function parseLlmJson(reply) {
   return null;
 }
 
+/** A broken extraction, as opposed to an empty one. Carries the reason to the DLQ. */
+export class GraphExtractionError extends Error {
+  constructor(message, { kind }) {
+    super(message);
+    this.name = "GraphExtractionError";
+    this.kind = kind; // "llm" | "unparseable"
+  }
+}
+
 /**
  * Extract {entities, facts} from a record via the injected sovereign LLM.
- * Never throws — unparseable output yields an empty extraction.
+ *
+ * THROWS on a broken extraction. It used to swallow every failure into an empty
+ * result, which made "the model was unreachable" indistinguishable from "this
+ * record contains no facts" — the worker marked the record done either way and
+ * never came back to it. That is how the pipeline ran for 29 days emitting
+ * facts=0 on every cycle with nothing in the DLQ and nothing in the logs.
+ *
+ * The three outcomes are now distinct:
+ *   - LLM call fails            -> throw (kind "llm"): retry, then DLQ
+ *   - reply present, unparseable -> throw (kind "unparseable"): retry, then DLQ
+ *   - valid JSON, no entities/facts -> return empty: genuinely nothing to extract
+ *
+ * Only the third is success. Silence now means "nothing to say", never "the
+ * extractor broke".
+ *
  * @param {{content:string}} record
  * @param {{llmFn:(prompt:string)=>Promise<string>}} opts
+ * @throws {GraphExtractionError}
  */
 export async function extractGraph(record, { llmFn } = {}) {
   if (typeof llmFn !== "function") throw new Error("extractGraph: opts.llmFn required");
   let reply;
   try {
     reply = await llmFn(buildExtractionPrompt(record.content));
-  } catch {
-    return { entities: [], facts: [] };
+  } catch (err) {
+    throw new GraphExtractionError(`LLM call failed: ${err?.message ?? err}`, { kind: "llm" });
   }
   const obj = parseLlmJson(reply);
-  if (!obj || typeof obj !== "object") return { entities: [], facts: [] };
+  if (!obj || typeof obj !== "object") {
+    throw new GraphExtractionError(
+      `LLM reply had no parseable JSON object (${String(reply ?? "").length} chars): ` +
+        String(reply ?? "").replace(/\s+/g, " ").slice(0, 160),
+      { kind: "unparseable" },
+    );
+  }
   const entities = Array.isArray(obj.entities) ? obj.entities.filter((e) => e && e.name) : [];
   const facts = Array.isArray(obj.facts) ? obj.facts.filter((f) => f && f.subject && f.predicate) : [];
   return { entities, facts };
@@ -123,7 +322,13 @@ export async function extractGraph(record, { llmFn } = {}) {
  * @returns {Promise<{entitiesResolved:number, factsInserted:number, factsInvalidated:number}>}
  */
 export async function applyExtraction(pool, extraction, opts = {}) {
-  const { recordId = null, embedFn = null, occurredAt = null } = opts;
+  const { recordId = null, embedFn = null, occurredAt = null, model = null,
+          speaker = null } = opts;
+  // Quem falou decide se auto-relato é admissível. Ausência de `speaker` é
+  // tratada como "não é ele": um chamador que não sabe de quem é a fala não pode
+  // autorizar uma alegação sobre o estado dele.
+  const auto_ok = speaker ? speakerIsSubject(speaker) : false;
+  const stampedAt = new Date().toISOString();
   const entities = extraction.entities || [];
   const facts = extraction.facts || [];
 
@@ -160,8 +365,29 @@ export async function applyExtraction(pool, extraction, opts = {}) {
 
   let factsInserted = 0;
   let factsInvalidated = 0;
+  /** Fatos recusados por não terem sentença. Contado, nunca silencioso. */
+  let semSentenca = 0;
   for (let fi = 0; fi < facts.length; fi++) {
     const f = facts[fi];
+
+    // FATO SEM `statement` NASCE INVISÍVEL.
+    //
+    // `statement` é o texto que vai para o índice semântico: sem ele o fato existe na tabela
+    // e NUNCA pode ser recuperado. Não é um fato fraco — é um fato que ninguém jamais lerá,
+    // ocupando espaço e inflando toda contagem de "conhecimento extraído".
+    //
+    // Medido em 17-ago-2026: 66% do que o `qwen2.5:14b` produzia vinha assim (contra 10% do
+    // `coder:32b` e 7,9% do corpus histórico). A amostra mostra o padrão — `contains_pr_state
+    // / blocked`, `has_pr_count / 55`: triplas raspadas de um dump, sem sentença.
+    //
+    // Recusar aqui, e CONTAR quantos foram recusados, é o oposto de deixar passar em
+    // silêncio: a taxa de descarte vira um sinal da qualidade do extrator em vez de virar
+    // lixo indistinguível dentro do grafo.
+    if (typeof f.statement !== "string" || f.statement.trim() === "") {
+      semSentenca++;
+      continue;
+    }
+
     let subjectId = idByName[f.subject];
     if (!subjectId) {
       subjectId = (await resolveEntity(pool, { name: f.subject, type: "unknown" })).id;
@@ -176,8 +402,37 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       }
     }
     const objectLiteral = f.object ? null : (f.object_literal ?? null);
-    const validFrom = f.valid_from || occurredAt || null;
-    const occ = f.occurred_at || occurredAt || null;
+    // Um instante que o Postgres não sabe ler derruba o registro inteiro e o
+    // manda para a DLQ depois de três tentativas. Visto em produção na primeira
+    // hora depois do conserto: o modelo devolveu occurred_at="cinco e quinze".
+    // Campo malformado custa um nulo, nunca o fato — a mesma regra do canal.
+    const validFrom = coerceTimestamp(f.valid_from) ?? occurredAt ?? null;
+    // A hora do fato vem do texto ou e' deduzida do instante da fala. As duas
+    // valem, mas nao valem o mesmo: "acordei com o peito apertado" acordou ha
+    // horas, e com janela de +-60min contra a fisiologia isso confronta o relato
+    // com o corpo de outro momento. Marcado em vez de indistinguivel.
+    const declarado = coerceTimestamp(f.occurred_at);
+    const occ = declarado ?? occurredAt ?? null;
+    const occImputado = declarado === null && occ !== null;
+
+    // The model proposes; the schema decides. A channel outside the closed
+    // vocabulary is dropped rather than stored, because the corroboration
+    // criterion joins on this column — letting the model coin a channel would
+    // let it quietly invent a new kind of evidence. The DB CHECK would reject it
+    // anyway; doing it here means one bad field costs a null, not the whole fact.
+    const selfReport = f.self_report === true && auto_ok;
+    const proposed = typeof f.state_channel === "string" ? f.state_channel.trim().toLowerCase() : null;
+    const stateChannel = selfReport && SELF_STATE_CHANNELS.has(proposed) ? proposed : null;
+    // O SINAL do relato, sob a mesma regra do canal: vocabulario fechado, e o que cair fora
+    // vira NULO em vez de entrar. Polaridade so existe se houver canal — sinal sem canal nao
+    // julga nada, e guarda-lo daria a impressao de um dado utilizavel que nao e.
+    //
+    // NULO e resultado esperado: quando o texto nao deixa a direcao clara, o extrator omite.
+    // Um palpite aqui nao deixaria o julgamento indeciso — fabricaria acordo ou desacordo em
+    // metade dos casos.
+    const polProposta = typeof f.state_polarity === "string"
+      ? f.state_polarity.trim().toLowerCase() : null;
+    const statePolarity = stateChannel && SELF_STATE_POLARITIES.has(polProposta) ? polProposta : null;
     const content_sha256 = sha256hex(
       [subjectId, f.predicate, objectId ?? "", objectLiteral ?? "", f.statement || ""].join("|"),
     );
@@ -202,15 +457,18 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       const ins = await client.query(
         `INSERT INTO facts
            (subject_id, predicate, object_id, object_literal, statement, embedding,
-            valid_from, occurred_at, source_record_id, provenance, confidence, content_sha256)
+            valid_from, occurred_at, source_record_id, provenance, confidence, content_sha256,
+            self_report, state_channel, occurred_at_imputed, state_polarity)
          VALUES ($1,$2,$3,$4,$5,$6::halfvec,
-                 COALESCE($7::timestamptz, now()),$8,$9,$10::jsonb,$11,$12)
+                 COALESCE($7::timestamptz, now()),$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (content_sha256) DO NOTHING
          RETURNING id`,
         [
           subjectId, f.predicate, objectId, objectLiteral, f.statement || "", embLit,
-          validFrom, occ, recordId, JSON.stringify(f.provenance || {}),
+          validFrom, occ, recordId,
+          JSON.stringify(stampProvenance(f.provenance, { model, at: stampedAt })),
           f.confidence ?? 1.0, content_sha256,
+          selfReport, stateChannel, occImputado, statePolarity,
         ],
       );
       // Record the source→claim support for the quorum, even when the fact already
@@ -234,7 +492,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       client.release();
     }
   }
-  return { entitiesResolved, factsInserted, factsInvalidated };
+  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca };
 }
 
 export default applyExtraction;

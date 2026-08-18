@@ -23,6 +23,7 @@
 import { makePool } from "../src/db.mjs";
 import { backfillFactSupports } from "../src/trust-backfill.mjs";
 import { promoteFacts, promoteRecords } from "../src/promote.mjs";
+import { measurePromoteFunnel, collapseStage } from "../src/promote-funnel.mjs";
 import pg from "pg";
 
 const args = process.argv.slice(2);
@@ -66,6 +67,19 @@ try {
   const dist = await pool.query(
     "SELECT trust_tier, count(*) FROM facts GROUP BY 1 ORDER BY 2 DESC");
   for (const r of dist.rows) console.log(`  facts ${r.trust_tier}: ${r.count}`);
+
+  // O funil, gravado a cada ciclo. Um zero em `corroborated` não distingue
+  // critério exigente de extração parada; a série estágio a estágio distingue,
+  // e nomeia onde caiu.
+  const funnel = await measurePromoteFunnel(pool);
+  console.log(`promote-worker: funil [${funnel.criterion}]`);
+  console.log(`  fatos                ${funnel.facts_total}`);
+  console.log(`  com apoio            ${funnel.with_support}`);
+  console.log(`  com apoio do usuario ${funnel.with_user_support}`);
+  console.log(`  apoio independente   ${funnel.independent_support}`);
+  console.log(`  promovidos           ${funnel.promoted}`);
+  const stage = collapseStage(funnel);
+  if (stage) console.log(`  >> o funil zera em: ${stage}`);
 } finally {
   await pool.end();
 }

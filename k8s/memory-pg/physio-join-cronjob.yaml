@@ -1,0 +1,69 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-pg-physio-join
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: physio-join
+spec:
+  # Anexa a evidência fisiológica aos auto-relatos e grava o funil da Fase 2.
+  #
+  # De hora em hora porque o substrato chega devagar: a extração produz ~2.000
+  # registros/dia e só uma fração vira auto-relato com canal e hora. Esperar o
+  # backfill terminar para rodar à mão seria dois dias de espera cega — assim o
+  # funil fica sempre atual e ninguém precisa vigiar a fila.
+  #
+  # ⚠️ Isto NÃO promove nada a `corroborated`. Anexa a medida que existia no
+  # instante do relato; dizer se ela CONCORDA exige direção pré-registrada.
+  #
+  # Idempotente: ON CONFLICT atualiza a linha da mesma (fato, medida, janela).
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          # A junta fala com DOIS bancos: memory-pg no Spark (192.168.3.24) e
+          # beagle-pg no cluster. Só o t560 alcança o Spark — de r740/r770 dá
+          # EHOSTUNREACH, e o job ficaria num laço inútil. O nó é declarado, não
+          # deixado à sorte do escalonador.
+          nodeSelector:
+            kubernetes.io/hostname: t560-proxmox
+          tolerations:
+            - key: sounio.dev/pool
+              operator: Equal
+              value: gpu-batch
+              effect: NoSchedule
+            - key: sounio.dev/compute
+              operator: Equal
+              value: heavy
+              effect: NoSchedule
+          containers:
+            - name: physio-join
+              image: 192.168.3.207:5003/memory-pg-embed-worker:p22-imputed-9edea539
+              command: ["node", "bin/physio-join.mjs", "--window", "60"]
+              env:
+                - name: MEMORY_PG_DSN
+                  valueFrom:
+                    secretKeyRef:
+                      name: memory-pg
+                      key: DATABASE_URL
+                - name: BEAGLE_PG_DSN
+                  valueFrom:
+                    secretKeyRef:
+                      name: beagle-pg
+                      key: DATABASE_URL
+              resources:
+                requests:
+                  cpu: "250m"
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 1Gi
