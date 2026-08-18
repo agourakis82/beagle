@@ -75,6 +75,10 @@ export function createConversation(db: Database.Database, title: string, model: 
   return getConversation(db, Number(info.lastInsertRowid))!
 }
 
+export function updateConversationModel(db: Database.Database, id: number, model: string): void {
+  db.prepare('UPDATE conversations SET model = ? WHERE id = ?').run(model, id)
+}
+
 export function listConversations(db: Database.Database): Conversation[] {
   return db.prepare('SELECT * FROM conversations ORDER BY created_at DESC').all() as Conversation[]
 }
@@ -114,6 +118,12 @@ export function addAttachment(
     .prepare('INSERT INTO attachments (message_id, filename, content, mime_type) VALUES (?, ?, ?, ?)')
     .run(messageId, filename, content, mimeType)
   return db.prepare('SELECT * FROM attachments WHERE id = ?').get(info.lastInsertRowid) as Attachment
+}
+
+export function listAttachments(db: Database.Database, messageId: number): Attachment[] {
+  return db
+    .prepare('SELECT * FROM attachments WHERE message_id = ? ORDER BY id ASC')
+    .all(messageId) as Attachment[]
 }
 
 export function createTemplate(db: Database.Database, name: string, systemPrompt: string): PromptTemplate {
