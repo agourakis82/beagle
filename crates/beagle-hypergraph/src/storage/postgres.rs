@@ -695,7 +695,7 @@ impl PostgresStorage {
     pub async fn health_check(&self) -> Result<HealthStatus> {
         let start = std::time::Instant::now();
 
-        let result = sqlx::query!("SELECT 1 as check")
+        let result = sqlx::query("SELECT 1 as check")
             .fetch_one(&self.pool)
             .await;
 

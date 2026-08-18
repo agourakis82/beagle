@@ -86,6 +86,40 @@ public final class PersistedMessage {
     }
 }
 
+// MARK: - Persisted Conversation (multi-thread)
+
+/// One chat thread. Messages link to it by `PersistedMessage.conversationId == id`. Lets the
+/// chat hold many conversations (history drawer) instead of a single home thread.
+@Model
+public final class PersistedConversation {
+    @Attribute(.unique) public var id: String   // == conversationId on its messages
+    public var projectSlug: String
+    public var title: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var pinned: Bool
+    public var lastModel: String?
+
+    public init(
+        id: String, projectSlug: String, title: String? = nil,
+        createdAt: Date = .now, updatedAt: Date = .now, pinned: Bool = false, lastModel: String? = nil
+    ) {
+        self.id = id
+        self.projectSlug = projectSlug
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.pinned = pinned
+        self.lastModel = lastModel
+    }
+
+    /// Title to show in the history drawer when none was set yet.
+    public var displayTitle: String {
+        let t = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? "Nova conversa" : t
+    }
+}
+
 // MARK: - Persisted Deep Session
 
 @Model
@@ -188,6 +222,7 @@ public enum PersistenceConfig {
         let schema = Schema([
             PersistedThought.self,
             PersistedMessage.self,
+            PersistedConversation.self,
             PersistedDeepSession.self,
             PersistedExocortexHomeSnapshot.self,
             PersistedAssistedImportOutbox.self,

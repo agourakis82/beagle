@@ -80,12 +80,13 @@ public final class MetacognitiveDialogue {
             ))
         }
 
-        // 4. Long silence — no thought captured
-        if let silence = timeSinceLastCapture, silence > 3600 * 2 {  // 2+ hours
+        // 4. Long silence — an INVITATION, never a demand. Raised 2h→8h so it stops nagging;
+        //    an intimate companion doesn't police productivity. pt-BR, warm, no guilt.
+        if let silence = timeSinceLastCapture, silence > 3600 * 8 {  // 8+ hours
             let hours = Int(silence / 3600)
             newObservations.append(.init(
                 type: .silence,
-                message: "No thoughts captured in \(hours) hours. Is everything flowing, or are you stuck?",
+                message: "Faz \(hours)h que nada passa por aqui. Se tiver algo pra soltar, o espaço é seu — sem pressa.",
                 severity: .gentle,
                 action: .promptCapture
             ))

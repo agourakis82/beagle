@@ -108,6 +108,12 @@ public struct PhysioConversationPolicy: Sendable, Equatable, Codable {
 public struct PhysioSummary: Sendable, Equatable {
     public let hrvMs: Double?
     public let restingHeartRate: Double?
+    /// Most recent instantaneous heart rate (bpm) — the live interoceptive anchor.
+    public let heartRate: Double?
+    /// Latest Apple State of Mind valence (−1..1), logged by the user himself.
+    public let stateOfMind: Double?
+    /// Primary emotion word the user tagged on that State of Mind entry ("ansioso"), pt-BR.
+    public let stateOfMindLabel: String?
     public let sleepHours: Double?
     public let mindfulMinutes: Double?
     public let workoutCount: Int
@@ -118,6 +124,9 @@ public struct PhysioSummary: Sendable, Equatable {
     public init(
         hrvMs: Double? = nil,
         restingHeartRate: Double? = nil,
+        heartRate: Double? = nil,
+        stateOfMind: Double? = nil,
+        stateOfMindLabel: String? = nil,
         sleepHours: Double? = nil,
         mindfulMinutes: Double? = nil,
         workoutCount: Int = 0,
@@ -127,6 +136,9 @@ public struct PhysioSummary: Sendable, Equatable {
     ) {
         self.hrvMs = hrvMs
         self.restingHeartRate = restingHeartRate
+        self.heartRate = heartRate
+        self.stateOfMind = stateOfMind
+        self.stateOfMindLabel = stateOfMindLabel
         self.sleepHours = sleepHours
         self.mindfulMinutes = mindfulMinutes
         self.workoutCount = workoutCount
@@ -292,6 +304,49 @@ public struct PhysioSummary: Sendable, Equatable {
     }
 }
 
+/// A single night's sleep, bucketed by stage — the granular counterpart to
+/// `PhysioSummary.sleepHours`, meant for a dedicated sleep view rather than the compact summary.
+public struct SleepNight: Sendable, Equatable {
+    public let date: Date
+    public let totalAsleepHours: Double
+    public let deepMinutes: Double
+    public let remMinutes: Double
+    public let coreMinutes: Double
+    public let awakeMinutes: Double
+    public let inBedHours: Double
+    public let hrvMs: Double?
+    public let restingHeartRate: Double?
+
+    public init(
+        date: Date,
+        totalAsleepHours: Double,
+        deepMinutes: Double,
+        remMinutes: Double,
+        coreMinutes: Double,
+        awakeMinutes: Double,
+        inBedHours: Double,
+        hrvMs: Double? = nil,
+        restingHeartRate: Double? = nil
+    ) {
+        self.date = date
+        self.totalAsleepHours = totalAsleepHours
+        self.deepMinutes = deepMinutes
+        self.remMinutes = remMinutes
+        self.coreMinutes = coreMinutes
+        self.awakeMinutes = awakeMinutes
+        self.inBedHours = inBedHours
+        self.hrvMs = hrvMs
+        self.restingHeartRate = restingHeartRate
+    }
+
+    /// Ratio of restorative (deep + REM) sleep to total asleep time, 0 when nothing was asleep.
+    public var deepREMFraction: Double {
+        guard totalAsleepHours > 0 else { return 0 }
+        let totalAsleepMinutes = totalAsleepHours * 60.0
+        return (deepMinutes + remMinutes) / totalAsleepMinutes
+    }
+}
+
 // MARK: - Cognitive Posture (5-signal biosensor fusion)
 
 public struct CognitivePosture: Sendable {
@@ -403,9 +458,15 @@ public final class PhysioStore {
                 workoutCount: workoutCount
             )
 
+            let som = await queryStateOfMind()
+            let latestHeartRate = await queryLatestHeartRate()
+
             summary = PhysioSummary(
                 hrvMs: hrv?.value,
                 restingHeartRate: resting?.value,
+                heartRate: latestHeartRate,
+                stateOfMind: som?.valence,
+                stateOfMindLabel: som?.label,
                 sleepHours: sleepHours,
                 mindfulMinutes: mindfulMinutes,
                 workoutCount: workoutCount,
@@ -414,14 +475,12 @@ public final class PhysioStore {
                 readiness: readiness
             )
 
-            let stateOfMindValence = await queryStateOfMind()
-
             cognitivePosture = CognitivePosture(
                 hrv: hrv?.value,
                 respiratoryRate: respiratoryRate,
                 wristTemperature: wristTemperature,
                 sleepQuality: sleepQualityRatio,
-                stateOfMind: stateOfMindValence,
+                stateOfMind: som?.valence,
                 observedAt: observedAt
             )
         } catch {
@@ -435,6 +494,92 @@ public final class PhysioStore {
         #endif
     }
 
+    /// Last night's sleep, bucketed by stage (deep/REM/core/awake/inBed) plus the latest HRV and
+    /// resting heart rate — the granular counterpart to `summary.sleepHours` for a dedicated sleep
+    /// view. Returns nil only when there were zero asleep samples in the last 24h, so the view can
+    /// distinguish "no sleep data yet" from "slept zero restorative minutes."
+    public func lastNightSleep() async -> SleepNight? {
+        #if canImport(HealthKit)
+        guard let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else { return nil }
+        let calendar = Calendar.current
+        let end = Date()
+        let start = calendar.date(byAdding: .day, value: -1, to: end) ?? end.addingTimeInterval(-86400)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+
+        let samples: [HKCategorySample]
+        do {
+            samples = try await withCheckedThrowingContinuation { continuation in
+                let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: nil) { _, samples, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                        return
+                    }
+                    continuation.resume(returning: (samples as? [HKCategorySample]) ?? [])
+                }
+                healthStore.execute(query)
+            }
+        } catch {
+            return nil
+        }
+
+        var deepSeconds = 0.0
+        var remSeconds = 0.0
+        var coreSeconds = 0.0
+        var awakeSeconds = 0.0
+        var inBedSeconds = 0.0
+        var latestEnd: Date?
+
+        for sample in samples {
+            let duration = sample.endDate.timeIntervalSince(sample.startDate)
+            switch sample.value {
+            case HKCategoryValueSleepAnalysis.asleepDeep.rawValue:
+                deepSeconds += duration
+            case HKCategoryValueSleepAnalysis.asleepREM.rawValue:
+                remSeconds += duration
+            case HKCategoryValueSleepAnalysis.asleepCore.rawValue, HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue:
+                coreSeconds += duration
+            case HKCategoryValueSleepAnalysis.awake.rawValue:
+                awakeSeconds += duration
+            case HKCategoryValueSleepAnalysis.inBed.rawValue:
+                inBedSeconds += duration
+            default:
+                break
+            }
+            if latestEnd == nil || sample.endDate > latestEnd! {
+                latestEnd = sample.endDate
+            }
+        }
+
+        let totalAsleepSeconds = deepSeconds + remSeconds + coreSeconds
+        guard totalAsleepSeconds > 0 else { return nil }
+
+        let hrvSample = (try? await latestQuantitySample(
+            identifier: .heartRateVariabilitySDNN,
+            unit: HKUnit(from: "ms"),
+            lookbackDays: 1
+        )) ?? nil
+        let restingSample = (try? await latestQuantitySample(
+            identifier: .restingHeartRate,
+            unit: HKUnit.count().unitDivided(by: .minute()),
+            lookbackDays: 1
+        )) ?? nil
+
+        return SleepNight(
+            date: latestEnd ?? end,
+            totalAsleepHours: totalAsleepSeconds / 3600.0,
+            deepMinutes: deepSeconds / 60.0,
+            remMinutes: remSeconds / 60.0,
+            coreMinutes: coreSeconds / 60.0,
+            awakeMinutes: awakeSeconds / 60.0,
+            inBedHours: inBedSeconds / 3600.0,
+            hrvMs: hrvSample?.value,
+            restingHeartRate: restingSample?.value
+        )
+        #else
+        return nil
+        #endif
+    }
+
     #if canImport(HealthKit)
     private let healthStore = HKHealthStore()
 
@@ -442,6 +587,7 @@ public final class PhysioStore {
         var readTypes: Set<HKObjectType> = [
             HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!,
             HKQuantityType.quantityType(forIdentifier: .restingHeartRate)!,
+            HKQuantityType.quantityType(forIdentifier: .heartRate)!,
             HKQuantityType(.respiratoryRate),
             HKQuantityType(.appleSleepingWristTemperature),
             HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)!,
@@ -466,9 +612,14 @@ public final class PhysioStore {
         authorizationState = .requesting
         try await healthStore.requestAuthorization(toShare: [], read: readTypes)
 
-        let hrvType = HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)!
-        let status = healthStore.authorizationStatus(for: hrvType)
-        authorizationState = status == .sharingDenied ? .denied : .authorized
+        // authorizationStatus(for:) reports SHARE/write permission only. Apple deliberately keeps
+        // it .sharingDenied for a read-only app even when READ access is fully granted (read status
+        // is unqueryable for privacy) — so it must NOT gate reads. The old heuristic below flipped
+        // authorizationState to .denied whenever the HRV *write* toggle was off, emptying the whole
+        // summary despite Health being on (observed as AUTH:denied with HRV/HR/sleep all absent).
+        // After requestAuthorization returns, treat as authorized; the sample reads fail-soft to
+        // nil if read was actually denied, which surfaces honestly as "no data" — not a hard block.
+        authorizationState = .authorized
     }
 
     private func latestQuantitySample(
@@ -665,9 +816,9 @@ public final class PhysioStore {
         return deepREMSeconds / totalAsleepSeconds
     }
 
-    /// Query the latest State of Mind valence from HealthKit (iOS 18+).
-    /// Returns a value from -1.0 (very unpleasant) to 1.0 (very pleasant), or nil.
-    private func queryStateOfMind() async -> Double? {
+    /// Query the latest State of Mind from HealthKit (iOS 18+): valence (−1..1) plus the primary
+    /// emotion word the user tagged, mapped to pt-BR. nil when none logged in the last ~3 days.
+    private func queryStateOfMind() async -> (valence: Double, label: String?)? {
         guard #available(iOS 18.0, watchOS 11.0, macOS 15.0, *) else { return nil }
         let sampleType = HKSampleType.stateOfMindType()
         let end = Date()
@@ -675,7 +826,7 @@ public final class PhysioStore {
         let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
         let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
 
-        return try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Double?, Error>) in
+        return try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(valence: Double, label: String?)?, Error>) in
             let query = HKSampleQuery(sampleType: sampleType, predicate: predicate, limit: 1, sortDescriptors: [sort]) { _, samples, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -685,7 +836,78 @@ public final class PhysioStore {
                     continuation.resume(returning: nil)
                     return
                 }
-                continuation.resume(returning: sample.valence)
+                continuation.resume(returning: (sample.valence, Self.stateOfMindLabelPtBR(sample.labels)))
+            }
+            healthStore.execute(query)
+        }
+    }
+
+    /// Map the user's tagged Apple State of Mind label to a pt-BR emotion word (adjective form),
+    /// or nil for anything unmapped — the server then falls back to the valence band. A regular
+    /// `default` covers future/unknown labels (HKStateOfMind.Label is a non-frozen enum).
+    @available(iOS 18.0, watchOS 11.0, macOS 15.0, *)
+    private static func stateOfMindLabelPtBR(_ labels: [HKStateOfMind.Label]) -> String? {
+        guard let label = labels.first else { return nil }
+        switch label {
+        case .amazed: return "maravilhado"
+        case .amused: return "divertido"
+        case .angry: return "com raiva"
+        case .anxious: return "ansioso"
+        case .ashamed: return "envergonhado"
+        case .brave: return "corajoso"
+        case .calm: return "calmo"
+        case .content: return "contente"
+        case .disappointed: return "decepcionado"
+        case .discouraged: return "desencorajado"
+        case .disgusted: return "com nojo"
+        case .embarrassed: return "constrangido"
+        case .excited: return "empolgado"
+        case .frustrated: return "frustrado"
+        case .grateful: return "grato"
+        case .guilty: return "culpado"
+        case .happy: return "feliz"
+        case .hopeful: return "esperançoso"
+        case .indifferent: return "indiferente"
+        case .irritated: return "irritado"
+        case .jealous: return "com ciúme"
+        case .joyful: return "radiante"
+        case .lonely: return "solitário"
+        case .overwhelmed: return "sobrecarregado"
+        case .passionate: return "apaixonado"
+        case .peaceful: return "em paz"
+        case .proud: return "orgulhoso"
+        case .relieved: return "aliviado"
+        case .sad: return "triste"
+        case .satisfied: return "satisfeito"
+        case .scared: return "assustado"
+        case .stressed: return "estressado"
+        case .surprised: return "surpreso"
+        case .worried: return "preocupado"
+        default: return nil
+        }
+    }
+
+    /// Query the most recent instantaneous heart rate sample (bpm) from HealthKit, or nil.
+    /// The live beat the companion names back as an interoceptive anchor in a hard moment.
+    private func queryLatestHeartRate() async -> Double? {
+        let sampleType = HKQuantityType.quantityType(forIdentifier: .heartRate)!
+        let end = Date()
+        let start = Calendar.current.date(byAdding: .hour, value: -6, to: end) ?? end.addingTimeInterval(-3600 * 6)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end)
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        let bpmUnit = HKUnit.count().unitDivided(by: .minute())
+
+        return try? await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Double?, Error>) in
+            let query = HKSampleQuery(sampleType: sampleType, predicate: predicate, limit: 1, sortDescriptors: [sort]) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let sample = samples?.first as? HKQuantitySample else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: sample.quantity.doubleValue(for: bpmUnit))
             }
             healthStore.execute(query)
         }

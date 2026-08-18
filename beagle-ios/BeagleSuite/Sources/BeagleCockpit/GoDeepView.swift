@@ -114,7 +114,7 @@ struct GoDeepView: View {
         ToolbarItem(placement: leadingToolbarPlacement) {
             Button { store.cancel(); dismiss() } label: {
                 Text(store.isRunning ? "Cancel" : "Close")
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
             }
         }
         ToolbarItem(placement: trailingToolbarPlacement) {
@@ -134,7 +134,7 @@ struct GoDeepView: View {
                 ) {
                     Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 14))
-                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                 }
             }
         }
@@ -170,17 +170,17 @@ struct GoDeepView: View {
                     Text("Exploring")
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
-                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                     Spacer()
                     if !promptExpanded {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                     }
                 }
                 Text(prompt)
                     .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .foregroundStyle(BeagleTheme.companionInk)
                     .lineLimit(promptExpanded ? nil : 3)
                     .multilineTextAlignment(.leading)
                     .animation(BeagleMotion.snappy, value: promptExpanded)
@@ -248,7 +248,7 @@ struct GoDeepView: View {
 
                     Text("Synthesis")
                         .font(BeagleFont.headline.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .foregroundStyle(BeagleTheme.companionInk)
 
                     Spacer()
 
@@ -264,12 +264,12 @@ struct GoDeepView: View {
                 if store.isSynthesizing {
                     Text("Integrating insights across \(store.completedCount) modalities...")
                         .font(BeagleFont.footnote.font)
-                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                         .italic()
                 } else if let synthesis = store.synthesis {
                     Text(synthesis)
                         .font(BeagleFont.body.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .foregroundStyle(BeagleTheme.companionInk)
                         .textSelection(.enabled)
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
@@ -329,13 +329,13 @@ struct GoDeepView: View {
                 Text("Quick Take")
                     .font(BeagleFont.caption.font)
                     .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                     .textCase(.uppercase)
                     .tracking(0.5)
 
                 Text(text)
                     .font(BeagleFont.subheadline.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                     .lineSpacing(2)
                     .italic()
             }
@@ -365,7 +365,7 @@ struct GoDeepView: View {
                         .foregroundStyle(BeagleTheme.truthRemembered)
                     Text("Hypothesis Superposition")
                         .font(BeagleFont.headline.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .foregroundStyle(BeagleTheme.companionInk)
                 }
 
                 // Amplitude bars — each hypothesis shown as a bar with height = amplitude
@@ -377,7 +377,7 @@ struct GoDeepView: View {
                                 Text(hyp.perspective)
                                     .font(BeagleFont.footnote.font)
                                     .fontWeight(.semibold)
-                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .foregroundStyle(BeagleTheme.companionInk)
                                 Spacer()
                                 Text("\(Int(hyp.probability * 100))%")
                                     .font(BeagleFont.data.font)
@@ -396,7 +396,7 @@ struct GoDeepView: View {
                             if !hyp.text.contains("[awaiting") {
                                 Text(hyp.text)
                                     .font(BeagleFont.caption.font)
-                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                                     .lineLimit(hyp.isCollapsed ? 4 : 2)
                             }
                         }
@@ -420,7 +420,7 @@ struct GoDeepView: View {
                                 ForEach(interference.novelEmergent, id: \.self) { insight in
                                     Text("\u{2022} \(insight)")
                                         .font(BeagleFont.caption.font)
-                                        .foregroundStyle(BeagleTheme.textSecondary)
+                                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                                 }
                             }
                         }
@@ -435,7 +435,7 @@ struct GoDeepView: View {
     private func amplitudeColor(_ amplitude: Double) -> Color {
         if amplitude > 0.7 { return BeagleTheme.truthObserved }
         if amplitude > 0.3 { return BeagleTheme.postureWarm }
-        return BeagleTheme.textTertiary
+        return BeagleTheme.companionInk.opacity(0.42)
     }
 
     // MARK: - Depth Gradient Background (living MeshGradient)
@@ -560,11 +560,11 @@ private struct ModalitySlot: View {
                 Text(state.modality.displayName)
                     .font(BeagleFont.caption.font)
                     .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
 
                 Text(result.summary)
                     .font(BeagleFont.footnote.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .foregroundStyle(BeagleTheme.companionInk)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
             }
@@ -597,7 +597,7 @@ private struct ModalitySlot: View {
                 Text(state.modality.displayName)
                     .font(BeagleFont.footnote.font)
                     .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
 
                 ShimmerBar()
             }
@@ -626,7 +626,7 @@ private struct ModalitySlot: View {
                 Text(state.modality.displayName)
                     .font(BeagleFont.footnote.font)
                     .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .foregroundStyle(BeagleTheme.companionInk)
 
                 Text(message)
                     .font(BeagleFont.caption.font)
@@ -669,7 +669,7 @@ private struct ModalitySlot: View {
 
                     Text(state.modality.displayName)
                         .font(BeagleFont.headline.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .foregroundStyle(BeagleTheme.companionInk)
                         .lineLimit(1)
 
                     Spacer()
@@ -677,14 +677,14 @@ private struct ModalitySlot: View {
                     if isExpanded, let ms = state.durationMs {
                         Text("\(ms)ms")
                             .font(BeagleFont.dataSmall.font)
-                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                     }
 
                     TruthBadge(result.truthMode, compact: true)
 
                     Image(systemName: "chevron.down")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
                         .animation(BeagleMotion.snappy, value: isExpanded)
                 }
@@ -692,7 +692,7 @@ private struct ModalitySlot: View {
                 // Summary — always visible
                 Text(result.summary)
                     .font(BeagleFont.subheadline.font)
-                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                     .lineLimit(isExpanded ? nil : 2)
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -727,7 +727,7 @@ private struct ModalitySlot: View {
                 Text(state.modality.displayName)
                     .font(BeagleFont.footnote.font)
                     .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .foregroundStyle(BeagleTheme.companionInk)
 
                 Text(message)
                     .font(BeagleFont.caption.font)
@@ -788,7 +788,7 @@ private struct ExpandedDetail: View {
                     sectionLabel("Best Hypothesis")
                     Text(hyp)
                         .font(BeagleFont.body.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .foregroundStyle(BeagleTheme.companionInk)
                         .textSelection(.enabled)
                         .lineSpacing(2)
                 }
@@ -830,7 +830,7 @@ private struct ExpandedDetail: View {
 
                         Text(h.content ?? "—")
                             .font(BeagleFont.footnote.font)
-                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .foregroundStyle(BeagleTheme.companionInk)
                             .lineLimit(2)
                     }
                 }
@@ -863,7 +863,7 @@ private struct ExpandedDetail: View {
                                 .padding(.top, 3)
                             Text(point)
                                 .font(BeagleFont.footnote.font)
-                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .foregroundStyle(BeagleTheme.companionInk)
                                 .lineSpacing(2)
                         }
                     }
@@ -880,7 +880,7 @@ private struct ExpandedDetail: View {
                 if let summary = v.summary {
                     Text(summary)
                         .font(BeagleFont.body.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .foregroundStyle(BeagleTheme.companionInk)
                         .lineSpacing(2)
                 }
 
@@ -901,7 +901,7 @@ private struct ExpandedDetail: View {
                             if let s = edge.strength {
                                 Text(String(format: "%.0f%%", s * 100))
                                     .font(BeagleFont.dataSmall.font)
-                                    .foregroundStyle(BeagleTheme.textTertiary)
+                                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                             }
                         }
                     }
@@ -922,7 +922,7 @@ private struct ExpandedDetail: View {
                             .foregroundStyle(BeagleTheme.postureWarm)
                         Text(winner)
                             .font(BeagleFont.headline.font)
-                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .foregroundStyle(BeagleTheme.companionInk)
                     }
                 }
 
@@ -937,7 +937,7 @@ private struct ExpandedDetail: View {
                         HStack {
                             Text(agent.name ?? "?")
                                 .font(BeagleFont.data.font)
-                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .foregroundStyle(BeagleTheme.companionInk)
                             Spacer()
                             if let score = agent.score {
                                 Text(String(format: "%.1f", score))
@@ -980,7 +980,7 @@ private struct ExpandedDetail: View {
                             if let explanation = conn.explanation {
                                 Text(explanation)
                                     .font(BeagleFont.caption.font)
-                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                                     .lineLimit(3)
                                     .lineSpacing(1)
                             }
@@ -1001,7 +1001,7 @@ private struct ExpandedDetail: View {
             if let summary, !summary.isEmpty {
                 Text(summary)
                     .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .foregroundStyle(BeagleTheme.companionInk)
                     .textSelection(.enabled)
                     .lineSpacing(2)
             } else if let fallback {
@@ -1012,7 +1012,7 @@ private struct ExpandedDetail: View {
             } else {
                 Text("No structured data returned")
                     .font(BeagleFont.footnote.font)
-                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                     .italic()
             }
         }
@@ -1024,7 +1024,7 @@ private struct ExpandedDetail: View {
         Text(text)
             .font(BeagleFont.caption.font)
             .fontWeight(.medium)
-            .foregroundStyle(BeagleTheme.textTertiary)
+            .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
             .textCase(.uppercase)
             .tracking(0.5)
     }
@@ -1033,7 +1033,7 @@ private struct ExpandedDetail: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
                 .font(BeagleFont.caption2.font)
-                .foregroundStyle(BeagleTheme.textTertiary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                 .textCase(.uppercase)
                 .tracking(0.5)
             Text(value)

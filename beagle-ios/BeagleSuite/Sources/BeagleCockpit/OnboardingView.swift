@@ -9,6 +9,7 @@
 
 import SwiftUI
 import BeagleCore
+import BeagleLocalLLM
 
 struct OnboardingView: View {
     @Binding var isComplete: Bool

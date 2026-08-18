@@ -654,3 +654,82 @@ struct PlatformView: View {
         }
     }
 }
+
+// Salvaged from HomeView.swift (now deleted — was orphaned/unreferenced) since this is the
+// actual consumer of LaneResultCard, not HomeView.
+struct LaneResultCard: View {
+    let lane: ProjectLaneState
+    var compact: Bool = false
+
+    private var result: MobileLaneResultSummary? { lane.laneResult }
+
+    var body: some View {
+        if let result {
+            VStack(alignment: .leading, spacing: compact ? BeagleSpacing.sm : BeagleSpacing.md) {
+                HStack(alignment: .firstTextBaseline, spacing: BeagleSpacing.sm) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(compact ? "Returned Work" : "What Came Back")
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.truthRemembered)
+                            .textCase(.uppercase)
+                            .tracking(0.7)
+                        Text(result.displayHeadline)
+                            .font(compact ? BeagleFont.footnote.font : BeagleFont.body.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .lineLimit(compact ? 2 : 3)
+                    }
+                    Spacer()
+                    PresencePill(
+                        label: result.displayStateLabel,
+                        systemImage: result.readyForOpen ? "checkmark.seal.fill" : "clock.badge",
+                        tint: result.readyForOpen ? BeagleTheme.truthObserved : BeagleTheme.postureWarm
+                    )
+                }
+
+                HStack(spacing: BeagleSpacing.xs) {
+                    if let node = result.displayNodeLabel {
+                        PresencePill(label: node, systemImage: "server.rack", tint: BeagleTheme.truthObserved)
+                    }
+                    if let age = result.resultAgeLabel {
+                        PresencePill(label: age, systemImage: "clock", tint: BeagleTheme.textSecondary)
+                    }
+                    if let profile = nonEmpty(result.profileId) {
+                        PresencePill(label: profile, systemImage: "dial.high", tint: BeagleTheme.truthRemembered)
+                    }
+                }
+
+                Text(result.humanSummary)
+                    .font(compact ? BeagleFont.caption.font : BeagleFont.footnote.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineSpacing(2)
+                    .lineLimit(compact ? 2 : 4)
+
+                if !compact {
+                    Text(result.readyForOpen
+                         ? "This lane already returned something real. Stay with the idea, but anchor it to the artifact that came back."
+                         : "A result thread exists here, but it still needs to settle into something you can open and interpret.")
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.truthRemembered)
+                        .lineSpacing(2)
+                }
+            }
+            .padding(compact ? BeagleSpacing.sm : BeagleSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: compact ? BeagleRadius.md : BeagleRadius.lg)
+                    .fill(BeagleTheme.truthRemembered.opacity(compact ? 0.06 : 0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: compact ? BeagleRadius.md : BeagleRadius.lg)
+                    .strokeBorder(BeagleTheme.truthRemembered.opacity(compact ? 0.12 : 0.16), lineWidth: 1)
+            )
+        }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}

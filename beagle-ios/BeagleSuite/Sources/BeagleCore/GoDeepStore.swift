@@ -358,8 +358,8 @@ public final class GoDeepStore {
         """
 
         // Try on-device LLM first
-        let llm = LocalLLMEngine.shared
-        if llm.isReady {
+        // Sem motor local (widget/relógio/macOS) simplesmente não há atalho local.
+        if let llm = MotoresLocais.motor, llm.isReady {
             if let result = try? await llm.respond(to: synthesisPrompt) {
                 return result
             }
@@ -509,8 +509,8 @@ public final class GoDeepStore {
             and provide a concise 3-4 sentence conclusion. Be direct.
             """
 
-            let llm = LocalLLMEngine.shared
-            if llm.isReady, let result = try? await llm.respond(to: synthesisPrompt) {
+            if let llm = MotoresLocais.motor, llm.isReady,
+               let result = try? await llm.respond(to: synthesisPrompt) {
                 self.synthesis = result
             } else {
                 let cloudResult = await client.chat(

@@ -162,7 +162,7 @@ public actor WebSocketClient {
                 let wsURL = Self.httpToWS(base: base, path: path)
                 guard let url = wsURL else { continue }
 
-                let wsTask = capturedSession.webSocketTask(with: url)
+                let wsTask = capturedSession.webSocketTask(with: Self.makeWebSocketRequest(url: url))
                 wsTask.resume()
 
                 // Wait briefly for handshake
@@ -259,7 +259,7 @@ public actor WebSocketClient {
                 for base in baseURLs {
                     guard let url = Self.httpToWS(base: base, path: path) else { continue }
 
-                    let wsTask = session.webSocketTask(with: url)
+                    let wsTask = session.webSocketTask(with: Self.makeWebSocketRequest(url: url))
                     wsTask.resume()
 
                     do {
@@ -387,6 +387,15 @@ public actor WebSocketClient {
     }
 
     // MARK: - Helpers
+
+    /// The cockpit's mobile surface requires `x-cockpit-token` on every request, WebSocket
+    /// upgrades included — `webSocketTask(with: url)` sends no headers at all, so both connect
+    /// sites must build the request explicitly instead.
+    private static func makeWebSocketRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+        return request
+    }
 
     private static func httpToWS(base: URL, path: String) -> URL? {
         guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }

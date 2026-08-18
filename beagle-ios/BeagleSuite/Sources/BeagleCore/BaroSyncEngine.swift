@@ -53,6 +53,7 @@ public actor BaroSyncEngine {
     private var lastLocation: (lat: Double, lon: Double)?
     private var lastEmitAt: Date?
     private var lastPressureHpa: Double?
+    private var lastAltitudeM: Double?
     private var isRunning = false
 
     nonisolated(unsafe) private static let iso8601: ISO8601DateFormatter = {
@@ -84,10 +85,20 @@ public actor BaroSyncEngine {
             let kPa = data.pressure.doubleValue   // CMAltitudeData.pressure is kPa
             Task { await self.handlePressure(kPa: kPa) }
         }
+        if CMAltimeter.isAbsoluteAltitudeAvailable() {
+            altimeter.startAbsoluteAltitudeUpdates(to: .main) { [weak self] data, error in
+                guard let self, let data, error == nil else { return }
+                let m = data.altitude
+                Task { await self.noteAltitude(m) }
+            }
+        }
     }
+
+    private func noteAltitude(_ m: Double) { lastAltitudeM = m }
 
     public func stop() {
         altimeter.stopRelativeAltitudeUpdates()
+        altimeter.stopAbsoluteAltitudeUpdates()
         isRunning = false
     }
 
@@ -105,14 +116,16 @@ public actor BaroSyncEngine {
             lat: loc.lat,
             lon: loc.lon,
             tempC: nil,
-            pressureHpa: hPa,
+            pressureHpa: nil,
             humidityPct: nil,
             uvIndex: nil,
             precipMm: nil,
             condition: "barometer",
             windKph: nil,
             dewPointC: nil,
-            visibilityKm: nil
+            visibilityKm: nil,
+            ambientPressureHpa: hPa,
+            altitudeM: lastAltitudeM
         )
         guard let uploader else { return }
         await uploader.enqueue(weatherObservations: [obs])

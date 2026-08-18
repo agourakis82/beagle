@@ -16,6 +16,7 @@
 
 import SwiftUI
 import BeagleCore
+import BeagleLocalLLM
 
 // MARK: - Test result
 

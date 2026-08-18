@@ -290,6 +290,22 @@ public final class CognitiveStore {
         try? modelContext.save()
     }
 
+    // MARK: - Daily synthesis
+
+    /// Every capture (raw or refined text, whichever is best) since the start of
+    /// local today — NOT the 50-cap on `recentThoughts`, which drops off if the
+    /// user captures a lot in a single day. Used by "Sintetizar hoje".
+    public func todaysCaptureLines() -> [String] {
+        guard let context = modelContext else { return [] }
+        let startOfDay = Calendar.current.startOfDay(for: .now)
+        let descriptor = FetchDescriptor<PersistedThought>(
+            predicate: #Predicate<PersistedThought> { $0.capturedAt >= startOfDay },
+            sortBy: [SortDescriptor(\.capturedAt, order: .forward)]
+        )
+        guard let todays = try? context.fetch(descriptor) else { return [] }
+        return todays.map { $0.displayText }.filter { !$0.isEmpty }
+    }
+
     // MARK: - Bilingual translation callback
 
     /// Called by the UI layer when a translation completes via TranslationSession.

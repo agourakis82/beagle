@@ -108,6 +108,7 @@ struct CognitiveAPI: Sendable {
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             // Synthesis can take up to ~75s; dead hosts fail fast at the connection layer.
             req.timeoutInterval = 75
@@ -147,10 +148,10 @@ private enum CK {
     static let card2   = BeagleTheme.surface3
     static let line    = BeagleTheme.hairline
     static let line2   = Color(light: .black.opacity(0.16), dark: .white.opacity(0.16))
-    static let fg      = BeagleTheme.textPrimary
-    static let txt     = BeagleTheme.textData
-    static let dim     = BeagleTheme.textSecondary
-    static let faint   = BeagleTheme.textTertiary
+    static let fg      = BeagleTheme.companionInk
+    static let txt     = BeagleTheme.companionInk.opacity(0.9)
+    static let dim     = BeagleTheme.companionInk.opacity(0.6)
+    static let faint   = BeagleTheme.companionInk.opacity(0.42)
     static let accent  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
     static let accent2 = Color(lightHex: 0xCC4E28, darkHex: 0xff7a4c)
     static let turq    = Color(lightHex: 0x0E9886, darkHex: 0x2dd4bf)
@@ -287,10 +288,13 @@ private func composedLine(_ raw: String) -> AttributedString {
     return out
 }
 
-// MARK: - Tab root (Recall ⇄ Next)
+// MARK: - Tab root (Recall ⇄ Propor)
 
 struct CognitiveRecallView: View {
-    enum Mode: String, CaseIterable { case recall = "Recall", next = "Next" }
+    // "Next" used to collide with SpatialDeskMissionControlView's "Next Best Place" (a
+    // different concept — spatial navigation, not fleet task proposals). Renamed to
+    // "Propor", matching what this mode actually does (POST /api/propose).
+    enum Mode: String, CaseIterable { case recall = "Recall", next = "Propor" }
     @State private var mode: Mode = .recall
 
     var body: some View {
@@ -474,6 +478,17 @@ struct RecallPane: View {
     @FocusState private var focused: Bool
     @State private var recallTask: Task<Void, Never>?
 
+    /// Programmatic entry point (e.g. SpatialDeskMissionControlView's Action Menu) — runs
+    /// this query on appear instead of relying on the `-cognitiveAutoQuery` launch-argument
+    /// deep link, which is meant for CLI/test automation, not in-app callers.
+    private let presetQuery: String?
+    private let presetScope: String?
+
+    init(presetQuery: String? = nil, presetScope: String? = nil) {
+        self.presetQuery = presetQuery
+        self.presetScope = presetScope
+    }
+
     private var api: CognitiveAPI { CognitiveAPI(preferred: baseURL) }
 
     private let suggestions = [
@@ -512,7 +527,13 @@ struct RecallPane: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .task {
-                if !didAutoRun, !autoQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard !didAutoRun else { return }
+                if let presetQuery, !presetQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                    didAutoRun = true
+                    if let presetScope { scope = presetScope }
+                    query = presetQuery
+                    run()
+                } else if !autoQuery.trimmingCharacters(in: .whitespaces).isEmpty {
                     didAutoRun = true
                     query = autoQuery
                     run()
@@ -885,7 +906,7 @@ struct NextPane: View {
     private var idle: some View {
         VStack(spacing: 10) {
             Image(systemName: "bolt.fill").font(.system(size: 34)).foregroundStyle(CK.line2)
-            Text("Next steps").font(.title3.weight(.bold)).foregroundStyle(CK.fg)
+            Text("Próximos passos propostos").font(.title3.weight(.bold)).foregroundStyle(CK.fg)
             Text("The organism reads recent state + memory and the fleet proposes the next moves — you decide.")
                 .font(.subheadline).foregroundStyle(CK.dim).multilineTextAlignment(.center)
         }

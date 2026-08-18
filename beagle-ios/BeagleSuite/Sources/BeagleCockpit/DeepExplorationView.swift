@@ -49,7 +49,7 @@ struct DeepExplorationView: View {
                 NavigationLink(value: "triad-review") {
                     Label("Triad Review", systemImage: "person.3.fill")
                         .font(.system(size: 14))
-                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                 }
             }
         }
@@ -61,13 +61,13 @@ struct DeepExplorationView: View {
         VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
             Text("Explore any question through multiple reasoning modalities simultaneously.")
                 .font(BeagleFont.footnote.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                 .lineSpacing(2)
 
             if !sessions.isEmpty {
                 Text("\(sessions.count) exploration\(sessions.count == 1 ? "" : "s") in your history")
                     .font(BeagleFont.caption.font)
-                    .foregroundStyle(BeagleTheme.textTertiary)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
             }
         }
     }
@@ -88,7 +88,7 @@ struct DeepExplorationView: View {
                                 .symbolEffect(.pulse, isActive: true)
                             Text("Exploring...")
                                 .font(BeagleFont.headline.font)
-                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .foregroundStyle(BeagleTheme.companionInk)
                             Spacer()
                             Text("\(store.completedCount)/\(store.totalCount)")
                                 .font(BeagleFont.data.font)
@@ -99,25 +99,25 @@ struct DeepExplorationView: View {
                                 .foregroundStyle(BeagleTheme.truthObserved)
                             Text("Latest exploration")
                                 .font(BeagleFont.headline.font)
-                                .foregroundStyle(BeagleTheme.textPrimary)
+                                .foregroundStyle(BeagleTheme.companionInk)
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                         }
                     }
 
                     if let prompt = store.activeSession?.prompt {
                         Text(prompt)
                             .font(BeagleFont.subheadline.font)
-                            .foregroundStyle(BeagleTheme.textSecondary)
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
                             .lineLimit(2)
                     }
 
                     if let synthesis = store.synthesis {
                         Text(synthesis)
                             .font(BeagleFont.footnote.font)
-                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                             .lineLimit(3)
                             .lineSpacing(1)
                     }
@@ -139,7 +139,7 @@ struct DeepExplorationView: View {
             Text("History")
                 .font(BeagleFont.caption.font)
                 .fontWeight(.medium)
-                .foregroundStyle(BeagleTheme.textTertiary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                 .textCase(.uppercase)
                 .tracking(0.5)
 
@@ -160,38 +160,38 @@ struct DeepExplorationView: View {
             HStack(alignment: .top, spacing: BeagleSpacing.sm) {
                 Image(systemName: session.isComplete ? "checkmark.circle" : "clock")
                     .font(.system(size: 12))
-                    .foregroundStyle(session.isComplete ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                    .foregroundStyle(session.isComplete ? BeagleTheme.truthObserved : BeagleTheme.companionInk.opacity(0.42))
                     .padding(.top, 2)
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(session.prompt)
                         .font(BeagleFont.footnote.font)
-                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .foregroundStyle(BeagleTheme.companionInk)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
 
                     HStack(spacing: BeagleSpacing.sm) {
                         Text(session.startedAt, style: .relative)
                             .font(BeagleFont.caption2.font)
-                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
 
                         if session.modalityCount > 0 {
                             Text("\(session.modalityCount) modalities")
                                 .font(BeagleFont.caption2.font)
-                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                         }
 
                         if let duration = session.duration {
                             Text("\(Int(duration))s")
                                 .font(BeagleFont.caption2.font)
-                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                         }
                     }
 
                     if let synthesis = session.synthesisText {
                         Text(synthesis)
                             .font(BeagleFont.caption.font)
-                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                             .lineLimit(2)
                             .lineSpacing(1)
                     }
@@ -222,11 +222,11 @@ struct DeepExplorationView: View {
 
             Text("Go Deeper")
                 .font(BeagleFont.title2.font)
-                .foregroundStyle(BeagleTheme.textPrimary)
+                .foregroundStyle(BeagleTheme.companionInk)
 
             Text("Type any question below and explore it through deep research, quantum reasoning, swarm consensus, causal graphs, and more — all at once.")
                 .font(BeagleFont.footnote.font)
-                .foregroundStyle(BeagleTheme.textTertiary)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, BeagleSpacing.xxl)
                 .lineSpacing(2)

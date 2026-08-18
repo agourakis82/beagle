@@ -1,10 +1,10 @@
-//! Measurement Operator – VERSÃO PRODUCTION (COLAPSO INTELIGENTE COM LLM CRITIC)
+//! Measurement Operator - deterministic collapse plus optional LLM critic.
 //!
-//! Implementa diferentes estratégias de colapso quântico, incluindo CriticGuided
+//! Implements different collapse strategies. `CriticGuided` can use an external
+//! LLM when available, but always falls back to a deterministic local decision.
 
 use crate::superposition::HypothesisSet;
 use beagle_llm::vllm::{SamplingParams, VllmClient, VllmCompletionRequest};
-use rand::Rng;
 use tracing::{info, warn};
 
 #[derive(Debug, Clone, Copy)]
@@ -15,7 +15,7 @@ pub enum CollapseStrategy {
     Probabilistic,
     /// Mantém superposição se confiança máxima < threshold
     Delayed(f64),
-    /// Usa LLM como "observador consciente" para decidir o colapso
+    /// Uses an optional LLM critic to choose or synthesize the collapse.
     CriticGuided,
 }
 
@@ -112,9 +112,11 @@ impl MeasurementOperator {
         }
     }
 
-    /// Nível deus: usa o LLM como crítico externo para escolher/forjar o colapso
+    /// Uses an LLM as an external critic. If the critic is unavailable, the
+    /// operator returns a deterministic local fallback instead of failing the
+    /// workflow.
     async fn critic_guided_collapse(&self, set: HypothesisSet) -> anyhow::Result<String> {
-        info!("🎯 CriticGuided: usando LLM como observador consciente");
+        info!("🎯 CriticGuided: usando crítico externo quando disponível");
 
         let hypotheses_text = set
             .hypotheses
@@ -131,15 +133,13 @@ impl MeasurementOperator {
             .collect::<Vec<_>>()
             .join("\n---\n\n");
 
-        let system_prompt = r#"Você é um físico quântico premiado com Nobel.
+        let system_prompt = r#"Você é um crítico científico rigoroso.
 
-Analise estas hipóteses em superposição e decida o colapso da função de onda.
+Analise estas hipóteses concorrentes e escolha a melhor hipótese atual, ou crie uma síntese mais forte.
 
-Escolha UMA hipótese como a realidade colapsada, ou crie uma SÍNTESE NOVA melhor que todas.
+Considere confiança, coerência interna, poder explicativo e riscos de evidência insuficiente.
 
-Justifique fisicamente por que as outras foram destruídas pela medição.
-
-Responda APENAS com o texto final colapsado (sem introdução, sem conclusão, só a resposta)."#;
+Responda APENAS com o texto final selecionado ou sintetizado."#;
 
         let user_prompt = format!(
             "Hipóteses em superposição:\n\n{}\n\nQual é a realidade colapsada?",
@@ -167,24 +167,96 @@ Responda APENAS com o texto final colapsado (sem introdução, sem conclusão, s
             sampling_params: sampling,
         };
 
-        let response = self.llm.completions(&request).await?;
+        let response = match self.llm.completions(&request).await {
+            Ok(response) => response,
+            Err(err) => {
+                warn!("CriticGuided indisponível; usando fallback local: {}", err);
+                return Ok(self.local_critic_fallback(&set));
+            }
+        };
 
         if response.choices.is_empty() {
             warn!("LLM não retornou resposta, usando fallback greedy");
-            return Ok(set.best().content.clone());
+            return Ok(self.local_critic_fallback(&set));
         }
 
         let collapsed = response.choices[0].text.trim().to_string();
+        if collapsed.is_empty() {
+            warn!("LLM retornou resposta vazia, usando fallback local");
+            return Ok(self.local_critic_fallback(&set));
+        }
+
         info!(
             "✅ CriticGuided colapsou para resposta de {} caracteres",
             collapsed.len()
         );
         Ok(collapsed)
     }
+
+    fn local_critic_fallback(&self, set: &HypothesisSet) -> String {
+        let best = set.best();
+        if best.confidence >= self.min_confidence {
+            return best.content.clone();
+        }
+
+        let mut ranked = set.hypotheses.clone();
+        ranked.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
+
+        ranked
+            .into_iter()
+            .take(3)
+            .map(|hypothesis| {
+                format!(
+                    "- {:.1}% confidence: {}",
+                    hypothesis.confidence * 100.0,
+                    hypothesis.content
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 impl Default for MeasurementOperator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::superposition::HypothesisSet;
+
+    #[tokio::test]
+    async fn critic_guided_falls_back_when_llm_is_offline() {
+        let operator = MeasurementOperator::with_url("http://127.0.0.1:9/v1");
+        let mut set = HypothesisSet::new();
+        set.add("supported hypothesis".to_string(), Some((2.0, 0.0)));
+        set.add("weaker hypothesis".to_string(), Some((0.5, 0.0)));
+
+        let collapsed = operator
+            .collapse(set, CollapseStrategy::CriticGuided)
+            .await
+            .expect("critic-guided collapse should have a local fallback");
+
+        assert_eq!(collapsed, "supported hypothesis");
+    }
+
+    #[tokio::test]
+    async fn critic_guided_low_confidence_fallback_preserves_candidates() {
+        let operator =
+            MeasurementOperator::with_url("http://127.0.0.1:9/v1").with_min_confidence(0.9);
+        let mut set = HypothesisSet::new();
+        set.add("candidate alpha".to_string(), Some((1.0, 0.0)));
+        set.add("candidate beta".to_string(), Some((1.0, 0.0)));
+
+        let collapsed = operator
+            .collapse(set, CollapseStrategy::CriticGuided)
+            .await
+            .expect("low-confidence fallback should preserve ranked candidates");
+
+        assert!(collapsed.contains("candidate alpha") || collapsed.contains("candidate beta"));
+        assert!(collapsed.contains("confidence"));
     }
 }

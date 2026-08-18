@@ -55,18 +55,20 @@
 			</dict>
 		</dict>
 	</dict>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>O Beagle usa sua localização para contextualizar condições climáticas locais e enriquecer o perfil fisiológico do companheiro com dados ambientais relevantes.</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>O Beagle usa sua localização em segundo plano para sincronizar condições climáticas com os dados de saúde, permitindo que o companheiro correlacione seu estado fisiológico com o ambiente ao longo do dia.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Beagle records cognitive state snapshots alongside your thoughts so the exocortex can correlate insights with your physiological state.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Beagle keeps the weather at your location current in the background so environmental shifts (pressure fronts, heat) line up with your physiological signals over time.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Beagle records the weather (temperature, atmospheric pressure, humidity) at your current location so the exocortex can correlate your environment with how you feel.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Beagle uses the microphone for voice commands.</string>
+	<string>Para você falar com o companion em vez de digitar. O áudio é transcrito no próprio aparelho e descartado — nada de áudio bruto sai do iPhone.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Beagle reads the device barometer to record the exact local atmospheric pressure where you are.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Beagle uses speech recognition for voice commands.</string>
+	<string>Para transformar a sua fala em texto aqui no aparelho, sem enviar áudio para nenhum servidor.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>dev.sounio.cockpit.viewProject</string>

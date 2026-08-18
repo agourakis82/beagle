@@ -10,6 +10,19 @@
 
 ---
 
+## North Star Guardrails
+
+This roadmap is subordinate to [BEAGLE_NORTH_STAR.md](BEAGLE_NORTH_STAR.md).
+When scope pressure builds, prioritize the recovery order defined there:
+
+1. Keep the base green with `make rescue-check`.
+2. Preserve BEAGLE as a personal scientific exocortex, not a generic dashboard.
+3. Strengthen the living workflow from thought or voice note to memory,
+   serendipity, adversarial review, draft artifact, and feedback.
+4. Add large infrastructure only when it serves that loop.
+
+---
+
 ## 🎯 Core Pillars (The "Impossible Trinity")
 
 ### 1. Physiological-Symbolic Fusion (FLAGSHIP)

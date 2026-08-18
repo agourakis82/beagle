@@ -12,9 +12,29 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+import WidgetKit
+import BeagleWorkbenchKit
 #if canImport(UIKit)
 import UIKit
 #endif
+
+/// Escreve o instantâneo da presença nos três momentos em que ele muda de valor,
+/// e avisa o widget. Vive num modificador para não engordar o corpo do
+/// BeagleSurface, que já não fecha o type-check quando cresce.
+private struct GravaInstantaneoDaPresenca: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+    let corpoObservadoEm: Date?
+    let ceuEm: Date?
+    let gravar: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            // Ao sair de cena: o que estava na tela vira o que fica no widget.
+            .onChange(of: scenePhase) { _, fase in if fase != .active { gravar() } }
+            .onChange(of: corpoObservadoEm) { _, _ in gravar() }
+            .onChange(of: ceuEm) { _, _ in gravar() }
+    }
+}
 
 struct BeagleSurface: View {
     @Environment(CatalogStore.self) private var catalog
@@ -24,10 +44,19 @@ struct BeagleSurface: View {
     @Binding var bootError: String?
 
     @State private var conversation = ConversationStore(preferLocal: false)
+    /// Muda quando alguém pede para FALAR (widget, Atalho, botão de Ação). É um
+    /// UUID e não um Bool porque dois pedidos seguidos têm que disparar duas
+    /// vezes — um Bool ficaria `true` e o segundo toque não faria nada.
+    @State private var pedidoDeVoz: UUID?
     @State private var exocortex = ExocortexStore()
+    @State private var spaceWeather = SpaceWeatherStore()
     @State private var activeSheet: SurfaceSheet?
     @State private var metacogNudge: MetacognitiveObservation?
     @State private var serendipityProvocation: SerendipityProvocation?
+
+    /// A deep link parked by `onOpenURL` — the path a Live Activity or lock-screen tap takes
+    /// to land straight on the Frota.
+    private let deepLink = DeepLinkRouter.shared
 
     private enum SurfaceSheet: String, Identifiable {
         case settings
@@ -37,14 +66,76 @@ struct BeagleSurface: View {
         case originObservatory
         case continuityExplanation
         case capture
+        case agora   // the dedicated data screen (Fase 4) — body × sky × ambient series
+        case memory  // "o que eu lembro de ti" — warm biography read, NOT the memoryLens debug console
+        case dreamInsights  // overnight Dream Synthesis reader — only surfaced consumer of DreamSynthesisEngine
+        case work  // agent deck (WorkView) — was iPad-sidebar-only until this session's audit
+        case sleep  // last night's HealthKit sleep data — the real "análise do sono"
+        case synthesis  // proactive synthesis — a deliberate surface, separate from chat
+        case frota    // Mission Control: who needs you (was iPad-sidebar-only too)
+        case oficina  // dev half: is it green / what broke / where am I
 
         var id: String { rawValue }
     }
 
+    /// Escreve o instantâneo que o widget lê e manda o widget recarregar.
+    ///
+    /// Silencioso de propósito: se o App Group não estiver disponível a escrita
+    /// simplesmente não acontece — o widget desenha "sem notícia", que é honesto.
+    /// Falhar barulhento aqui atrapalharia o uso por um widget que ficou velho.
+    private func gravarInstantaneoDaPresenca() {
+        guard let loja = PresencaSnapshotStore() else { return }
+        let s = PresencaSnapshot.montar(
+            respiracao: PresenceBreath.from(
+                bpm: physio.cognitivePosture.respiratoryRate,
+                observedAt: physio.cognitivePosture.observedAt
+            ),
+            ceu: spaceWeather.latest?.band.rawValue,
+            ceuObservadoEm: spaceWeather.latest?.ts,
+            fluxo: conversation.flowState,
+            capturasPendentes: cognitive.recentThoughts.count
+        )
+        try? loja.escrever(s)
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     var body: some View {
         surfaceRoot
+            .onChange(of: deepLink.pending) { _, _ in
+                guard let d = deepLink.consume() else { return }
+                switch d {
+                case .frota:   activeSheet = .frota
+                case .oficina: activeSheet = .oficina
+                case .work:    activeSheet = .work
+                // OS DOIS GESTOS DO WIDGET. Sem estes dois ramos o toque abriria o
+                // app na tela em que ele estava e pareceria que funcionou — que é
+                // como `beagle://capture` viveu morto desde sempre.
+                case .capturar: activeSheet = .capture
+                case .falar:
+                    // Fecha qualquer folha aberta: falar acontece no chat, e uma
+                    // folha por cima engoliria o gesto que motivou o toque.
+                    activeSheet = nil
+                    pedidoDeVoz = UUID()
+                }
+            }
+            .task { deepLink.applyLaunchArgumentIfPresent() }
             .task {
                 await bootstrapSurface()
+            }
+            // O QUE O WIDGET VAI VER. Extraido para um modificador proprio: tres
+            // .onChange empilhados nesta view fizeram o type-checker desistir
+            // ("unable to type-check this expression in reasonable time").
+            .modifier(GravaInstantaneoDaPresenca(
+                corpoObservadoEm: physio.cognitivePosture.observedAt,
+                ceuEm: spaceWeather.latest?.ts,
+                gravar: gravarInstantaneoDaPresenca
+            ))
+            // Keep the chat's physio snapshot LIVE: bootstrapSurface() copies physio.summary once,
+            // before the async HealthKit refresh completes, so without this the companion sends a
+            // stale/empty body (heart/HRV/State of Mind missing). PhysioSummary is a value type —
+            // re-copy on every change so send always reads the freshest reading.
+            .onChange(of: physio.summary) {
+                conversation.physioSummary = physio.summary
             }
             .onChange(of: conversation.messages.count) {
                 runMetacognitiveCheck()
@@ -78,14 +169,37 @@ struct BeagleSurface: View {
 
     private var surfaceForeground: some View {
         VStack(spacing: 0) {
-            headerBar
+            // Top chrome retired from the chat (project/dream/agents/readiness/settings) — the
+            // companion leads, Claude-grade. Settings + project moved into the drawer footer;
+            // the dashboard strips move to the dedicated data screen (Fase 4). Nudge/serendipity
+            // stay as transient event banners only.
             metacognitiveNudgeLayer
             serendipityLayer
 
-            // Chat-first companion surface: the conversation is the hero, full-height
-            // over the living mesh. (The exocortex home card is retired from this surface
-            // — it can return as a collapsible header or a separate view later.)
-            ChatScreen(store: conversation, breathRate: physio.cognitivePosture.respiratoryRate)
+            ChatScreen(
+                store: conversation,
+                // Os DOIS precisam existir: sem `observedAt` o dado não foi observado,
+                // e uma leitura velha demais deixa de valer como agora.
+                breath: PresenceBreath.from(
+                    bpm: physio.cognitivePosture.respiratoryRate,
+                    observedAt: physio.cognitivePosture.observedAt
+                ).resolved(now: .now),
+                weather: spaceWeather.latest,
+                posture: physio.cognitivePosture,
+                onOpenSettings: { activeSheet = .settings },
+                onOpenProject: { activeSheet = .projectPicker },
+                onOpenData: { activeSheet = .agora },
+                onOpenMemory: { activeSheet = .memory },
+                onOpenDreamInsights: { activeSheet = .dreamInsights },
+                unreadDreamInsightCount: DreamSynthesisEngine.shared.unreadCount,
+                onOpenWork: { activeSheet = .work },
+                onOpenCapture: { activeSheet = .capture },
+                onOpenSleep: { activeSheet = .sleep },
+                onOpenSynthesize: { activeSheet = .synthesis },
+                onOpenFrota: { activeSheet = .frota },
+                onOpenOficina: { activeSheet = .oficina },
+                pedidoDeVoz: pedidoDeVoz
+            )
         }
     }
 
@@ -120,6 +234,8 @@ struct BeagleSurface: View {
     @ViewBuilder
     private func surfaceSheet(_ sheet: SurfaceSheet) -> some View {
         switch sheet {
+        case .synthesis:
+            SynthesisView()
         case .settings:
             settingsSheet
         case .cognitiveState:
@@ -134,6 +250,77 @@ struct BeagleSurface: View {
             continuityExplanationSheet
         case .capture:
             captureSheet
+        case .agora:
+            AgoraDetailView(sky: spaceWeather.latest, summary: physio.summary) { prompt in
+                Task { await conversation.sendMessage(prompt) }
+            }
+        case .memory:
+            MemoryLensDetailView(store: conversation)
+        case .dreamInsights:
+            dreamInsightsSheet
+        case .work:
+            workSheet
+        case .sleep:
+            sleepSheet
+        case .frota:
+            frotaSheet
+        case .oficina:
+            oficinaSheet
+        }
+    }
+
+    private var sleepSheet: some View {
+        NavigationStack {
+            SleepView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { activeSheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var dreamInsightsSheet: some View {
+        NavigationStack {
+            DreamInsightsView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { activeSheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var workSheet: some View {
+        NavigationStack {
+            WorkView(bootError: $bootError)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { activeSheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var frotaSheet: some View {
+        NavigationStack {
+            FrotaView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { activeSheet = nil }
+                    }
+                }
+        }
+    }
+
+    private var oficinaSheet: some View {
+        NavigationStack {
+            OficinaView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { activeSheet = nil }
+                    }
+                }
         }
     }
 
@@ -207,7 +394,7 @@ struct BeagleSurface: View {
 
     private var captureSheet: some View {
         NavigationStack {
-            ThoughtCaptureView()
+            ThoughtCaptureView(sharedConversation: conversation)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { activeSheet = nil }
@@ -814,6 +1001,8 @@ struct BeagleSurface: View {
         async let sounioWorkdayRefresh: Void = exocortex.refreshSounioWorkday(projectSlug: activeSlug, limit: 20)
         async let sounioMomentsRefresh: Void = exocortex.refreshRecentSounioMoments(projectSlug: activeSlug, limit: 20)
         async let bodyRefresh: Void = physio.refresh()
+        // Boot the geomagnetic poller once; idempotent.
+        spaceWeather.start()
         _ = await (
             homeRefresh,
             projectionRefresh,
@@ -971,6 +1160,10 @@ struct BeagleSurface: View {
         }
         // Real sleep → the attuned body-as-story greeting (no metrics surfaced).
         conversation.sleepQuality01 = physio.cognitivePosture.sleepQuality
+        // Live body + sky → sent raw in the chat so the server's `## Agora` matches the screen.
+        // (If the sky hasn't fetched yet, the server fills in céu from its own fetch.)
+        conversation.physioSummary = physio.summary
+        conversation.currentSky = spaceWeather.latest
         conversation.loadPersistedConversation()
 
         // Configure Foundation Models with stores
@@ -985,8 +1178,33 @@ struct BeagleSurface: View {
             conversation.fastResponder = { prompt, history in
                 await FoundationModelsAgent.shared.respond(to: prompt, conversationHistory: history)
             }
+            // B-routing: the on-device model doesn't ANSWER (too small for the companion's voice),
+            // but it gives an instant warm pt-BR "presence" that bridges the cloud latency. The
+            // grounded cluster reply replaces it the moment it streams.
+            conversation.quickAck = { userText in
+                await FoundationModelsAgent.shared.summarize(
+                    userText,
+                    instructions: """
+                    Você é um amigo íntimo falando português do Brasil, natural e caloroso. O usuário \
+                    acabou de te dizer algo. Responda com UMA frase curtíssima (até ~8 palavras) que \
+                    apenas acolhe e sinaliza que você está pensando junto — NÃO responda o conteúdo, \
+                    NÃO faça perguntas. Exemplos: "Boa, deixa eu pensar nisso contigo…", "Tô aqui, \
+                    sentindo isso com você…". Devolva só a frase.
+                    """
+                )
+            }
+            Task { await FoundationModelsAgent.shared.prewarm() }
         }
         #endif
+
+        // Live Activity for the companion's own voice turns — independent of on-device Foundation
+        // Models, so it covers every reply (Sonnet/Opus/GPT/...), not just the B-routing ack path.
+        conversation.onCompanionTurnStart = { title, voiceLabel in
+            LiveActivityManager.shared.startCompanionTurn(conversationTitle: title, voiceLabel: voiceLabel)
+        }
+        conversation.onCompanionTurnEnd = { snippet in
+            LiveActivityManager.shared.endCompanionTurn(finalSnippet: snippet)
+        }
     }
 
     // MARK: - Metacognitive nudge view

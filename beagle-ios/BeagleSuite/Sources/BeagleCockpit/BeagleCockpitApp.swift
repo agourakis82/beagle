@@ -13,10 +13,82 @@
 import SwiftUI
 import SwiftData
 import BeagleCore
+import BeagleLocalLLM
 import BeagleWorkbenchKit
 #if os(iOS)
 import UIKit
+import UserNotifications
+import BackgroundTasks
 #endif
+
+/// Identifier for the overnight dream-consolidation background task.
+/// Must match the `BGTaskSchedulerPermittedIdentifiers` Info.plist entry.
+let beagleDreamTaskIdentifier = "dev.sounio.cockpit.dream"
+
+final class BeagleAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // REGISTRO DO MOTOR LOCAL. O núcleo declara o protocolo e não conhece o
+        // runtime; quem o conhece é o APP, e é aqui que ele se apresenta. É essa
+        // inversão que tira MLX do BeagleCore — e, com ele, do WIDGET.
+        MotoresLocais.registrar(LocalLLMEngine.shared)
+
+        UNUserNotificationCenter.current().delegate = self
+        print("[APNsDBG] didFinishLaunching -> requesting notification authorization")
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, err in
+            print("[APNsDBG] authorization granted=\(granted) err=\(String(describing: err))")
+            DispatchQueue.main.async {
+                print("[APNsDBG] calling registerForRemoteNotifications()")
+                UIApplication.shared.registerForRemoteNotifications()
+            }
+        }
+        return true
+    }
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        print("[APNsDBG] device token acquired, len=\(deviceToken.count) hex12=\(hex.prefix(12))")
+        Task {
+            // Le a autorizacao REAL no momento do registro. Token e permissao sao
+            // coisas distintas: da para ter token e alerta silenciado, e desse jeito
+            // o servidor recebe 200 da Apple e nada aparece na tela.
+            let s = await UNUserNotificationCenter.current().notificationSettings()
+            let rotulo: String
+            switch s.authorizationStatus {
+            case .authorized:    rotulo = "autorizado"
+            case .provisional:   rotulo = "provisorio"   // entrega SILENCIOSA, sem banner
+            case .denied:        rotulo = "negado"
+            case .notDetermined: rotulo = "nao_perguntado"
+            case .ephemeral:     rotulo = "efemero"
+            @unknown default:    rotulo = "desconhecida"
+            }
+            print("[APNsDBG] autorizacao=\(rotulo) alert=\(s.alertSetting.rawValue)")
+            await PhysiomeUploader.shared.registerDeviceToken(hex, apnsEnv: "sandbox",
+                                                              autorizacao: rotulo)
+        }
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("[APNsDBG] didFailToRegister: \(error)")
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        let userInfo = response.notification.request.content.userInfo
+        guard let emaDict = userInfo["ema"] as? [String: Any],
+              let promptId = emaDict["prompt_id"] as? String,
+              let place = emaDict["place"] as? String else {
+            print("[APNsDBG] didReceive: no/malformed ema payload")
+            return
+        }
+        let fromPlace = emaDict["from_place"] as? String
+        let protocolVersion = emaDict["protocol_version"] as? String ?? "v0-draft"
+        let prompt = EMAPrompt(promptId: promptId, place: place, fromPlace: fromPlace, protocolVersion: protocolVersion)
+        await MainActor.run { EMARouter.shared.pendingPrompt = prompt }
+    }
+}
 
 @main
 struct BeagleCockpitApp: App {
@@ -26,6 +98,7 @@ struct BeagleCockpitApp: App {
     @State private var hpc = HPCStore()
     @State private var navigationPath = NavigationPath()
     @State private var bootError: String?
+    @UIApplicationDelegateAdaptor(BeagleAppDelegate.self) var appDelegate
     @State private var launchOverrides = LaunchOverrides.current
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
 
@@ -46,6 +119,7 @@ struct BeagleCockpitApp: App {
                 .modelContainer(for: [
                     PersistedThought.self,
                     PersistedMessage.self,
+                    PersistedConversation.self,
                     PersistedDeepSession.self,
                     PersistedExocortexHomeSnapshot.self,
                     PersistedAssistedImportOutbox.self,
@@ -64,12 +138,22 @@ struct BeagleCockpitApp: App {
                     }
                 }
                 .preferredColorScheme(.dark)
-                .tint(BeagleTheme.truthObserved)
+        .tint(BeagleTheme.truthObserved)
             } else {
                 OnboardingView(isComplete: $hasCompletedOnboarding)
                     .preferredColorScheme(.dark)
             }
         }
+        #if os(iOS)
+        .backgroundTask(.appRefresh(beagleDreamTaskIdentifier)) {
+            await runDreamConsolidation()
+            // Piggybacks on this task's ~8h cadence rather than registering a second
+            // BGTaskSchedulerPermittedIdentifiers entry — comfortably inside the ~2-day
+            // window CMSensorRecorder needs to not lose its rolling 3-day buffer.
+            await ActigraphySyncEngine.shared.pullAndProcess(uploader: PhysiomeUploader.shared)
+            await scheduleDreamConsolidation()
+        }
+        #endif
         #if os(macOS)
         .windowStyle(.automatic)
         .commands {
@@ -91,12 +175,45 @@ struct BeagleCockpitApp: App {
         #endif
     }
 
+    // MARK: - Dream consolidation (BGTask)
+
+    #if os(iOS)
+    /// Run an overnight dream-synthesis pass from the background task.
+    /// Reads the latest thoughts/posture from the app stores (MainActor) and
+    /// recombines them via the DreamSynthesisEngine.
+    @MainActor
+    private func runDreamConsolidation() async {
+        guard DreamSynthesisEngine.shared.shouldDreamAgain else { return }
+        await cognitive.refresh()
+        await physio.refresh()
+        await DreamSynthesisEngine.shared.synthesize(
+            thoughts: cognitive.recentThoughts,
+            cognitivePosture: physio.cognitivePosture
+        )
+    }
+
+    /// Submit the next dream-consolidation background refresh request.
+    /// Earliest fire ~8h out so it lands during an overnight/idle window.
+    private func scheduleDreamConsolidation() async {
+        let request = BGAppRefreshTaskRequest(identifier: beagleDreamTaskIdentifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 3600)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("[BeagleCockpit] dream BGTask submit failed: \(error)")
+        }
+    }
+    #endif
+
     // MARK: - Deep link handling
 
     private func handleDeepLink(_ url: URL) {
         // beagle://project/{slug}
         // beagle://project/{slug}/agent/{kind}
         guard url.scheme == "beagle" else { return }
+        // beagle://frota | beagle://oficina | beagle://work — parked for whichever layout can
+        // present them (iPhone drawer sheet vs iPad sidebar). See DeepLinkRouter.
+        if DeepLinkRouter.shared.open(url) { return }
         let components = url.pathComponents.filter { $0 != "/" }
 
         if components.count >= 2, components[0] == "project" {
@@ -174,6 +291,8 @@ struct RootView: View {
     @State private var showCognitiveState = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var emaRouter = EMARouter.shared
 
     var body: some View {
         Group {
@@ -183,12 +302,36 @@ struct RootView: View {
                 iPhoneLayout
             }
         }
+        .sheet(item: $emaRouter.pendingPrompt) { prompt in
+            EMASheet(prompt: prompt)
+        }
         .task {
             initializeTabSelectionIfNeeded()
             await bootstrap()
         }
         .onChange(of: selectedTab) { _, newValue in
             persistedSelectedTab = newValue
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                // Returning to foreground (connectivity likely restored):
+                // re-fetch credentials and auto-drain any queued captures/messages.
+                Task {
+                    _ = await BeagleClient.shared.ensureAuth()
+                    await cognitive.drainSharedThoughtQueue()
+                    await cognitive.drainAssistedImportOutbox()
+                }
+            case .background:
+                // Queue the overnight dream-consolidation background task.
+                #if os(iOS)
+                let request = BGAppRefreshTaskRequest(identifier: beagleDreamTaskIdentifier)
+                request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 3600)
+                try? BGTaskScheduler.shared.submit(request)
+                #endif
+            default:
+                break
+            }
         }
     }
 
@@ -217,10 +360,11 @@ struct RootView: View {
         startPhysiomeRealtimeSync()
         async let catalogTask: () = catalog.refresh()
         async let cognitiveTask: () = cognitive.refresh()
-        async let physioTask: () = physio.refresh()
+        async let physioTask: () = physio.refresh(requestAuthorization: true)
         async let sharedQueueTask: () = cognitive.drainSharedThoughtQueue()
+        async let outboxDrainTask: Int = cognitive.drainAssistedImportOutbox()
         async let warmTask: () = FoundationModelsAgent.shared.prewarm()
-        _ = await (catalogTask, cognitiveTask, physioTask, sharedQueueTask, warmTask)
+        _ = await (catalogTask, cognitiveTask, physioTask, sharedQueueTask, outboxDrainTask, warmTask)
         cognitive.activeProjectSlug =
             launchOverrides.projectSlug
             ?? cognitive.activeProjectSlug
@@ -264,56 +408,46 @@ struct RootView: View {
             #if os(iOS)
             // Device barometer → exact local atmospheric pressure (indoor, no network).
             await BaroSyncEngine.shared.start(uploader: uploader)
+            // Driving-time proxy (CarPlay/Waze integration confirmed infeasible — see
+            // DrivingSyncEngine's header comment for why).
+            await DrivingSyncEngine.shared.start(uploader: uploader)
+            // Opportunistic pull — also runs from the dream BGTask (see .backgroundTask
+            // above), this is the foreground half of the same ~2-day-max cadence. Own
+            // detached Task (not awaited here): bucketing 2 days of 50Hz accelerometer +
+            // DFA/sample-entropy is real CPU work that shouldn't delay AQI/other engines
+            // starting right behind it.
+            Task.detached(priority: .utility) {
+                await ActigraphySyncEngine.shared.pullAndProcess(uploader: uploader)
+            }
             #endif
+            // AQI — WeatherKit doesn't provide it; direct API fallback chain instead.
+            await AQISyncEngine.shared.start(uploader: uploader)
         }
     }
 
     // MARK: - iPhone Layout (4 tabs)
 
+    // 2026-06-28: simplified to companion-only per design doc IA
+    // ("Companion-pure + Trabalho drawer"). The other tabs (Fleet/Capture/Deep/
+    // Agents/Recall) were triggering an AttributeGraph cycle in their bodies —
+    // even when offscreen — causing 12M cycles/22s and SIGKILL. The TabView
+    // returns when one or more of those tabs' cycles are fixed and we
+    // re-introduce them behind a proper drawer (per the IA design doc).
     private var iPhoneLayout: some View {
-        TabView(selection: $selectedTab) {
-            Tab("Mind", systemImage: "brain.head.profile", value: 0) {
-                BeagleSurface(bootError: $bootError)
-            }
-            Tab("Capture", systemImage: "mic.fill", value: 1) {
-                NavigationStack {
-                    ThoughtCaptureView()
-                }
-            }
-            Tab("Deep", systemImage: "sparkles", value: 2) {
-                NavigationStack {
-                    DeepExplorationView()
-                        .navigationDestination(for: String.self) { _ in
-                            TriadReviewView()
-                        }
-                }
-            }
-            // Work (the agent deck) and Fleet (live sessions) are two views of the same
-            // thing — the cluster agents — so they share one tab on phone, where the tab
-            // bar can't afford a "More" overflow that buries them.
-            Tab("Agents", systemImage: "apple.terminal", value: 3) {
-                NavigationStack {
-                    AgentsTabView(bootError: $bootError)
-                }
-            }
-            Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
-                NavigationStack {
-                    CognitiveRecallView()
-                }
-            }
-        }
-        .tint(BeagleTheme.truthObserved)
+        BeagleSurface(bootError: $bootError)
     }
 
     // MARK: - iPad Layout (sidebar + detail)
 
     enum SidebarItem: String, CaseIterable, Identifiable {
         case mind     = "Mind"
+        case frota    = "Frota"
+        case oficina  = "Oficina"
+        case fleet    = "Fleet"
         case capture  = "Capture"
         case deep     = "Go Deep"
         case work     = "Work"
         case recall   = "Recall"
-        case fleet    = "Fleet"
         case settings = "Settings"
 
         var id: String { rawValue }
@@ -321,6 +455,8 @@ struct RootView: View {
         var icon: String {
             switch self {
             case .mind:     return "brain.head.profile"
+            case .frota:    return "dot.radiowaves.left.and.right"
+            case .oficina:  return "wrench.and.screwdriver"
             case .capture:  return "mic.fill"
             case .deep:     return "sparkles"
             case .work:     return "apple.terminal"
@@ -332,6 +468,10 @@ struct RootView: View {
     }
 
     @State private var sidebarSelection: SidebarItem? = .mind
+    /// Set when the Frota hands a lane to the Terminals screen ("open this one").
+    @State private var openLane: String?
+    /// A deep link parked by `onOpenURL` (Live Activity, Shortcut, notification tap).
+    private let deepLink = DeepLinkRouter.shared
 
     private var iPadLayout: some View {
         NavigationSplitView {
@@ -358,14 +498,37 @@ struct RootView: View {
                         WorkView(bootError: $bootError)
                     case .recall:
                         CognitiveRecallView()
+                    case .frota:
+                        FrotaView(onOpenLane: { lane in
+                            openLane = lane
+                            sidebarSelection = .fleet
+                        })
+                    case .oficina:
+                        OficinaView()
                     case .fleet:
-                        FleetTerminalsView()
+                        FleetTerminalsView(initialAgent: openLane)
                     case .settings:
                         ModelSettingsView()
                     case nil:
                         SpatialDeskMissionControlView()
                     }
                 }
+            }
+        }
+        .onChange(of: deepLink.pending) { _, _ in
+            guard let d = deepLink.consume() else { return }
+            switch d {
+            case .frota:   sidebarSelection = .frota
+            case .oficina: sidebarSelection = .oficina
+            case .work:    sidebarSelection = .work
+            // O MESMO gesto no layout de barra lateral (iPad/Vision). Sem estes
+            // dois ramos o compilador acusa switch não-exaustivo — e ele está
+            // certo: um destino que existe e não é honrado AQUI seria o mesmo
+            // botão morto, só que noutra tela.
+            case .capturar: sidebarSelection = .capture
+            // Não há runtime de voz nesta superfície; `mind` é onde a conversa
+            // acontece, e é o mais honesto que dá para fazer sem fingir.
+            case .falar:    sidebarSelection = .mind
             }
         }
         .tint(BeagleTheme.truthObserved)
@@ -552,32 +715,6 @@ struct RootView: View {
         }
     }
 
-}
-
-/// Work (the agent deck) and Fleet (live sessions) share one phone tab — they are two
-/// views of the same domain (the cluster agents). A segmented control swaps between them
-/// so neither gets buried in a "More" overflow.
-private struct AgentsTabView: View {
-    @Binding var bootError: String?
-    @State private var mode = 0   // 0 = Deck, 1 = Sessions
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("Agents", selection: $mode) {
-                Text("Deck").tag(0)
-                Text("Sessions").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.bottom, 8)
-
-            if mode == 0 {
-                WorkView(bootError: $bootError)
-            } else {
-                FleetTerminalsView()
-            }
-        }
-    }
 }
 
 struct LaunchOverrides {

@@ -68,13 +68,13 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSMicrophoneUsageDescription: "Beagle uses the microphone for voice commands."
+        NSMicrophoneUsageDescription: "Para você falar com o companion em vez de digitar. O áudio é transcrito no próprio aparelho e descartado — nada de áudio bruto sai do iPhone."
         NSHealthShareUsageDescription: "Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state."
         NSHealthUpdateUsageDescription: "Beagle records cognitive state snapshots alongside your thoughts so the exocortex can correlate insights with your physiological state."
         NSLocationWhenInUseUsageDescription: "Beagle records the weather (temperature, atmospheric pressure, humidity) at your current location so the exocortex can correlate your environment with how you feel."
         NSLocationAlwaysAndWhenInUseUsageDescription: "Beagle keeps the weather at your location current in the background so environmental shifts (pressure fronts, heat) line up with your physiological signals over time."
         NSMotionUsageDescription: "Beagle reads the device barometer to record the exact local atmospheric pressure where you are."
-        NSSpeechRecognitionUsageDescription: "Beagle uses speech recognition for voice commands."
+        NSSpeechRecognitionUsageDescription: "Para transformar a sua fala em texto aqui no aparelho, sem enviar áudio para nenhum servidor."
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLSchemes:
