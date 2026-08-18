@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ChatMessage, ModelInfo } from '../api.js'
-import { fetchMessages, streamMessage } from '../api.js'
+import { fetchMessages, streamMessage, fetchConversation, updateConversationModel } from '../api.js'
 import { MessageBubble } from './MessageBubble.js'
 import { AttachmentPanel, type DraftAttachment } from './AttachmentPanel.js'
 
@@ -15,6 +15,7 @@ export function ChatView({ conversationId, models, pendingSystemPrompt }: ChatVi
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [streaming, setStreaming] = useState(false)
+  const [currentModel, setCurrentModel] = useState<string>('')
 
   useEffect(() => {
     fetchMessages(conversationId).then(async (existing) => {
@@ -23,7 +24,17 @@ export function ChatView({ conversationId, models, pendingSystemPrompt }: ChatVi
         setDraft(pendingSystemPrompt)
       }
     })
+    fetchConversation(conversationId).then((conv) => setCurrentModel(conv.model))
   }, [conversationId, pendingSystemPrompt])
+
+  async function handleModelChange(model: string) {
+    setCurrentModel(model)
+    try {
+      await updateConversationModel(conversationId, model)
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   async function send() {
     if (!draft.trim()) return
@@ -38,26 +49,56 @@ export function ChatView({ conversationId, models, pendingSystemPrompt }: ChatVi
       { id: -2, conversation_id: conversationId, role: 'assistant', content: '', model: null, truncated: 0, created_at: '' },
     ])
 
-    await streamMessage(
-      conversationId,
-      content,
-      (token) => {
-        setMessages((prev) => {
-          const next = [...prev]
-          next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + token }
-          return next
-        })
-      },
-      async () => {
-        setStreaming(false)
-        setMessages(await fetchMessages(conversationId))
-      },
-      pendingAttachments,
-    )
+    try {
+      await streamMessage(
+        conversationId,
+        content,
+        (token) => {
+          setMessages((prev) => {
+            const next = [...prev]
+            next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + token }
+            return next
+          })
+        },
+        async () => {
+          setStreaming(false)
+          setMessages(await fetchMessages(conversationId))
+        },
+        pendingAttachments,
+        (message) => {
+          setMessages((prev) => {
+            const next = [...prev]
+            next[next.length - 1] = {
+              ...next[next.length - 1],
+              content: next[next.length - 1].content + '\n\n⚠ Error: ' + message,
+            }
+            return next
+          })
+          setStreaming(false)
+        },
+      )
+    } finally {
+      setStreaming(false)
+    }
   }
 
   return (
     <div className="chat-view">
+      <div className="model-select-row">
+        <label>
+          Model:{' '}
+          <select value={currentModel} onChange={(e) => handleModelChange(e.target.value)}>
+            {!models.some((m) => m.id === currentModel) && currentModel && (
+              <option value={currentModel}>{currentModel}</option>
+            )}
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.id}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       <div className="messages">
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />

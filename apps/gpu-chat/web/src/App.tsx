@@ -14,8 +14,8 @@ export function App() {
   const [pendingSystemPrompt, setPendingSystemPrompt] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchConversations().then(setConversations)
-    fetchModels().then(setModels)
+    fetchConversations().then(setConversations).catch((err) => console.error('Failed to load conversations', err))
+    fetchModels().then(setModels).catch((err) => console.error('Failed to load models', err))
   }, [])
 
   async function handleNew() {

@@ -24,13 +24,22 @@ export function CompareView({ models }: CompareViewProps) {
     setResponses({})
     setDone({})
     setRunning(true)
-    await streamCompare(
-      prompt,
-      selected,
-      (model, token) => setResponses((prev) => ({ ...prev, [model]: (prev[model] ?? '') + token })),
-      (model) => setDone((prev) => ({ ...prev, [model]: true })),
-    )
-    setRunning(false)
+    try {
+      await streamCompare(
+        prompt,
+        selected,
+        (model, token) => setResponses((prev) => ({ ...prev, [model]: (prev[model] ?? '') + token })),
+        (model) => setDone((prev) => ({ ...prev, [model]: true })),
+        (model, message) => {
+          setResponses((prev) => ({ ...prev, [model]: (prev[model] ?? '') + '\n\n⚠ Error: ' + message }))
+          setDone((prev) => ({ ...prev, [model]: true }))
+        },
+      )
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setRunning(false)
+    }
   }
 
   async function save() {
