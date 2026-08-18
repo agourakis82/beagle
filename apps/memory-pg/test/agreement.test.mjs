@@ -1,4 +1,4 @@
-// agreement.test.mjs — a regra congelada do pré-registro `direcao-v1`.
+// agreement.test.mjs — a regra congelada do pré-registro `direcao-v2`.
 //
 // O risco de um julgador de concordância não é errar: é NUNCA DISCORDAR. Uma regra que só
 // sabe confirmar transforma qualquer dado em apoio, e o funil vira um carimbo. Metade destes
@@ -13,7 +13,7 @@ import {
 } from "../src/agreement.mjs";
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const DOC = join(RAIZ, "docs", "PREREG_FASE2_DIRECAO_v1.md");
+const DOC = join(RAIZ, "docs", "PREREG_FASE2_DIRECAO_v2.md");
 
 const HR = "HKQuantityTypeIdentifierHeartRate";
 const SDNN = "HKQuantityTypeIdentifierHeartRateVariabilitySDNN";
@@ -151,6 +151,6 @@ test("sem primaria nao ha veredito, mesmo com secundaria perfeita", () => {
 });
 
 test("todo veredito carrega a versao do pre-registro", () => {
-  assert.equal(julgar(med(), "alta").versao, "direcao-v1");
-  assert.equal(julgarRelato([med()], "alta").versao, "direcao-v1");
+  assert.equal(julgar(med(), "alta").versao, "direcao-v2");
+  assert.equal(julgarRelato([med()], "alta").versao, "direcao-v2");
 });

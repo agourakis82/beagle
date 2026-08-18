@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // bin/judge-agreement.mjs — o último elo da Fase 2.
 //
-// Aplica a regra congelada de `docs/PREREG_FASE2_DIRECAO_v1.md` aos auto-relatos que têm
+// Aplica a regra congelada de `docs/PREREG_FASE2_DIRECAO_v2.md` aos auto-relatos que têm
 // canal, sinal, hora e medida independente anexada — e grava o veredito com a versão e o
 // hash do pré-registro na linha.
 //
@@ -10,7 +10,7 @@
 //   node bin/judge-agreement.mjs                # conta, não grava
 //   node bin/judge-agreement.mjs --apply        # grava
 //
-// Env: MEMORY_PG_DSN, PREREG_PATH (default: docs/PREREG_FASE2_DIRECAO_v1.md do repo)
+// Env: MEMORY_PG_DSN, PREREG_PATH (default: docs/PREREG_FASE2_DIRECAO_v2.md do repo)
 
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +18,7 @@ import { makePool } from "../src/db.mjs";
 import { judgeAll } from "../src/judge.mjs";
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const prereg = process.env.PREREG_PATH || join(RAIZ, "docs", "PREREG_FASE2_DIRECAO_v1.md");
+const prereg = process.env.PREREG_PATH || join(RAIZ, "docs", "PREREG_FASE2_DIRECAO_v2.md");
 const apply = process.argv.includes("--apply");
 const dsn = process.env.MEMORY_PG_DSN;
 if (!dsn) { console.error("MEMORY_PG_DSN obrigatorio"); process.exit(2); }

@@ -11,10 +11,10 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
-export const PREREG_VERSION = "direcao-v1";
+export const PREREG_VERSION = "direcao-v2";
 
 /** SHA-256 de `docs/PREREG_FASE2_DIRECAO_v1.md` no momento do congelamento. */
-export const PREREG_SHA256 = "ad060e3fdf1e8a4800766f686b2a468c374a122edee91316f990d52c4553eee8";
+export const PREREG_SHA256 = "d695e800a3e19ad210f3a45a198423ecc8fd20bf251816e5ad4b14a379947fd8";
 
 /** Limiares fixados na §4 do pré-registro. Não ajustáveis por parâmetro, de propósito. */
 export const ALTO = 0.70;
@@ -61,7 +61,7 @@ export async function verificarPrereg(caminho) {
   if (sha !== PREREG_SHA256) {
     throw new Error(
       `pré-registro ALTERADO: ${caminho} tem sha256=${sha}, congelado=${PREREG_SHA256}. ` +
-      `Mudar a direção exige nova versão (direcao-v2) com o motivo escrito.`,
+      `Mudar a direção exige nova versão (direcao-v3) com o motivo escrito.`,
     );
   }
   return { versao: PREREG_VERSION, sha256: sha };

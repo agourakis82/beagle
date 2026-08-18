@@ -19,7 +19,7 @@ if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
 const pool = makePool(DSN);
 
 const RAIZ = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const PREREG = join(RAIZ, "docs", "PREREG_FASE2_DIRECAO_v1.md");
+const PREREG = join(RAIZ, "docs", "PREREG_FASE2_DIRECAO_v2.md");
 const HR = "HKQuantityTypeIdentifierHeartRate";
 const SDNN = "HKQuantityTypeIdentifierHeartRateVariabilitySDNN";
 
@@ -31,7 +31,8 @@ after(async () => { await pool.end(); });
 
 /** Auto-relato pronto para confronto + a medida que o testa. */
 async function relato({ channel = "arousal", polarity = "alta", pct = 0.95,
-                        measure = HR, n = 5, baselineN = 100, independent = true } = {}) {
+                        measure = HR, n = 5, baselineN = 100, independent = true,
+                        horaImputada = false } = {}) {
   const { id: subj } = await resolveEntity(pool, { name: "ele", type: "person" });
   const sha = createHash("sha256").update("f" + Math.random()).digest("hex");
   const f = await pool.query(
@@ -39,6 +40,9 @@ async function relato({ channel = "arousal", polarity = "alta", pct = 0.95,
                         self_report, state_channel, state_polarity, occurred_at)
      VALUES ($1,'estava','uma sentenca',$2,true,$3,$4, now()) RETURNING id`,
     [subj, sha, channel, polarity]);
+  if (horaImputada) {
+    await pool.query("UPDATE facts SET occurred_at_imputed = true WHERE id = $1", [f.rows[0].id]);
+  }
   const id = f.rows[0].id;
   await pool.query(
     `INSERT INTO fact_measurements
@@ -148,4 +152,51 @@ test("secundaria concordante e contada como reforco", async () => {
   const q = await pool.query("SELECT verdict, reforco FROM fact_agreement");
   assert.equal(q.rows[0].verdict, "CONCORDA");
   assert.equal(q.rows[0].reforco, 1);
+});
+
+
+// ---------------------------------------------------------------------------------------
+// direcao-v2: hora DECLARADA e condicao de elegibilidade.
+//
+// A v1 dizia "no instante do relato" e silenciava sobre qual instante quando o texto nao
+// declara um. O silencio custava caro: medido em 18-ago-2026, dos 10 auto-relatos com hora, os
+// 10 eram imputados do instante da FALA. Todo veredito ja emitido confrontou o corpo do momento
+// errado — para "acordei com o peito apertado", horas depois.
+//
+// O custo da regra esta declarado no proprio pre-registro: o substrato elegivel cai a zero hoje.
+// Aceito. Um teste que roda sempre medindo o instante errado produz numero publicavel e falso;
+// um que ainda nao pode rodar produz silencio honesto.
+
+test("relato com hora IMPUTADA nao e julgado", async () => {
+  await relato({ horaImputada: true });
+  const r = await judgeAll(pool, { prereg: PREREG, apply: true });
+  assert.equal(r.candidatos, 0, "hora deduzida da fala nao e o instante do estado");
+
+  const q = await pool.query("SELECT count(*)::int n FROM fact_agreement");
+  assert.equal(q.rows[0].n, 0, "nem como INELEGIVEL: ele nao entra no confronto");
+});
+
+test("relato com hora DECLARADA continua sendo julgado", async () => {
+  // A guarda so vale se discrimina. Se recusasse os dois, o funil zerado nao distinguiria
+  // "regra mais estrita" de "juiz quebrado".
+  await relato({ horaImputada: false });
+  const r = await judgeAll(pool, { prereg: PREREG, apply: true });
+  assert.equal(r.candidatos, 1);
+});
+
+test("o veredito carrega a versao e o hash da regra que o regeu", async () => {
+  await relato({ horaImputada: false });
+  await judgeAll(pool, { prereg: PREREG, apply: true });
+  const q = await pool.query("SELECT prereg_version, prereg_sha256 FROM fact_agreement LIMIT 1");
+  assert.equal(q.rows[0].prereg_version, "direcao-v2");
+  assert.equal(q.rows[0].prereg_sha256, PREREG_SHA256);
+});
+
+test("o v1 NAO passa mais no confronto de hash: mudar de regra e explicito", async () => {
+  // Apontar o juiz para o documento antigo tem que EXPLODIR, nao julgar em silencio sob a
+  // regra anterior. Versao e documento andam juntos ou nao andam.
+  await assert.rejects(
+    () => judgeAll(pool, { prereg: join(RAIZ, "docs", "PREREG_FASE2_DIRECAO_v1.md"), apply: true }),
+    /pré-registro ALTERADO/,
+  );
 });

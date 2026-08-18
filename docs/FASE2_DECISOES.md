@@ -190,3 +190,43 @@ Qualquer das duas respostas é defensável, e nenhuma pode ser tomada em silênc
 
 Admitir muda o significado do que já foi julgado, e por isso exige **nova versão do
 pré-registro**, não uma emenda ao `direcao-v1` congelado.
+
+
+---
+
+## 2026-08-18 — DECIDIDO: exigir hora declarada (`direcao-v2`)
+
+**Decisão dele**, em resposta às duas opções registradas acima: **exigir hora declarada**.
+
+Um auto-relato só é elegível ao confronto se o instante do estado foi declarado no próprio
+relato. Hora deduzida do instante da fala (`occurred_at_imputed = true`) torna o relato
+**inelegível** — não "menos confiável", inelegível.
+
+**Por que isto é versão nova e não emenda.** O `direcao-v1` está congelado por hash, e mudar o
+critério de elegibilidade muda o significado do que já foi julgado. `docs/PREREG_FASE2_DIRECAO_v2.md`
+nasce com SHA-256 `d695e800a3e19ad210f3a45a198423ecc8fd20bf251816e5ad4b14a379947fd8`. O v1 **não
+foi tocado**: continua no repo e na imagem, porque os vereditos já emitidos apontam para ele
+pelo hash, e sem o arquivo esse elo fica pendurado no vazio. Os dois conjuntos de vereditos
+coexistem em `fact_agreement`, separados por `prereg_version`.
+
+**O custo, declarado antes de qualquer resultado:** o substrato elegível vai de 10 para **zero**.
+Nenhum auto-relato do corpus atual sobrevive à regra. Isso foi escrito no próprio pré-registro,
+não descoberto depois.
+
+**O que a decisão compra.** Um teste que roda sempre mas mede o instante errado produz número
+publicável e falso; um teste que ainda não pode rodar produz silêncio honesto. A Fase 2 passa a
+ter fundo zero **e a saber por quê** — que é diferente de ter fundo 3 sem saber que os 3 foram
+confrontados contra o corpo de outro momento.
+
+**O que a decisão obriga.** O instante passa a ser responsabilidade da **origem**. Enquanto a
+captura não registrar quando o estado ocorreu — e não apenas quando a frase chegou —, o funil
+fica zerado. Duas frentes, nenhuma delas feita ainda:
+
+1. **No app**: o companion precisa perguntar/registrar o instante do estado, ou oferecer a
+   âncora temporal ("agora", "quando acordei", "à tarde") de forma estruturada.
+2. **Na extração**: o prompt já aceita `occurred_at` do texto, mas nenhum relato o preencheu.
+   Vale medir se é o prompt que não insiste ou se os relatos realmente não dizem quando.
+
+**Verificação:** 44/44 em `judge`, `agreement` e `physio-join`, incluindo o teste que confirma
+que apontar o juiz para o v1 agora **explode** em vez de julgar em silêncio sob a regra antiga.
+Por reversão: removida a linha que exclui hora imputada, o teste da quarentena falha.

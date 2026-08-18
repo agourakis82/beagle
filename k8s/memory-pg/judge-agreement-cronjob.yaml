@@ -1,6 +1,7 @@
 # judge-agreement-cronjob.yaml — o último elo da Fase 2, rodando sozinho.
 #
-# Aplica a regra congelada de `docs/PREREG_FASE2_DIRECAO_v1.md` e grava o veredito.
+# Aplica a regra congelada de `docs/PREREG_FASE2_DIRECAO_v2.md` e grava o veredito.
+# A v2 exige hora DECLARADA no relato: hora deduzida do instante da fala e inelegivel.
 #
 # Roda aos :37, VINTE MINUTOS DEPOIS da junta com a fisiologia (:17). A ordem importa: sem a
 # medida anexada não há o que julgar, e julgar antes produziria uma safra de `INELEGIVEL` que
@@ -43,7 +44,7 @@ spec:
                 # O documento congelado viaja NA IMAGEM: o julgamento e o texto que o autoriza
                 # sao versionados juntos, e o hash e conferido a cada execucao.
                 - name: PREREG_PATH
-                  value: "/app/docs/PREREG_FASE2_DIRECAO_v1.md"
+                  value: "/app/docs/PREREG_FASE2_DIRECAO_v2.md"
               resources:
                 requests: { cpu: 50m, memory: 128Mi }
                 limits: { cpu: 500m, memory: 512Mi }

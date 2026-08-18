@@ -34,6 +34,13 @@ const SQL_CANDIDATOS = `
      AND f.state_channel  IS NOT NULL
      AND f.state_polarity IS NOT NULL
      AND f.occurred_at    IS NOT NULL
+     -- direcao-v2 §0-bis: hora DEDUZIDA do instante da fala nao serve para o confronto.
+     -- Medido antes de a regra existir: dos 10 auto-relatos com hora, os 10 eram imputados.
+     -- Todo veredito emitido sob v1 confrontou o corpo do instante da FALA, nao do estado.
+     -- O custo desta linha e declarado no proprio pre-registro: o substrato elegivel cai a
+     -- zero hoje. Um teste que roda sempre medindo o instante errado e pior que um teste que
+     -- ainda nao pode rodar — o primeiro produz numero publicavel e falso.
+     AND NOT f.occurred_at_imputed
    GROUP BY f.id, f.state_channel, f.state_polarity`;
 
 /**
