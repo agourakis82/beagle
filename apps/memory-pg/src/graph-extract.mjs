@@ -498,6 +498,7 @@ export async function extractGraph(record, { llmFn } = {}) {
  */
 export async function applyExtraction(pool, extraction, opts = {}) {
   const { recordId = null, embedFn = null, occurredAt = null, model = null,
+          instanteDeclaradoPeloSujeito = false,
           speaker = null } = opts;
   // Quem falou decide se auto-relato é admissível. Ausência de `speaker` é
   // tratada como "não é ele": um chamador que não sabe de quem é a fala não pode
@@ -608,7 +609,12 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     const declarado = plaus.ok ? plaus.at : null;
     if (declaradoCru !== null && !plaus.ok) instanteRecusado++;
     const occ = declarado ?? occurredAt ?? null;
-    const occImputado = declarado === null && occ !== null;
+    // Herdar o instante do registro so conta como IMPUTAR quando o registro nao sabe quando o
+    // estado foi. Se o sujeito declarou no app, o instante herdado E declarado — por ele, que e
+    // a fonte mais forte disponivel: mais que o texto (onde o modelo inventa a data) e mais que
+    // o carimbo do servidor (que e a hora de chegada).
+    const herdouDeclarado = declarado === null && occ !== null && instanteDeclaradoPeloSujeito;
+    const occImputado = declarado === null && occ !== null && !herdouDeclarado;
 
     // The model proposes; the schema decides. A channel outside the closed
     // vocabulary is dropped rather than stored, because the corroboration

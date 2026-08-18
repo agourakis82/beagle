@@ -71,7 +71,11 @@ export async function runGraphOnce(pool, opts) {
   for (const row of claimed.rows) {
     try {
       const rec = await pool.query(
-        `SELECT content, occurred_at, prov_actor, metadata->>'role' AS role
+        `SELECT content, occurred_at, prov_actor, metadata->>'role' AS role,
+                -- A marca que o app pos quando ELE declarou quando o estado aconteceu. Sem ela
+                -- nao da para distinguir a hora do estado da hora que o proprio sistema carimba,
+                -- e o fato nasce imputado — inelegivel sob a direcao-v2.
+                metadata->>'state_declared_at' AS state_declared_at
            FROM records WHERE id = $1`,
         [row.record_id],
       );
@@ -86,6 +90,10 @@ export async function runGraphOnce(pool, opts) {
         recordId: row.record_id,
         embedFn,
         occurredAt: rec.rows[0].occurred_at,
+        // Quando o instante do registro FOI DECLARADO pelo sujeito, herda-lo nao e imputar.
+        // Este e o unico caminho pelo qual um fato pode nascer com hora declarada sem que o
+        // modelo tenha escrito uma data — e o modelo, quando escreve, inventa o ano (medido).
+        instanteDeclaradoPeloSujeito: rec.rows[0].state_declared_at != null,
         // Quem extraiu vai junto do fato: sem isso, saber qual modelo produziu o
         // que exige cruzar recorded_at com a data dos ReplicaSets.
         model,

@@ -1272,6 +1272,8 @@ async function completeChatRequest(req, deps, options = {}) {
         assistantText: deepThinkResult.text,
         clientTime: cleanString(req.body?.clientTime),
         timezone: cleanString(req.body?.timezone),
+        stateOccurredAt: cleanString(req.body?.state_occurred_at),
+        stateAnchor: cleanString(req.body?.state_anchor),
       }, { tokenFn: fetchOperatorToken }).catch(() => {});
     }
   } else if (chatSpace === "personal") {
@@ -1296,6 +1298,8 @@ async function completeChatRequest(req, deps, options = {}) {
       assistantText: cleanString(result?.payload?.text || result?.payload?.answer || result?.payload?.response),
       clientTime: cleanString(req.body?.clientTime),
       timezone: cleanString(req.body?.timezone),
+      stateOccurredAt: cleanString(req.body?.state_occurred_at),
+      stateAnchor: cleanString(req.body?.state_anchor),
     }, { tokenFn: fetchOperatorToken }).catch(() => {});
   } else {
   const subscriptionProfile = normalizeSubscriptionDiscussionProfile(effectiveDiscussionProfile);

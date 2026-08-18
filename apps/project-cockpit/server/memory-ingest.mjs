@@ -166,7 +166,34 @@ export async function distillSalient({ userText, assistantText }, { routerUrl, m
  * is swallowed (the chat reply has already gone to the user). Verbatim first (the transcript),
  * then the sovereign distill → atoms ingested with `distill` tags so recall ranks them.
  */
-export async function ingestPersonalTurn({ sessionId, userText, assistantText, clientTime, timezone } = {}, deps = {}) {
+/**
+ * Aceita o instante do ESTADO declarado pelo sujeito no app, se for plausível perto do envio.
+ *
+ * `clientTime` é quando a frase saiu do aparelho; isto é quando o estado aconteceu. A distinção
+ * é a razão de ser da Fase 2: medido em 18-ago-2026, os 10 auto-relatos que o funil contava como
+ * tendo hora tinham TODOS hora deduzida da fala, e sob o pré-registro `direcao-v2` hora deduzida
+ * é inelegível ao confronto com a fisiologia.
+ *
+ * Mesma janela de 7 dias que o memory-pg aplica ao instante que o MODELO declara, e pelo mesmo
+ * motivo: um estado lembrado com precisão de instante mais de uma semana depois não sustenta um
+ * confronto de ±60 min. A origem aqui é o sujeito, não o modelo, mas a borda valida igual — um
+ * relógio errado ou um cliente adulterado entram por aqui.
+ *
+ * Sem nada para comparar, RECUSA. O custo de recusar é o relato ficar inelegível; o de aceitar
+ * é um instante errado entrar parecendo declarado.
+ */
+export function declaradoValido(stateOccurredAt, clientTime, janelaDias = 7) {
+  const s = clean(stateOccurredAt);
+  if (!s) return null;
+  const d = Date.parse(s);
+  if (!Number.isFinite(d)) return null;
+  const refRaw = Date.parse(clean(clientTime) || "");
+  const ref = Number.isFinite(refRaw) ? refRaw : Date.now();
+  if (Math.abs(d - ref) > janelaDias * 86400000) return null;
+  return new Date(d).toISOString();
+}
+
+export async function ingestPersonalTurn({ sessionId, userText, assistantText, clientTime, timezone, stateOccurredAt, stateAnchor } = {}, deps = {}) {
   const {
     baseUrl = process.env.BEAGLE_INTERNAL_URL || "http://beagle-core.beagle.svc.cluster.local:8080",
     routerUrl = process.env.PROJECT_COCKPIT_LITELLM_ROUTER_URL || "http://router.llm-router.svc.cluster.local:4000",
@@ -189,6 +216,9 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     let occurredAt;
     try { occurredAt = clientTime ? new Date(clientTime).toISOString() : new Date().toISOString(); }
     catch { occurredAt = new Date().toISOString(); }
+    // O instante do ESTADO, quando ele declarou no app. Sobrepõe o da fala SÓ no turno dele —
+    // ver abaixo. Null quando não declarou, e aí tudo segue como antes.
+    const estadoEm = declaradoValido(stateOccurredAt, clientTime);
 
     // Nota avulsa não se destila. Destilar "peito apertado" produziria um átomo
     // `model_distilled` que é a máquina parafraseando três palavras — ruído com
@@ -215,9 +245,17 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
         // é a mesma coisa que "ele respondeu ao companion".
         { source_type: "ConversationPassage", content: u, prov_actor: "user_stated",
           prov_surface: clean(assistantText) ? "companion-ios" : "companion-ios-nota",
-          prov_confidence: 1.0, occurred_at: occurredAt,
+          // O instante do ESTADO vence o da fala quando ele declarou. Só aqui: o turno do
+          // assistente não é um estado dele, e carimbá-lo igual criaria um segundo "relato" no
+          // mesmo instante que nunca foi feito.
+          prov_confidence: 1.0, occurred_at: estadoEm || occurredAt,
           metadata: { space: "personal", session_id: sid, role: "user",
-                      standalone: clean(assistantText) ? undefined : true } },
+                      standalone: clean(assistantText) ? undefined : true,
+                      // A MARCA é o que faz o instante valer como DECLARADO lá na frente. Sem
+                      // ela o memory-pg não distingue esta hora da que ele mesmo carimba, e o
+                      // fato volta a nascer imputado — o campo teria viajado inteiro sem mudar
+                      // nada, que é o modo de falha mais comum desta base.
+                      ...(estadoEm ? { state_declared_at: estadoEm, state_anchor: clean(stateAnchor) || "desconhecida" } : {}) } },
         capDeps,
       );
       userId = r && r.id ? r.id : null;
