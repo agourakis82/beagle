@@ -424,3 +424,46 @@ test("o fato com sujeito CERTO continua virando auto-relato", async () => {
   assert.equal(q.rows[0].state_channel, "arousal");
   assert.equal(q.rows[0].state_polarity, "alta");
 });
+
+// O CUSTO da lista branca estreita tem que ser VISIVEL.
+//
+// Ele escolheu manter a lista estreita: nunca aceita estado alheio, e em troca perde relato
+// legitimo as vezes. Ja vi um: "Um pouco angustiado, mas sem motivo aparente", sujeito
+// `person`, recusado.
+//
+// Custo aceito nao pode ser custo invisivel. Sem este contador, ninguem descobre que a guarda
+// esta comendo demais — e a decisao deixaria de ser revisavel.
+test("recusa por sujeito alheio e CONTADA, nao silenciosa", async () => {
+  const r = await applyExtraction(pool, {
+    entities: [{ name: "você", type: "person" }],
+    facts: [{ subject: "você", predicate: "estava", object_literal: "confuso",
+              statement: "Você estava confuso.", self_report: true,
+              state_channel: "arousal", state_polarity: "alta" }],
+  }, { recordId: null, speaker: { prov_actor: "user_stated", role: "user" } });
+
+  assert.equal(r.sujeitoAlheio, 1, "a recusa vira numero");
+});
+
+test("relato legitimo nao conta como recusa", async () => {
+  const r = await applyExtraction(pool, {
+    entities: [{ name: "eu", type: "person" }],
+    facts: [{ subject: "eu", predicate: "estava", object_literal: "cansado",
+              statement: "Estou meio cansado.", self_report: true,
+              state_channel: "fatigue", state_polarity: "alta" }],
+  }, { recordId: null, speaker: { prov_actor: "user_stated", role: "user" } });
+
+  assert.equal(r.sujeitoAlheio, 0);
+});
+
+// Fala da maquina nao e "sujeito alheio": e recusada antes, pela guarda de FALANTE. Contar as
+// duas no mesmo balde faria o numero medir outra coisa — e o custo da lista branca sumiria
+// dentro do ruido da quarentena de proveniencia.
+test("fala da maquina NAO entra no contador de sujeito alheio", async () => {
+  const r = await applyExtraction(pool, {
+    entities: [{ name: "eu", type: "person" }],
+    facts: [{ subject: "eu", predicate: "estava", object_literal: "cansado",
+              statement: "Estou cansado.", self_report: true, state_channel: "fatigue" }],
+  }, { recordId: null, speaker: { prov_actor: "model_generated", role: "assistant" } });
+
+  assert.equal(r.sujeitoAlheio, 0, "recusado pelo FALANTE, nao pelo sujeito");
+});

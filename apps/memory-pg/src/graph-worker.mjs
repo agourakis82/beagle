@@ -64,7 +64,7 @@ export async function runGraphOnce(pool, opts) {
     [batch],
   );
 
-  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, semSentenca: 0, errors: [] };
+  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, semSentenca: 0, sujeitoAlheio: 0, errors: [] };
 
   for (const row of claimed.rows) {
     try {
@@ -97,6 +97,15 @@ export async function runGraphOnce(pool, opts) {
       // A taxa de recusa e' um sinal da QUALIDADE DO EXTRATOR: 66% num modelo e 10% em
       // outro nao e ruido, e ver isso exige que o numero saia daqui.
       stats.semSentenca += applied.semSentenca ?? 0;
+      // A guarda de sujeito e ESTREITA por escolha declarada, e por isso custa relatos
+      // legitimos. O custo foi aceito; invisivel ele nao pode ser — sem este numero ninguem
+      // descobre que a lista branca esta comendo demais.
+      stats.sujeitoAlheio += applied.sujeitoAlheio ?? 0;
+      if (applied.sujeitoAlheio) {
+        console.error(
+          `[graph-worker] record=${row.record_id} ${applied.sujeitoAlheio} auto-relato(s) recusado(s): sujeito nao e o falante`,
+        );
+      }
       if (applied.semSentenca) {
         console.error(
           `[graph-worker] record=${row.record_id} ${applied.semSentenca} fato(s) recusado(s): sem statement`,

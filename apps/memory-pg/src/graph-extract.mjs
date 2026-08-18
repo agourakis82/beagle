@@ -425,6 +425,15 @@ export async function applyExtraction(pool, extraction, opts = {}) {
   let factsInvalidated = 0;
   /** Fatos recusados por não terem sentença. Contado, nunca silencioso. */
   let semSentenca = 0;
+  /**
+   * Auto-relatos recusados porque o SUJEITO nao era ele. Contado, nunca silencioso.
+   *
+   * A lista branca de `subjectIsSelf` e estreita de proposito, e isso CUSTA relatos
+   * legitimos — ja vi um: "Um pouco angustiado, mas sem motivo aparente", com sujeito
+   * `person`, que a lista recusa. O custo foi aceito explicitamente; o que nao pode e ser
+   * invisivel. Sem este numero, ninguem descobre que a guarda esta comendo demais.
+   */
+  let sujeitoAlheio = 0;
   for (let fi = 0; fi < facts.length; fi++) {
     const f = facts[fi];
 
@@ -480,7 +489,10 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     // anyway; doing it here means one bad field costs a null, not the whole fact.
     // DUAS guardas, e nenhuma cobre a outra: `auto_ok` diz que ELE FALOU (pelo registro),
     // `subjectIsSelf` diz que o ESTADO E DELE (pelo sujeito do fato).
-    const selfReport = f.self_report === true && auto_ok && subjectIsSelf(f.subject);
+    const propoeAuto = f.self_report === true && auto_ok;
+    const selfReport = propoeAuto && subjectIsSelf(f.subject);
+    // A recusa por sujeito e a unica que o dono escolheu pagar: ela vira numero.
+    if (propoeAuto && !selfReport) sujeitoAlheio++;
     const proposed = typeof f.state_channel === "string" ? f.state_channel.trim().toLowerCase() : null;
     const stateChannel = selfReport && SELF_STATE_CHANNELS.has(proposed) ? proposed : null;
     // O SINAL do relato, sob a mesma regra do canal: vocabulario fechado, e o que cair fora
@@ -552,7 +564,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       client.release();
     }
   }
-  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca };
+  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca, sujeitoAlheio };
 }
 
 export default applyExtraction;

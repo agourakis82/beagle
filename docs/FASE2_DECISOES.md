@@ -105,3 +105,38 @@ Os valores anteriores ficam abaixo, para que a correção seja auditável fora d
 | `pregabalina` | — | — | Costuma ajudar. |
 
 Em **negrito**, os 3 que estavam em canal elegível — os que teriam entrado na corroboração.
+
+---
+
+## 2026-08-18 — Manter a lista branca de sujeito ESTREITA
+
+**A escolha.** `subjectIsSelf()` aceita apenas um conjunto pequeno e medido de nomes
+(`eu`, `I`, `me`, `self`, `myself`, `speaker`, `user`, `ele`, `sujeito`). Qualquer outro nome
+é recusado por padrão.
+
+**O custo, visível já no primeiro lote.** Ao desmarcar os 27, a tabela expôs um auto-relato
+legítimo que a lista recusa:
+
+> `person` — *"Um pouco angustiado, mas sem motivo aparente."*
+
+É ele descrevendo o próprio estado, e a guarda o rejeita porque o extrator o nomeou `person`,
+que é genérico demais para entrar na lista.
+
+**A alternativa recusada.** Acrescentar `person` e formas parecidas ganharia cobertura. Foi
+recusada porque `person` pode denotar qualquer um: aceitá-lo abriria a porta para um estado de
+terceiro entrar no caminho da corroboração — que é o modo de falha que a guarda existe para
+impedir.
+
+**Decisão dele: manter estreita.** A assimetria é deliberada e vale registrar por escrito:
+
+> Falso positivo **corrompe a ciência** — um estado alheio casado com a fisiologia dele.
+> Falso negativo **só custa cobertura** — um relato verdadeiro que não é contado.
+>
+> Num n-de-1 onde o substrato já é estreito, essa troca dói. Foi escolhida assim mesmo.
+
+**Consequência instrumentada, não apenas aceita.** Custo aceito não pode ser custo invisível:
+`applyExtraction` passou a devolver `sujeitoAlheio`, e o worker imprime a contagem. Sem esse
+número ninguém descobriria que a lista está comendo demais, e a decisão deixaria de ser
+revisável — que é o oposto de tê-la registrado aqui.
+
+**Se um dia for revisto**, entra aqui com data, e a série ganha duas épocas.
