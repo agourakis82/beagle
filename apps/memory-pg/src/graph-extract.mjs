@@ -407,6 +407,37 @@ export class ContextTooLargeError extends GraphExtractionError {
 }
 
 /**
+ * O servidor de LLM nao respondeu — conexao recusada, DNS, pod reiniciando.
+ *
+ * Separado de "llm" porque a causa nao esta no registro nem na resposta: esta no ambiente, e
+ * some sozinha. Medido em 18-ago-2026: uma janela de DOIS MINUTOS com o servidor fora do ar,
+ * durante um rollout meu, enterrou 1.095 registros validos na fila morta. Tres tentativas em
+ * rajada nao sao tres chances — sao a mesma chance repetida em dois segundos.
+ */
+export class ServidorForaError extends GraphExtractionError {
+  constructor(message) {
+    super(message, { kind: "servidor_fora" });
+    this.name = "ServidorForaError";
+  }
+}
+
+/**
+ * Reconhece falha de TRANSPORTE, antes de qualquer resposta HTTP existir.
+ *
+ * `fetch failed` e o que o undici do Node devolve para conexao recusada, DNS e reset; os codigos
+ * abaixo vem no `cause`. Um 500 do servidor NAO entra aqui: ali houve resposta, e resposta ruim
+ * repetida e sinal de defeito, nao de ausencia.
+ */
+export function ehServidorFora(err) {
+  if (!err) return false;
+  const codigo = err?.cause?.code || err?.code || "";
+  if (["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ETIMEDOUT", "UND_ERR_SOCKET"].includes(codigo)) {
+    return true;
+  }
+  return /fetch failed/i.test(String(err?.message ?? ""));
+}
+
+/**
  * Reconhece "nao coube" na resposta de erro do servidor.
  *
  * Le o campo ESTRUTURADO, nunca a prosa da mensagem. Medido em 18-ago-2026 contra os dois
@@ -474,6 +505,8 @@ export async function extractGraph(record, { llmFn } = {}) {
     // que decide a politica la em cima — e o worker trataria um registro grande demais como
     // uma pane transitoria: tres repeticoes na GPU e enterro na fila morta.
     if (err instanceof ContextTooLargeError) throw err;
+    // Servidor fora tambem passa distinguivel: la em cima a politica e ESPERAR, nao enterrar.
+    if (ehServidorFora(err)) throw new ServidorForaError(`servidor fora: ${err?.message ?? err}`);
     throw new GraphExtractionError(`LLM call failed: ${err?.message ?? err}`, { kind: "llm" });
   }
   const obj = parseLlmJson(reply);

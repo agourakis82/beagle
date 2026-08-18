@@ -44,7 +44,11 @@ export const TIERS = {
 };
 
 export async function runGraphOnce(pool, opts) {
-  const { llmFn, embedFn = null, batch = 8, maxRetries = 3, model = null, tier = "all" } = opts || {};
+  const { llmFn, embedFn = null, batch = 8, maxRetries = 3, model = null, tier = "all",
+          // Espera antes de reivindicar de novo quando o servidor esta fora. 60s cobre o
+          // tempo de um pod de serving subir (medido: ~60s quente, ~5min frio) sem deixar a
+          // fila parada muito alem disso.
+          esperaServidorSegundos = 60 } = opts || {};
   if (typeof llmFn !== "function") throw new Error("runGraphOnce: llmFn required");
   // Faixa desconhecida e erro, nunca "processa tudo": um typo no env viraria os dois workers
   // varrendo a fila inteira e brigando por cada linha.
@@ -66,7 +70,7 @@ export async function runGraphOnce(pool, opts) {
 
   // `oversized` sai daqui pelo mesmo motivo que `semSentenca` e `sujeitoAlheio`: um registro
   // posto de lado sem numero visivel e um registro perdido em silencio.
-  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, oversized: 0, instanteRecusado: 0, semSentenca: 0, sujeitoAlheio: 0, errors: [] };
+  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, oversized: 0, esperandoServidor: 0, instanteRecusado: 0, semSentenca: 0, sujeitoAlheio: 0, errors: [] };
 
   for (const row of claimed.rows) {
     try {
@@ -134,6 +138,33 @@ export async function runGraphOnce(pool, opts) {
       // pipeline whose LLM had no backend looked identical to a healthy one.
       console.error(`[graph-worker] record=${row.record_id} try=${next}/${maxRetries} ${reason.slice(0, 240)}`);
       stats.errors.push(reason.slice(0, 240));
+      if (err?.kind === "servidor_fora") {
+        // ESPERA em vez de enterrar. O registro nao tem defeito nenhum: o servidor e que nao
+        // estava la, e isso passa sozinho.
+        //
+        // Nao gasta tentativa e volta para `pending` com `locked_until` no futuro. O
+        // `locked_until` ja existia para lote travado; aqui ele vira o freio que faltava —
+        // sem ele, os 3 workers reivindicam o mesmo registro de novo no ciclo seguinte, em
+        // milissegundos, e queimam as 3 tentativas antes de o pod terminar de subir.
+        //
+        // Medido: 1.095 registros validos enterrados numa janela de DOIS MINUTOS, durante um
+        // rollout. A fila morta ficou com o registro certo pelo motivo errado.
+        //
+        // Girar para sempre nao e risco pratico: quem detecta servidor morto de verdade e o
+        // alarme da frota (`memory-pg-fleet-health`), que vigia os modelos declarados a cada 30
+        // min. A fila esperando e o comportamento correto enquanto ele nao volta.
+        await pool.query(
+          // Fica em `processing` com `locked_until` no futuro, e nao em `pending`: a consulta de
+          // reivindicacao so consulta `locked_until` no ramo de `processing`
+          // (`status='processing' AND locked_until < now()`). Em `pending` ele seria pego de
+          // volta no mesmo instante e a espera nao existiria — o mecanismo estaria escrito e
+          // nao cobriria nada. O reaper que ja existia devolve o registro sozinho no prazo.
+          "UPDATE pending_graph SET status='processing', locked_until=now() + ($2 || ' seconds')::interval, last_error=$3 WHERE id=$1",
+          [row.id, esperaServidorSegundos, reason.slice(0, 2000)],
+        );
+        stats.esperandoServidor++;
+        continue;
+      }
       if (err?.kind === "exceed_context") {
         // Nao gasta tentativa e nao vai para a fila morta.
         //
