@@ -58,6 +58,11 @@ public struct ChatScreen: View {
     /// UUID e não Bool: dois pedidos seguidos precisam disparar duas vezes.
     var pedidoDeVoz: UUID?
     @State private var draft = ""
+    /// Quando o estado aconteceu, se ele declarou. Mora AQUI e não no compositor porque
+    /// precisa sobreviver aos redesenhos do compositor e ser lida no envio — um estado de
+    /// view interno seria zerado no meio do caminho e o turno sairia sem a declaração,
+    /// que é o mesmo que não ter o controle.
+    @State private var ancoraDoEstado: AncoraTemporal?
     /// Dictation language, toggled by the composer's PT/EN chip. Persisted; pt_BR default.
     @AppStorage("dictationLocaleID") private var dictationLocaleID = "pt_BR"
     /// Última vez que o usuário mexeu em alguma coisa. `nil` → ainda não mexeu nesta
@@ -657,7 +662,8 @@ public struct ChatScreen: View {
             // desenhado e mudo. A ordem aqui segue a da DECLARAÇÃO em ChatComposer —
             // Swift exige, e foi o último erro que o build pegou.
             dictationLocaleID: dictationLocaleID,
-            onToggleLocale: { dictationLocaleID = dictationLocaleID.hasPrefix("en") ? "pt_BR" : "en_US" }
+            onToggleLocale: { dictationLocaleID = dictationLocaleID.hasPrefix("en") ? "pt_BR" : "en_US" },
+            ancora: $ancoraDoEstado
         )
         .padding(.horizontal, BeagleSpacing.md)
         .padding(.bottom, BeagleSpacing.sm)
@@ -770,6 +776,13 @@ public struct ChatScreen: View {
             return
         }
         draft = ""
+        // O instante é resolvido AGORA, no envio, e não quando ele tocou a âncora: entre uma
+        // coisa e outra pode passar tempo redigindo, e "há 1h" congelado no toque gravaria a
+        // hora de uma decisão de interface. Ver InstanteDoEstado.swift.
+        store.instanteDeclarado = InstanteDeclarado(ancora: ancoraDoEstado)
+        // Zera com o rascunho, pela mesma razão: âncora que sobrevive ao envio declararia o
+        // instante do turno anterior no próximo, em silêncio.
+        ancoraDoEstado = nil
         store.voiceModel = depth.voiceModel   // Rápido → default voice; Pensar → stronger model
         store.deepThink = depth.isDeepThink    // Agente → agentic read-only tool path (server side)
         Task { await store.sendMessage(text) }

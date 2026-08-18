@@ -1299,7 +1299,10 @@ public actor BeagleClient {
         dst: Double? = nil,
         solarWind: Double? = nil,
         bz: Double? = nil,
-        voiceModel: String? = nil
+        voiceModel: String? = nil,
+        /// QUANDO o estado aconteceu, dito por ele. Ver InstanteDoEstado.swift: ausente
+        /// significa "não declarou", e nunca deve ser preenchido por inferência.
+        instanteDeclarado: InstanteDeclarado? = nil
     ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1347,7 +1350,8 @@ public actor BeagleClient {
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
-                            voiceWpm: voiceWpm, voicePausa: voicePausa)
+                            voiceWpm: voiceWpm, voicePausa: voicePausa,
+                            instanteDeclarado: instanteDeclarado)
 
         let mobileResult = await postPublicMobileChat(body: body)
         if mobileResult.value != nil {
@@ -1477,7 +1481,8 @@ public actor BeagleClient {
         dst: Double? = nil,
         solarWind: Double? = nil,
         bz: Double? = nil,
-        voiceModel: String? = nil
+        voiceModel: String? = nil,
+        instanteDeclarado: InstanteDeclarado? = nil
     ) async -> Truthful<ChatResponse> {
         await llmComplete(
             prompt: prompt,
@@ -1494,7 +1499,8 @@ public actor BeagleClient {
             readiness: readiness, sleepHours: sleepHours,
             heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
-            voiceModel: voiceModel
+            voiceModel: voiceModel,
+            instanteDeclarado: instanteDeclarado
         )
     }
 
@@ -1510,7 +1516,8 @@ public actor BeagleClient {
                                heartRate: Double? = nil, stateOfMind: Double? = nil,
                                stateOfMindLabel: String? = nil,
                                kp: Double?, dst: Double?, solarWind: Double?, bz: Double?,
-                               voiceWpm: Double? = nil, voicePausa: Double? = nil) {
+                               voiceWpm: Double? = nil, voicePausa: Double? = nil,
+                               instanteDeclarado: InstanteDeclarado? = nil) {
         // Live interoceptive anchor: the heartbeat, named back in a hard moment; and his OWN
         // logged State of Mind (valence −1..1 + the emotion word he tagged). All optional.
         if let heartRate { body["heart_rate"] = heartRate }
@@ -1525,6 +1532,16 @@ public actor BeagleClient {
         if let bz { body["bz"] = bz }
         if let voiceWpm { body["voice_speech_rate_wpm"] = voiceWpm }
         if let voicePausa { body["voice_pause_ratio"] = voicePausa }
+        // QUANDO o estado aconteceu, dito por ele. Diferente de tudo que está acima: os outros
+        // campos são medidas do aparelho, este é uma AFIRMAÇÃO do sujeito. O servidor o repassa
+        // como `occurred_at` do registro, e só por isso o relato deixa de ter hora imputada e
+        // vira elegível ao confronto sob o pré-registro `direcao-v2`.
+        //
+        // Ausente quando ele não declarou — e ausência aqui significa "não disse quando", nunca
+        // "foi agora". O servidor NÃO pode preencher isto por conta própria.
+        if let instanteDeclarado {
+            for (k, v) in instanteDeclarado.camposJSON { body[k] = v }
+        }
     }
 
     // MARK: - A boca
@@ -1807,7 +1824,11 @@ public actor BeagleClient {
         // {"event":"presence"|"phase", ...} at t≈0 and while it waits. Optional callback
         // instead of widening the stream element type, so the other call-site
         // (DailySynthesisView) keeps compiling untouched. Invoked off the main actor.
-        onPhase: (@Sendable (String, String) -> Void)? = nil
+        onPhase: (@Sendable (String, String) -> Void)? = nil,
+        /// QUANDO o estado aconteceu, dito por ele. Precisa existir NESTE caminho e não só no
+        /// `llmComplete`: o chat usa o streaming, e um campo ligado apenas na rota que o app
+        /// não percorre é um controle desenhado que não envia nada.
+        instanteDeclarado: InstanteDeclarado? = nil
     ) -> AsyncThrowingStream<String, Error> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1852,7 +1873,8 @@ public actor BeagleClient {
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             heartRate: heartRate, stateOfMind: stateOfMind, stateOfMindLabel: stateOfMindLabel,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
-                            voiceWpm: voiceWpm, voicePausa: voicePausa)
+                            voiceWpm: voiceWpm, voicePausa: voicePausa,
+                            instanteDeclarado: instanteDeclarado)
 
         let cockpitURLs: [URL] = [
             URL(string: "https://beagle.chiuratto.ai")!,

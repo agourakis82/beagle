@@ -106,6 +106,12 @@ public final class ConversationStore {
     /// (tool-using) path instead of the plain one-shot voice call. Server: mobile-routes.mjs
     /// completeChatRequest reads `deepThink` at ~L718.
     public var deepThink: Bool = false
+    /// QUANDO o estado aconteceu, declarado por ele no compositor. Vale para UM turno.
+    ///
+    /// Ausente = não declarou. A ausência não pode virar "agora": sob o pré-registro
+    /// `direcao-v2`, instante deduzido da fala é inelegível ao confronto com a fisiologia, e
+    /// preencher isto por conta própria transformaria uma suposição em falsa declaração.
+    public var instanteDeclarado: InstanteDeclarado? = nil
 
     /// Live Activity hooks (set by the view layer, since LiveActivityManager is in BeagleCockpit) —
     /// mirrors the GoDeepStore onResearch* pattern. Lets the user leave the app during the ~14-20s
@@ -698,6 +704,7 @@ public final class ConversationStore {
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
             voiceModel: voiceModel,
             deepThink: deepThink,
+            instanteDeclarado: instanteDeclarado,
             // Presence: written to the presence LAYER, not to the message slot — so the
             // on-device quickAck (which owns that slot) always wins, by construction, and
             // no server-authored sentence can ever be mistaken for his voice.
@@ -824,7 +831,8 @@ public final class ConversationStore {
             heartRate: physioSummary?.heartRate, stateOfMind: physioSummary?.stateOfMind, stateOfMindLabel: physioSummary?.stateOfMindLabel,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
-            voiceModel: voiceModel
+            voiceModel: voiceModel,
+            instanteDeclarado: instanteDeclarado
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {

@@ -99,6 +99,13 @@ struct ChatComposer: View {
     /// chip continuaria DESENHADO e não mudaria nada — botão morto. Ver VoiceTurnController.
     var dictationLocaleID: String = "pt_BR"
     var onToggleLocale: (() -> Void)? = nil
+    /// Quando o estado aconteceu, se ele declarou. `nil` = não declarou, e é o padrão.
+    ///
+    /// A ausência é significativa e não pode virar um "agora" implícito: sob o pré-registro
+    /// `direcao-v2`, instante DEDUZIDO da fala é inelegível ao confronto com a fisiologia. O
+    /// relato só se torna elegível por um ato — inclusive o ato de tocar em "agora", que troca
+    /// uma suposição do sistema por uma afirmação dele. Ver `InstanteDoEstado.swift`.
+    @Binding var ancora: AncoraTemporal?
 
     @State private var pickedItem: PhotosPickerItem?
     @State private var attachedData: Data?
@@ -110,6 +117,8 @@ struct ChatComposer: View {
     /// guaranteed — so a hold must be able to veto the tap that follows it, or every
     /// push-to-talk turn would also toggle hands-free.
     @State private var holdEngagedAt: Date?
+    @State private var mostrandoSeletor = false
+    @State private var horaEscolhida = Date()
     /// Accessibility: Reduce Transparency swaps the Liquid Glass for a solid material so the
     /// draft text never loses contrast over a busy aurora (iOS 27 contrast guidance).
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -169,6 +178,7 @@ struct ChatComposer: View {
         VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
             avisoDeVoz
             if attachedData != nil { attachmentChip }
+            if ancora != nil { ancoraChip }
 
             HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {
                 // Depth gear — Rápido / Pensar / Fundo. Lives in the composer edge (Kimi/MiniMax
@@ -194,12 +204,19 @@ struct ChatComposer: View {
                     .accessibilityLabel(dictationLocaleID.hasPrefix("en") ? "Idioma da ditada: inglês, tocar para português" : "Idioma da ditada: português, tocar para inglês")
                 }
 
+                relogioDeEstado
+
                 actionButton
             }
         }
         .padding(.vertical, BeagleSpacing.xs)
         .padding(.horizontal, BeagleSpacing.sm)
         .modifier(ComposerGlass(reduceTransparency: reduceTransparency))
+        .sheet(isPresented: $mostrandoSeletor) {
+            SeletorDeInstante(hora: $horaEscolhida) { escolhida in
+                ancora = .horario(escolhida)
+            }
+        }
         // SOTA-chat: subtle light-impact haptic confirming the send, contained and non-decorative.
         .sensoryFeedback(.impact(weight: .light), trigger: sendHaptic)
         .onChange(of: pickedItem) { _, item in
@@ -465,6 +482,60 @@ struct ChatComposer: View {
         onSend()
         attachedData = nil
         pickedItem = nil
+    }
+
+    /// Abre as âncoras. Fica ao lado do enviar porque a pergunta que ele responde — "isto é
+    /// sobre quando?" — só faz sentido com algo escrito, e some da vista o resto do tempo.
+    @ViewBuilder
+    private var relogioDeEstado: some View {
+        if hasContent {
+            Menu {
+                ForEach(AncoraTemporal.rapidas, id: \.chave) { op in
+                    Button(op.rotulo) { ancora = op }
+                }
+                Divider()
+                Button("Escolher hora…") { mostrandoSeletor = true }
+                if ancora != nil {
+                    Divider()
+                    Button("Não declarar", role: .destructive) { ancora = nil }
+                }
+            } label: {
+                Image(systemName: ancora == nil ? "clock" : "clock.fill")
+                    .font(.system(size: 17, weight: .regular))
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(ancora == nil ? 0.42 : 0.85))
+                    .frame(minWidth: 34, minHeight: 34)
+                    // Sem isto a área de toque é só o glifo — o mesmo defeito que já deixou um
+                    // botão morto nesta tela antes.
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(ancora == nil
+                ? "Declarar quando o estado aconteceu"
+                : "Estado declarado \(ancora?.rotulo ?? ""), tocar para mudar")
+        }
+    }
+
+    /// O chip existe para que a declaração seja VISÍVEL antes de enviar. Uma âncora escolhida e
+    /// esquecida mandaria um instante que ele não quis afirmar — e sob a `direcao-v2` seria
+    /// justamente esse instante a entrar no confronto.
+    private var ancoraChip: some View {
+        HStack(spacing: BeagleSpacing.xs) {
+            Image(systemName: "clock.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.55))
+            Text("o estado foi \(ancora?.rotulo ?? "")")
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.6))
+            Spacer()
+            Button {
+                ancora = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.42))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remover a declaração de quando")
+        }
+        .padding(.horizontal, BeagleSpacing.xs)
     }
 
     private var attachmentChip: some View {
