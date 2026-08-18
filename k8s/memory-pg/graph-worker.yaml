@@ -1,6 +1,14 @@
-# Phase 4.3 going-forward graph trickle worker — r1-distill-70b over pending_graph
-# (new memories enqueued by captureRecord when MEMORY_PG_GRAPH_ENABLED). Low volume,
-# high quality. Separate tier from the qwen historical backfill.
+# Faixa BULK da extração de grafo — todo registro que NÃO é fala do sujeito.
+#
+# O desenho tem duas faixas, particionadas por `prov_actor` e disjuntas por negação (ver
+# `graph-worker-voz.yaml`): `voice` é o que ele disse, e vai no modelo caro; `bulk` é todo o
+# resto, e vai no modelo de volume. A partição é por negação e não por enumeração de propósito —
+# um `prov_actor` novo cai automaticamente em `bulk`, nunca no vão entre as duas.
+#
+# ⚠️ Este arquivo esteve 180° defasado do cluster: dizia 1 réplica no `r1-distill-70b` via
+# roteador, enquanto o vivo rodava 3 réplicas no `qwen2.5:14b` do Spark. Aplicá-lo teria
+# revertido a faixa inteira. Reconciliado com o vivo em 18-ago-2026, no mesmo passo em que a
+# extração mudou de backend. Antes de aplicar: `kubectl get deploy ... -o json` e comparar.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -8,13 +16,19 @@ metadata:
   namespace: beagle
   labels: { app: memory-pg, component: graph-worker }
 spec:
-  replicas: 1
+  # 3 réplicas, e cada uma processa seu lote SERIALMENTE (`for ... await` em
+  # `runGraphOnce`). A concorrência real contra o servidor de LLM é 3, não 3×GRAPH_BATCH —
+  # `GRAPH_BATCH` é quantas linhas a réplica reivindica por rodada, não quantas dispara juntas.
+  # Isso é o que faz as 3 caberem nos 4 slots do llama.cpp sem fila, sobrando um para o chat.
+  replicas: 3
   selector:
     matchLabels: { app: memory-pg, component: graph-worker }
   template:
     metadata:
       labels: { app: memory-pg, component: graph-worker }
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: t560-proxmox
       # HISTÓRICO — não remova esta nota junto com o código que ela explica.
       # Em 02-ago-2026 pods no dl380 não alcançavam NADA: nem ClusterIP, nem o
       # próprio host, nem a rede externa. O HOST alcançava; o POD não. Um rollout
@@ -40,19 +54,41 @@ spec:
         seccompProfile: { type: Unconfined }
       containers:
         - name: graph-worker
-          image: 192.168.3.207:5003/memory-pg-embed-worker:p2-ffbb9d6a
+          image: 192.168.3.207:5003/memory-pg-embed-worker:p32-custo-04c3b35e
           command: ["node", "bin/graph-worker.mjs"]
           env:
             - name: MEMORY_PG_DSN
               valueFrom: { secretKeyRef: { name: memory-pg, key: DATABASE_URL } }
+            # 18-ago-2026: saiu do Ollama do Spark (192.168.3.24:11434) para o llama.cpp na L4
+            # do r770 (`llamacpp-l4-r770.yaml`). Mesma família de modelo de propósito — trocar
+            # família junto com hardware misturaria duas variáveis, e eu já errei uma vez
+            # concluindo qualidade a partir de vazão.
+            #
+            # O que motivou: o alarme da frota mediu `qwen2.5:14b` no Spark em 35,4 s para UM
+            # token, contra 0,1 s na L4. O Spark é memória unificada disputada; a L4 é uma placa
+            # com batching contínuo.
+            #
+            # Linha de base ANTES da troca, para a comparação não atravessar a fronteira do
+            # rollout: ~1.000 fatos/hora, 100% com `statement`, estável por 8 h.
             - name: GRAPH_LLM_URL
-              value: http://router.llm-router.svc.cluster.local:4000
+              value: http://llamacpp-l4.beagle.svc.cluster.local:8000
+            # O nome NÃO é cosmético: `applyExtraction` grava-o em
+            # `provenance->'extracted_by'->>'model'` de cada fato. Chamar o backend novo de
+            # `qwen2.5-14b-l4` faz a época da troca ficar legível no próprio dado, sem depender
+            # de cruzar `recorded_at` com a data dos ReplicaSets — que é como eu já medi errado
+            # três vezes, atravessando a fronteira de um rollout.
             - name: GRAPH_MODEL
-              value: r1-distill-70b
+              value: qwen2.5-14b-l4
             - name: BEAGLE_TEI_EMBED_URL
-              value: http://192.168.3.43:8080/embed
+              value: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80/embed
             - name: GRAPH_BATCH
               value: "2"
+            - name: GRAPH_LLM_TIMEOUT_MS
+              value: "300000"
+            # A faixa. Sem isto o worker pegaria TUDO, inclusive a fala do sujeito que
+            # pertence ao modelo caro.
+            - name: GRAPH_TIER
+              value: bulk
           resources:
             requests: { cpu: "200m", memory: 256Mi }
             limits: { cpu: "1", memory: 1Gi }

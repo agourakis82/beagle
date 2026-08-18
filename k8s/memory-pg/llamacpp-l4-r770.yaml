@@ -90,10 +90,26 @@ spec:
             - "8000"
             - -ngl
             - "99"          # todas as camadas na GPU; 9 GB num cartão de 24 GB cabe inteiro
+            # `-c` e o contexto TOTAL, repartido entre os slots de `--parallel`:
+            # 40960 / 4 = 10240 tokens por slot.
+            #
+            # Dimensionado pelos registros REAIS da fila de extracao, medidos em 18-ago-2026:
+            # mediana 776 caracteres, p99 18.045, maior 47.039. Com os 8192/slot que eu tinha
+            # posto, o p99 ja raspava o teto. 10240/slot cobre o p99 com folga.
+            #
+            # O 1% acima disso vai estourar o contexto e cair na DLQ com erro. E o
+            # comportamento desejado: o Ollama, que servia esta faixa antes, TRUNCA em
+            # silencio — some com o fim do registro sem que nada acuse. Falha visivel na DLQ
+            # e melhor que extracao parcial que se parece com extracao completa.
+            #
+            # KV de 40960 tokens ~7,7 GB + 9 GB de peso = ~17 GB numa placa de 23. O teto foi
+            # escolhido pelo que sobra, nao pelo que caberia no limite: esta L4 ja recusou uma
+            # alocacao de 6 GB quando a VRAM anterior ainda nao tinha sido liberada.
             - -c
-            - "32768"       # dividido entre os slots de --parallel: 8k uteis por slot
+            - "40960"
             - --parallel
             - "4"           # 4 requisicoes simultaneas num processo so, com batching continuo
+                            # (a extracao roda 3 replicas SERIAIS, entao sobra 1 slot p/ chat)
             - --jinja
             - --alias
             - qwen2.5-14b-l4
