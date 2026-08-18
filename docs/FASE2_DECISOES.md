@@ -140,3 +140,53 @@ número ninguém descobriria que a lista está comendo demais, e a decisão deix
 revisável — que é o oposto de tê-la registrado aqui.
 
 **Se um dia for revisto**, entra aqui com data, e a série ganha duas épocas.
+
+
+---
+
+## 2026-08-18 — A hora dos auto-relatos é 100% imputada, e ninguém sabia
+
+**Pedido:** consertar a hora dos auto-relatos, porque o funil perdia 13 de 23 por falta dela.
+
+**O que a medição mostrou, e mudou o pedido.**
+
+Primeiro: o cano de entrada **não está quebrado**. Cobertura de `occurred_at` nos registros
+`user_stated` por mês — jun 99,9%, jul 93,1%, **ago 100%**. Os 13 sem hora são todos de
+28-jun a 04-jul, de `companion-ios`, e o **registro de origem também não tem hora**. Não é o
+extrator perdendo o instante: ele nunca chegou. Passivo histórico, não vazamento ativo.
+
+Segundo, e mais grave: **dos 10 auto-relatos que o funil contava como "com canal e hora", os
+10 são de hora imputada. Zero declarados.**
+
+`occurred_at_imputed` é gravado desde sempre — e **lido por ninguém**: nem pelo funil, nem pelo
+juiz, nem pelo join da fisiologia. `grep occurred_at_imputed src/*.mjs` devolvia uma única
+linha, o `INSERT`. O comentário no código diz "Marcado em vez de indistinguível"; a marca
+existia e não cobria nada. É o mesmo padrão que esta base já corrigiu em outros lugares (a DLQ
+que registrava o porquê mas não o quando; a guarda de sujeito que não checava o sujeito).
+
+**Por que isso importa para o que se afirma.** O pré-registro diz que a medida cai na cauda
+esperada *"no instante do relato"*. O instante usado é o da **fala**, não o do estado. Para
+`"acordei com o peito apertado"`, a janela de ±60 min confronta o corpo de horas depois. Sob
+leitura estrita de "instante do relato", o substrato elegível não é 3 — é **zero**.
+
+**O que foi feito:** o funil passou a separar `hora DECLARADA` de `hora imputada`, com teste
+que falha se ele voltar a somar as duas. Leitura pura; não altera julgamento.
+
+**O que NÃO foi feito, e por quê.** Não imputei hora aos 13 pendentes. A única hora disponível
+para eles é `records.created_at`, o instante da chegada — e imputá-la faria o funil saltar de 10
+para 23 casos, **todos imputados**, engordando o n sem melhorar a evidência. Pior: entre os 13
+há relatos durativos (`"Hoje passei o dia com vontade de chorar"`) e de estado permanente
+(`"Eu ainda sou interno do 6º ano"`), para os quais nenhum instante é correto. Imputar um a
+esses seria fabricar o dado que o experimento deveria medir.
+
+**Decisão pendente, e é dele:** se hora imputada é ou não admissível no confronto. O
+pré-registro `direcao-v1` **silencia** sobre isso — diz "no instante do relato" e não distingue.
+Qualquer das duas respostas é defensável, e nenhuma pode ser tomada em silêncio no código:
+
+- **Admitir** (com a marca registrada em cada veredito) mantém n=10 e assume que o instante da
+  fala aproxima o do estado — o que é razoável para relato no presente e falso para o resto.
+- **Exigir hora declarada** derruba o n para 0 e obriga a capturar o instante na origem, no
+  app, em vez de deduzi-lo depois.
+
+Admitir muda o significado do que já foi julgado, e por isso exige **nova versão do
+pré-registro**, não uma emenda ao `direcao-v1` congelado.

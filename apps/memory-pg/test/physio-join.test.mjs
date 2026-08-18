@@ -189,3 +189,40 @@ test("reprocessar e' idempotente", async () => {
   const b = await pool.query("SELECT count(*)::int n FROM fact_measurements");
   assert.equal(a.rows[0].n, b.rows[0].n);
 });
+
+
+// ---------------------------------------------------------------------------------------
+// Hora DECLARADA no texto vs hora DEDUZIDA do instante da fala.
+//
+// As duas nao valem o mesmo, e o funil somava as duas numa linha so ate 18-ago-2026.
+// occurred_at_imputed era gravado desde sempre e lido por NINGUEM — nem pelo funil, nem pelo
+// juiz, nem pelo join da fisiologia. A marca existia e nao cobria nada.
+//
+// O que a separacao mostrou na producao, na primeira execucao: dos 10 auto-relatos com canal e
+// hora, os 10 eram imputados. ZERO declarados. O confronto que o pre-registro descreve como
+// acontecendo "no instante do relato" usava, em todo caso, o instante da FALA — e para
+// "acordei com o peito apertado" isso confronta o corpo de horas depois.
+
+test("o funil separa hora declarada de hora imputada", async () => {
+  const a = await autoRelato("arousal");
+  const b = await autoRelato("fatigue");
+  await pool.query("UPDATE facts SET occurred_at_imputed = true WHERE id = $1", [b]);
+  await pool.query("UPDATE facts SET occurred_at_imputed = false WHERE id = $1", [a]);
+
+  const f = await physioFunnel(pool);
+  assert.equal(f.com_canal_e_hora, 2, "os dois continuam contando no total");
+  assert.equal(f.com_hora_declarada, 1);
+  assert.equal(f.com_hora_imputada, 1);
+});
+
+test("um funil so de horas imputadas NAO parece um funil de horas declaradas", async () => {
+  // O caso real: sem esta separacao, dez relatos cuja hora foi deduzida da fala apareciam
+  // como dez relatos com QUANDO, e a fragilidade do substrato ficava invisivel.
+  for (const c of ["arousal", "fatigue", "valence"]) {
+    const id = await autoRelato(c);
+    await pool.query("UPDATE facts SET occurred_at_imputed = true WHERE id = $1", [id]);
+  }
+  const f = await physioFunnel(pool);
+  assert.equal(f.com_hora_declarada, 0);
+  assert.equal(f.com_hora_imputada, 3);
+});

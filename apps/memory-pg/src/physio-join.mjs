@@ -178,6 +178,21 @@ export async function physioFunnel(mpg) {
        (SELECT count(*) FROM facts WHERE self_report AND state_channel IS NOT NULL) AS com_canal,
        (SELECT count(*) FROM facts
          WHERE self_report AND state_channel IS NOT NULL AND occurred_at IS NOT NULL) AS com_canal_e_hora,
+       -- A hora DECLARADA no texto e a hora DEDUZIDA do instante da fala nao valem o mesmo, e
+       -- ate 18-ago-2026 o funil somava as duas numa linha so. occurred_at_imputed era
+       -- gravado desde sempre e NUNCA lido por ninguem: nem aqui, nem no juiz, nem no join da
+       -- fisiologia. A marca existia e nao cobria nada.
+       --
+       -- O que a separacao revelou na primeira execucao: dos 10 auto-relatos com canal e hora,
+       -- os 10 eram imputados. ZERO declarados. Ou seja, o confronto que o pre-registro descreve
+       -- como no instante do relato usava, em todos os casos, o instante da FALA — e para
+       -- "acordei com o peito apertado" isso confronta o corpo de horas depois.
+       (SELECT count(*) FROM facts
+         WHERE self_report AND state_channel IS NOT NULL AND occurred_at IS NOT NULL
+           AND NOT occurred_at_imputed)                                           AS com_hora_declarada,
+       (SELECT count(*) FROM facts
+         WHERE self_report AND state_channel IS NOT NULL AND occurred_at IS NOT NULL
+           AND occurred_at_imputed)                                               AS com_hora_imputada,
        (SELECT count(DISTINCT fact_id) FROM fact_measurements)                    AS consultados,
        (SELECT count(DISTINCT fact_id) FROM fact_measurements WHERE n_samples > 0) AS com_medida,
        (SELECT count(DISTINCT fact_id) FROM fact_measurements

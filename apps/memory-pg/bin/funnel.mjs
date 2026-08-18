@@ -21,6 +21,8 @@ try {
     ["auto-relatos", f.auto_relatos, "ele falou de um estado dele"],
     ["  com canal", f.com_canal, "há uma grandeza que poderia testar"],
     ["  com canal e hora", f.com_canal_e_hora, "sem QUANDO não há confronto"],
+    ["    hora DECLARADA", f.com_hora_declarada, "o texto disse quando"],
+    ["    hora imputada", f.com_hora_imputada, "deduzida do instante da FALA, não do estado"],
     ["  consultados", f.consultados, "a fisiologia foi perguntada"],
     ["  com medida", f.com_medida, "havia o que medir naquele instante"],
     ["  INDEPENDENTE", f.com_medida_independente, "e a medida é de OUTRA modalidade"],
