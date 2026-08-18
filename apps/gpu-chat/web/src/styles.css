@@ -1,0 +1,190 @@
+/* gpu-chat minimal stylesheet — functional, not polished */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #1e1e1e;
+  color: #e0e0e0;
+}
+
+.app {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+}
+
+.sidebar-column {
+  width: 260px;
+  flex: 0 0 260px;
+  border-right: 1px solid #3a3a3a;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sidebar {
+  width: 100%;
+  border-right: none;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.view-tabs {
+  display: flex;
+  flex-direction: row;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.view-tabs button {
+  padding: 0.5rem 1rem;
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.view-tabs button.active {
+  color: #fff;
+  border-bottom: 2px solid #4a9eff;
+}
+
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.model-select-row {
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.bubble {
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  max-width: 80%;
+}
+
+.bubble-user {
+  align-self: flex-end;
+  background: #2b5f8a;
+  color: #fff;
+}
+
+.bubble-assistant {
+  align-self: flex-start;
+  background: #2e2e2e;
+  color: #e0e0e0;
+}
+
+.bubble-system {
+  align-self: center;
+  background: #3a3a3a;
+  color: #aaa;
+  font-style: italic;
+}
+
+.truncated-flag {
+  display: block;
+  margin-top: 0.4rem;
+  color: #e0a030;
+  font-size: 0.85rem;
+}
+
+.composer {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-top: 1px solid #3a3a3a;
+}
+
+.composer textarea {
+  flex: 1;
+  min-height: 2.5rem;
+  resize: vertical;
+  background: #2a2a2a;
+  color: #eee;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+.compare-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.compare-controls {
+  padding: 0.75rem;
+  border-bottom: 1px solid #3a3a3a;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.compare-columns {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  min-height: 0;
+}
+
+.compare-column {
+  flex: 1;
+  min-width: 280px;
+  border-right: 1px solid #3a3a3a;
+  padding: 0.75rem;
+  overflow-y: auto;
+}
+
+.compare-column:last-child {
+  border-right: none;
+}
+
+.code-block-wrapper {
+  position: relative;
+}
+
+.copy-code-button {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  background: #3a3a3a;
+  color: #eee;
+  border: none;
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.copy-code-button:hover {
+  opacity: 1;
+}

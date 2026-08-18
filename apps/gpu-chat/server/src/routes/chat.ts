@@ -1,0 +1,96 @@
+import { FastifyInstance } from 'fastify'
+import Database from 'better-sqlite3'
+import {
+  createConversation, listConversations, getConversation,
+  addMessage, listMessages, addAttachment, listAttachments, updateConversationModel,
+} from '../db.js'
+import { streamChatCompletion, ChatMessage } from '../litellm-client.js'
+
+interface AttachmentInput {
+  filename: string
+  content: string
+  mime_type: string
+}
+
+export function registerChatRoutes(app: FastifyInstance, db: Database.Database, litellmBaseUrl: string): void {
+  app.post<{ Body: { title: string; model: string } }>('/api/conversations', async (req) => {
+    const { title, model } = req.body
+    return createConversation(db, title, model)
+  })
+
+  app.get('/api/conversations', async () => listConversations(db))
+
+  app.patch<{
+    Params: { id: string }
+    Body: { model: string }
+  }>('/api/conversations/:id', async (req, reply) => {
+    const conversationId = Number(req.params.id)
+    const conversation = getConversation(db, conversationId)
+    if (!conversation) {
+      reply.code(404)
+      return { error: 'conversation not found' }
+    }
+    updateConversationModel(db, conversationId, req.body.model)
+    return getConversation(db, conversationId)
+  })
+
+  app.get<{ Params: { id: string } }>('/api/conversations/:id/messages', async (req) => {
+    return listMessages(db, Number(req.params.id))
+  })
+
+  app.post<{
+    Params: { id: string }
+    Body: { content: string; attachments?: AttachmentInput[] }
+  }>('/api/conversations/:id/messages', async (req, reply) => {
+    const conversationId = Number(req.params.id)
+    const conversation = getConversation(db, conversationId)
+    if (!conversation) {
+      reply.code(404)
+      return { error: 'conversation not found' }
+    }
+
+    const userMessage = addMessage(db, conversationId, 'user', req.body.content, null)
+    for (const a of req.body.attachments ?? []) {
+      addAttachment(db, userMessage.id, a.filename, a.content, a.mime_type)
+    }
+
+    const history = listMessages(db, conversationId)
+    const chatMessages: ChatMessage[] = history.map((m) => {
+      const attachments = listAttachments(db, m.id)
+      if (attachments.length === 0) {
+        return { role: m.role, content: m.content }
+      }
+      const attachmentBlocks = attachments
+        .map((a) => `[Attachment: ${a.filename}]\n${a.content}\n[End attachment: ${a.filename}]`)
+        .join('\n\n')
+      return { role: m.role, content: `${attachmentBlocks}\n\n${m.content}` }
+    })
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    })
+
+    let assembled = ''
+    let truncated = false
+    let errorMessage: string | undefined
+    try {
+      for await (const token of streamChatCompletion(litellmBaseUrl, conversation.model, chatMessages)) {
+        assembled += token
+        reply.raw.write(`data: ${JSON.stringify(token)}\n\n`)
+      }
+    } catch (err) {
+      truncated = true
+      errorMessage = (err as Error).message
+    }
+
+    addMessage(db, conversationId, 'assistant', assembled, conversation.model, truncated)
+    if (errorMessage) {
+      reply.raw.write(`event: error\ndata: ${JSON.stringify(errorMessage)}\n\n`)
+    }
+    reply.raw.write('data: [DONE]\n\n')
+    reply.raw.end()
+    return reply
+  })
+}
