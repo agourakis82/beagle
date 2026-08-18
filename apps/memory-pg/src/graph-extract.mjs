@@ -27,6 +27,15 @@ export const SELF_STATE_CHANNELS = new Set([
 ]);
 
 /**
+ * O SINAL do auto-relato. Espelha o CHECK de sql/015_state_polarity.sql.
+ *
+ * `alta` é sempre MAIS do estado que o canal nomeia, nunca "melhor" — bom e ruim trocam de
+ * lado conforme o canal (dormir mais é bom, ficar mais tenso não), e um vocabulário avaliativo
+ * faria o extrator escorregar exatamente onde a direção pré-registrada precisa dele firme.
+ */
+export const SELF_STATE_POLARITIES = new Set(["alta", "baixa"]);
+
+/**
  * Um auto-relato só vale se quem falou for O SUJEITO. Decidido pelo registro,
  * nunca pelo modelo — o extrator lê texto e não tem como saber de quem é a boca.
  *
@@ -123,14 +132,39 @@ export function coerceTimestamp(v) {
  */
 export function buildExtractionPrompt(content) {
   return [
-    "Extract a knowledge graph from the text. Return ONLY a JSON object, no prose:",
-    '{"entities":[{"name","type"}],"facts":[{"subject","predicate","object"|"object_literal",',
-    '"statement","occurred_at"?,"valid_from"?,"confidence"?,"multi_valued"?,',
-    '"self_report"?,"state_channel"?}]}',
+    "Extract a knowledge graph from the text. Return ONLY a JSON object, no prose.",
+    // O esquema era escrito em ABREVIACAO — `{"entities":[{"name","type"}]}` — que NAO e JSON
+    // valido. Medido em 17-ago-2026: o modelo copiava `{"name", "type"}` literalmente para a
+    // saida, produzindo JSON impossivel de parsear, o registro ia para a DLQ depois de tres
+    // tentativas, e isso acontecia com o prompt antigo tanto quanto com o novo.
+    //
+    // Um esquema que o proprio modelo nao consegue copiar sem errar e um esquema mal escrito.
+    // Agora vai um EXEMPLO completo e valido, que copiar acerta.
+    "Shape (this is a valid example, follow it exactly):",
+    '{"entities":[{"name":"Sounio","type":"system"}],',
+    ' "facts":[{"subject":"Sounio","predicate":"passed_gate","object_literal":"madaros",',
+    '           "statement":"O compilador Sounio passou no gate de madaros.",',
+    '           "occurred_at":"2026-08-17T03:00:00Z","multi_valued":false,',
+    '           "self_report":false}]}',
+    "Optional keys: occurred_at, valid_from, confidence, multi_valued, self_report, state_channel.",
     "Rules: entities are people/projects/places/systems/concepts. predicate is a short snake_case",
     "relation. Set multi_valued=true for relations that can hold many objects at once (knows,",
     "uses, mentions). Use object_literal for non-entity objects (dates, numbers, free text).",
     "Scope facts in time when the text implies it. Extract only what the text supports.",
+    "",
+    // `statement` aparecia apenas na FORMA do JSON, sem nunca ser declarado obrigatorio nem
+    // explicado — e todo modelo o tratava como enfeite. Medido em 17-ago-2026: 66% dos fatos
+    // do `qwen2.5:14b` e ate 19 de um so registro no `r1-distill-70b` chegavam sem ele.
+    //
+    // Nao era defeito de modelo: era o prompt nao pedindo. E um fato sem `statement` nunca
+    // pode ser recuperado, porque e esse texto que vai para o indice semantico.
+    "STATEMENT IS MANDATORY. Every fact MUST have a non-empty `statement`: one self-contained",
+    "sentence, in the language of the text, that a person could read on its own and understand",
+    "without seeing subject/predicate/object. It is what makes the fact findable later.",
+    "  good: \"Ele acordou as tres da manha com o peito apertado.\"",
+    "  bad:  \"\"  (empty), \"blocked\", \"55\", \"contains_pr_state\"",
+    "A fact you cannot phrase as a sentence is not a fact worth extracting — DROP IT instead of",
+    "emitting it with an empty statement.",
     "",
     "SELF-REPORTS. When the speaker says something about their OWN state, set self_report=true",
     "and set state_channel to the one measurable quantity that could test it:",
@@ -151,6 +185,20 @@ export function buildExtractionPrompt(content) {
     "  week's state under today.",
     "If no channel fits, leave state_channel out; never force one. Statements about code, systems",
     "or other people are NOT self-reports.",
+    "",
+    // O SINAL. Sem ele a direcao pre-registrada nao se aplica a nada. `alta` e sempre "mais do
+    // estado que o canal nomeia" — nunca "melhor" ou "pior", porque bom e ruim trocam de lado
+    // conforme o canal e um vocabulario avaliativo faz o modelo escorregar.
+    "state_polarity: the DIRECTION of the state, \"alta\" or \"baixa\". It means MORE or LESS of",
+    "the state the channel names — never better/worse:",
+    "  sleep    alta = slept MORE/better    baixa = slept LESS/worse (\"dormi mal\" -> baixa)",
+    "  arousal  alta = tense, agitated      baixa = calm, relaxed",
+    "  fatigue  alta = tired, exhausted     baixa = rested",
+    "  valence  alta = feeling good         baixa = feeling bad",
+    // Palpite de moeda nao deixaria o julgamento indeciso: produziria acordo ou desacordo
+    // INVENTADO em metade dos casos. Omitir e o resultado honesto.
+    "If the text does not make the direction clear, OMIT state_polarity. Do not guess: a coin",
+    "flip here manufactures agreement. Omitting is a valid, expected answer.",
     "",
     "TEXT:",
     String(content || "").slice(0, 8000),
@@ -317,8 +365,29 @@ export async function applyExtraction(pool, extraction, opts = {}) {
 
   let factsInserted = 0;
   let factsInvalidated = 0;
+  /** Fatos recusados por não terem sentença. Contado, nunca silencioso. */
+  let semSentenca = 0;
   for (let fi = 0; fi < facts.length; fi++) {
     const f = facts[fi];
+
+    // FATO SEM `statement` NASCE INVISÍVEL.
+    //
+    // `statement` é o texto que vai para o índice semântico: sem ele o fato existe na tabela
+    // e NUNCA pode ser recuperado. Não é um fato fraco — é um fato que ninguém jamais lerá,
+    // ocupando espaço e inflando toda contagem de "conhecimento extraído".
+    //
+    // Medido em 17-ago-2026: 66% do que o `qwen2.5:14b` produzia vinha assim (contra 10% do
+    // `coder:32b` e 7,9% do corpus histórico). A amostra mostra o padrão — `contains_pr_state
+    // / blocked`, `has_pr_count / 55`: triplas raspadas de um dump, sem sentença.
+    //
+    // Recusar aqui, e CONTAR quantos foram recusados, é o oposto de deixar passar em
+    // silêncio: a taxa de descarte vira um sinal da qualidade do extrator em vez de virar
+    // lixo indistinguível dentro do grafo.
+    if (typeof f.statement !== "string" || f.statement.trim() === "") {
+      semSentenca++;
+      continue;
+    }
+
     let subjectId = idByName[f.subject];
     if (!subjectId) {
       subjectId = (await resolveEntity(pool, { name: f.subject, type: "unknown" })).id;
@@ -354,6 +423,16 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     const selfReport = f.self_report === true && auto_ok;
     const proposed = typeof f.state_channel === "string" ? f.state_channel.trim().toLowerCase() : null;
     const stateChannel = selfReport && SELF_STATE_CHANNELS.has(proposed) ? proposed : null;
+    // O SINAL do relato, sob a mesma regra do canal: vocabulario fechado, e o que cair fora
+    // vira NULO em vez de entrar. Polaridade so existe se houver canal — sinal sem canal nao
+    // julga nada, e guarda-lo daria a impressao de um dado utilizavel que nao e.
+    //
+    // NULO e resultado esperado: quando o texto nao deixa a direcao clara, o extrator omite.
+    // Um palpite aqui nao deixaria o julgamento indeciso — fabricaria acordo ou desacordo em
+    // metade dos casos.
+    const polProposta = typeof f.state_polarity === "string"
+      ? f.state_polarity.trim().toLowerCase() : null;
+    const statePolarity = stateChannel && SELF_STATE_POLARITIES.has(polProposta) ? polProposta : null;
     const content_sha256 = sha256hex(
       [subjectId, f.predicate, objectId ?? "", objectLiteral ?? "", f.statement || ""].join("|"),
     );
@@ -379,9 +458,9 @@ export async function applyExtraction(pool, extraction, opts = {}) {
         `INSERT INTO facts
            (subject_id, predicate, object_id, object_literal, statement, embedding,
             valid_from, occurred_at, source_record_id, provenance, confidence, content_sha256,
-            self_report, state_channel, occurred_at_imputed)
+            self_report, state_channel, occurred_at_imputed, state_polarity)
          VALUES ($1,$2,$3,$4,$5,$6::halfvec,
-                 COALESCE($7::timestamptz, now()),$8,$9,$10::jsonb,$11,$12,$13,$14,$15)
+                 COALESCE($7::timestamptz, now()),$8,$9,$10::jsonb,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (content_sha256) DO NOTHING
          RETURNING id`,
         [
@@ -389,7 +468,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
           validFrom, occ, recordId,
           JSON.stringify(stampProvenance(f.provenance, { model, at: stampedAt })),
           f.confidence ?? 1.0, content_sha256,
-          selfReport, stateChannel, occImputado,
+          selfReport, stateChannel, occImputado, statePolarity,
         ],
       );
       // Record the source→claim support for the quorum, even when the fact already
@@ -413,7 +492,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       client.release();
     }
   }
-  return { entitiesResolved, factsInserted, factsInvalidated };
+  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca };
 }
 
 export default applyExtraction;

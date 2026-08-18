@@ -21,6 +21,11 @@ RUN npm ci --omit=dev
 COPY apps/memory-pg/src ./src
 COPY apps/memory-pg/sql ./sql
 COPY apps/memory-pg/bin ./bin
+# O pré-registro viaja NA IMAGEM, junto do código que o aplica. `judge-agreement` confere o
+# SHA-256 deste arquivo a cada execução e se recusa a julgar se ele mudou — então a regra e o
+# executor precisam ser versionados como uma coisa só. Deixá-lo fora faria o julgamento
+# depender de um arquivo que o contêiner não tem.
+COPY docs/PREREG_FASE2_DIRECAO_v1.md ./docs/PREREG_FASE2_DIRECAO_v1.md
 
 # Drop privileges.
 USER node

@@ -1,0 +1,49 @@
+# judge-agreement-cronjob.yaml — o último elo da Fase 2, rodando sozinho.
+#
+# Aplica a regra congelada de `docs/PREREG_FASE2_DIRECAO_v1.md` e grava o veredito.
+#
+# Roda aos :37, VINTE MINUTOS DEPOIS da junta com a fisiologia (:17). A ordem importa: sem a
+# medida anexada não há o que julgar, e julgar antes produziria uma safra de `INELEGIVEL` que
+# diria apenas "cheguei cedo demais".
+#
+# ⚠️ O job PARA se o pré-registro tiver mudado — `verificarPrereg` lança. É deliberado: julgar
+# sob uma regra alterada sem ninguém declarar produziria números com aparência de rigor, que é
+# pior que não julgar. Um CronJob em Error aqui é o comportamento correto e visível.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-pg-judge-agreement
+  namespace: beagle
+spec:
+  schedule: "37 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      template:
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            kubernetes.io/hostname: t560-proxmox
+          tolerations:
+            - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+            - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+          containers:
+            - name: judge
+              image: 192.168.3.207:5003/memory-pg-embed-worker:p30-julga-3d6a1dcd
+              command: ["node", "bin/judge-agreement.mjs", "--apply"]
+              securityContext:
+                seccompProfile: { type: Unconfined }
+              env:
+                - name: MEMORY_PG_DSN
+                  valueFrom: { secretKeyRef: { name: memory-pg, key: DATABASE_URL } }
+                # O documento congelado viaja NA IMAGEM: o julgamento e o texto que o autoriza
+                # sao versionados juntos, e o hash e conferido a cada execucao.
+                - name: PREREG_PATH
+                  value: "/app/docs/PREREG_FASE2_DIRECAO_v1.md"
+              resources:
+                requests: { cpu: 50m, memory: 128Mi }
+                limits: { cpu: 500m, memory: 512Mi }
