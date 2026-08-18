@@ -8,7 +8,7 @@
 // Sem --apply apenas conta. O padrão é não mexer em nada.
 
 import { makePool } from "../src/db.mjs";
-import { reenqueueEmptyExtractions, parkQueuedExcept } from "../src/reenqueue-graph.mjs";
+import { reenqueueEmptyExtractions, parkQueuedExcept, requeueOversized } from "../src/reenqueue-graph.mjs";
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
@@ -17,12 +17,26 @@ function arg(name, fallback = null) {
 }
 
 const apply = process.argv.includes("--apply");
+const oversized = process.argv.includes("--oversized");
 const parkExcept = arg("park-except");
 const roleArg = arg("role");
 const pool = makePool();
 
 try {
-  if (parkExcept) {
+  if (oversized) {
+    // Devolve o que ficou de fora por tamanho. `--max-chars` e um TETO DECLARADO: sem ele,
+    // devolver tudo faria os grandes demais girarem e voltarem para a quarentena.
+    const maxRaw = arg("max-chars");
+    const limitRaw = arg("limit");
+    const res = await requeueOversized(pool, {
+      maxChars: maxRaw ? Number(maxRaw) : null,
+      limit: limitRaw ? Number(limitRaw) : null,
+      apply,
+    });
+    console.log(`em quarentena por tamanho: ${res.candidates}${maxRaw ? ` (ate ${maxRaw} caracteres)` : " (sem teto)"}`);
+    if (res.applied) console.log(`reenfileirados           : ${res.requeued}`);
+    else console.log("simulacao: nada foi alterado. Use --apply.");
+  } else if (parkExcept) {
     // Encolhe a fila para um único space. Reversível: o que sai volta a ser
     // encontrável por --since, porque o critério é "done, na janela, sem fatos".
     const res = await parkQueuedExcept(pool, { keepSpace: parkExcept, keepRole: roleArg, apply });

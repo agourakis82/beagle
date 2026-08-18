@@ -275,6 +275,10 @@ export function makeRouterLlmFn(baseUrl, opts = {}) {
   const model = opts.model;
   const timeoutMs = opts.timeoutMs ?? 120000;
   const temperature = opts.temperature ?? 0;
+  // Injetavel para o teste poder exercitar as respostas de erro REAIS dos servidores sem rede.
+  // Sem isto, o unico jeito de provar o detector seria provocar um estouro em producao — que e
+  // como as duas fixtures deste teste foram colhidas, e nao da para repetir a cada `npm test`.
+  const fetchImpl = opts.fetchImpl ?? fetch;
   if (!model) throw new Error("makeRouterLlmFn: opts.model required");
   return async function llmFn(prompt) {
     const headers = { "content-type": "application/json" };
@@ -282,13 +286,25 @@ export function makeRouterLlmFn(baseUrl, opts = {}) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
-      const resp = await fetch(url, {
+      const resp = await fetchImpl(url, {
         method: "POST",
         headers,
         body: JSON.stringify({ model, temperature, messages: [{ role: "user", content: prompt }] }),
         signal: ctrl.signal,
       });
-      if (!resp.ok) throw new Error(`router ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+      if (!resp.ok) {
+        const corpo = await resp.text();
+        // O reconhecimento vem ANTES do erro generico: embrulhado em `Error`, "nao coube"
+        // fica indistinguivel de "o servidor caiu", e as duas coisas pedem politicas opostas.
+        const excedeu = detectaContextoExcedido(resp.status, corpo);
+        if (excedeu) {
+          throw new ContextTooLargeError(
+            `contexto excedido: ${excedeu.promptTokens ?? "?"} tokens de prompt para ${excedeu.ctxTokens ?? "?"} de contexto`,
+            excedeu,
+          );
+        }
+        throw new Error(`router ${resp.status}: ${corpo.slice(0, 200)}`);
+      }
       const j = await resp.json();
       return j.choices?.[0]?.message?.content ?? "";
     } finally {
@@ -326,8 +342,66 @@ export class GraphExtractionError extends Error {
   constructor(message, { kind }) {
     super(message);
     this.name = "GraphExtractionError";
-    this.kind = kind; // "llm" | "unparseable"
+    this.kind = kind; // "llm" | "unparseable" | "exceed_context"
   }
+}
+
+/**
+ * O registro nao cabe no contexto do servidor.
+ *
+ * Precisa ser um erro SEPARADO de "llm" porque a natureza da falha e outra: uma chamada que
+ * falhou por rede ou por carga tem chance de dar certo na proxima; um registro grande demais
+ * falha IDENTICAMENTE nas tres tentativas e depois morre na fila morta. Tratar os dois com a
+ * mesma politica gasta GPU em repeticao garantidamente inutil e enterra o registro num lugar
+ * de onde ele so volta por intervencao manual.
+ *
+ * Os numeros vem do corpo da resposta, nao de contagem propria: quem sabe quantos tokens o
+ * prompt tem depois de aplicado o template do modelo e o servidor.
+ */
+export class ContextTooLargeError extends GraphExtractionError {
+  constructor(message, { promptTokens = null, ctxTokens = null } = {}) {
+    super(message, { kind: "exceed_context" });
+    this.name = "ContextTooLargeError";
+    this.promptTokens = promptTokens;
+    this.ctxTokens = ctxTokens;
+  }
+}
+
+/**
+ * Reconhece "nao coube" na resposta de erro do servidor.
+ *
+ * Le o campo ESTRUTURADO, nunca a prosa da mensagem. Medido em 18-ago-2026 contra os dois
+ * servidores reais do cluster:
+ *
+ *   llama.cpp  -> {"error":{"code":400,"type":"exceed_context_size_error",
+ *                  "n_prompt_tokens":60031,"n_ctx":10240}}
+ *   LiteLLM    -> {"error":{"message":"litellm.ContextWindowExceededError: ..."}}
+ *
+ * O llama.cpp carrega `type` e os dois numeros; o LiteLLM embrulha a excecao do provedor numa
+ * string e nao tem campo proprio. Por isso o reconhecimento por prosa existe — mas so como
+ * SEGUNDA via, para o backend que nao oferece campo. Onde ha campo, o campo manda.
+ */
+export function detectaContextoExcedido(status, corpo) {
+  let j = null;
+  try { j = typeof corpo === "string" ? JSON.parse(corpo) : corpo; } catch { j = null; }
+  const e = j && typeof j === "object" ? j.error : null;
+
+  if (e && typeof e === "object") {
+    if (e.type === "exceed_context_size_error") {
+      return {
+        promptTokens: Number.isFinite(e.n_prompt_tokens) ? e.n_prompt_tokens : null,
+        ctxTokens: Number.isFinite(e.n_ctx) ? e.n_ctx : null,
+      };
+    }
+    const msg = typeof e.message === "string" ? e.message : "";
+    // Segunda via: so vale para status 400. Um 500 com essa palavra no meio nao e o mesmo
+    // caso, e tratar como se fosse mandaria uma falha transitoria para a quarentena.
+    if (status === 400 && /ContextWindowExceededError|exceeds the available context size/i.test(msg)) {
+      const m = msg.match(/\((\d+) tokens\) exceeds the available context size \((\d+) tokens\)/i);
+      return { promptTokens: m ? Number(m[1]) : null, ctxTokens: m ? Number(m[2]) : null };
+    }
+  }
+  return null;
 }
 
 /**
@@ -357,6 +431,10 @@ export async function extractGraph(record, { llmFn } = {}) {
   try {
     reply = await llmFn(buildExtractionPrompt(record.content));
   } catch (err) {
+    // "Nao coube" passa INTEIRO. Reembrulhar como `kind: "llm"` apagaria a unica informacao
+    // que decide a politica la em cima — e o worker trataria um registro grande demais como
+    // uma pane transitoria: tres repeticoes na GPU e enterro na fila morta.
+    if (err instanceof ContextTooLargeError) throw err;
     throw new GraphExtractionError(`LLM call failed: ${err?.message ?? err}`, { kind: "llm" });
   }
   const obj = parseLlmJson(reply);

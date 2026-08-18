@@ -64,7 +64,11 @@ async function main() {
     }
     if (res.claimed > 0) {
       console.log(
-        `[graph-worker] claimed=${res.claimed} processed=${res.processed} entities=${res.entities} facts=${res.facts} failed=${res.failed}`,
+        `[graph-worker] claimed=${res.claimed} processed=${res.processed} entities=${res.entities} `
+          + `facts=${res.facts} failed=${res.failed}`
+          // so aparece quando ha o que mostrar: contador zerado em toda linha vira ruido,
+          // e ruido e como um numero que importa passa despercebido.
+          + (res.oversized ? ` oversized=${res.oversized}` : ""),
       );
     } else {
       await sleep(idle);

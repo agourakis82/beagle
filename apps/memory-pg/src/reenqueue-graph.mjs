@@ -187,4 +187,48 @@ export async function requeueFromDlq(pool, { provActor = null, apply = false, li
   return { candidates, requeued: res.rowCount ?? 0, applied: true };
 }
 
-export default { reenqueueEmptyExtractions, parkQueuedExcept, requeueFromDlq };
+/**
+ * Devolve à fila os registros em quarentena por não caberem no contexto (`status='oversized'`).
+ *
+ * Existe porque o teto de contexto MUDA. Só em 18-ago-2026 ele subiu duas vezes — 8192 →
+ * 10240 → 14336 tokens por slot — e cada subida torna elegível um conjunto de registros que
+ * antes não cabia. Sem este caminho de volta, "não coube naquele dia" viraria "nunca mais foi
+ * extraído", e o registro ficaria parado sem nada acusar.
+ *
+ * `maxChars` filtra pelo tamanho do conteúdo: depois de subir o teto, devolver TODOS faria os
+ * grandes demais girarem de novo e voltarem para a quarentena, queimando GPU para reaprender o
+ * que já se sabia. Estimar tokens a partir de caracteres é grosseiro, e é por isso que o
+ * parâmetro é um teto declarado por quem chama, e não uma conversão embutida aqui fingindo
+ * precisão que não tem.
+ *
+ * `retry_count` volta a zero pelo mesmo motivo do caminho da fila morta: a causa era do
+ * ambiente (o teto de então), não uma propriedade do registro.
+ *
+ * @param {{maxChars?:number|null, apply?:boolean, limit?:number|null}} opts
+ * @returns {Promise<{candidates:number, requeued:number, applied:boolean}>}
+ */
+export async function requeueOversized(pool, { maxChars = null, apply = false, limit = null } = {}) {
+  const args = [];
+  let cond = "pg.status = 'oversized'";
+  if (maxChars) { args.push(maxChars); cond += ` AND length(r.content) <= $${args.length}`; }
+
+  const c = await pool.query(
+    `SELECT count(*)::int n FROM pending_graph pg JOIN records r ON r.id = pg.record_id WHERE ${cond}`,
+    args,
+  );
+  const candidates = c.rows[0].n;
+  if (!apply) return { candidates, requeued: 0, applied: false };
+
+  const res = await pool.query(
+    `UPDATE pending_graph SET status='pending', retry_count=0, locked_until=NULL
+      WHERE id IN (
+        SELECT pg.id FROM pending_graph pg JOIN records r ON r.id = pg.record_id
+         WHERE ${cond} ORDER BY length(r.content) ${limit ? `LIMIT $${args.length + 1}` : ""}
+      )
+      RETURNING 1`,
+    limit ? [...args, limit] : args,
+  );
+  return { candidates, requeued: res.rowCount ?? 0, applied: true };
+}
+
+export default { reenqueueEmptyExtractions, parkQueuedExcept, requeueFromDlq, requeueOversized };

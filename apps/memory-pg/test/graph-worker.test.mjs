@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { makePool, ensureSchema } from "../src/db.mjs";
 import { runGraphOnce } from "../src/graph-worker.mjs";
+import { ContextTooLargeError } from "../src/graph-extract.mjs";
 
 const DSN = process.env.MEMORY_PG_TEST_DSN;
 if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
@@ -227,4 +228,59 @@ test("todo ator que o schema permite cai em exatamente uma faixa", async () => {
 test("faixa desconhecida e erro, nao 'processa tudo'", async () => {
   await assert.rejects(
     () => runGraphOnce(pool, { llmFn: umFato, tier: "vooz" }), /tier desconhecido/);
+});
+
+
+// ---------------------------------------------------------------------------------------
+// Registro grande demais: quarentena, nao fila morta.
+//
+// Falha por tamanho e DETERMINISTICA. Trata-la como falha comum custa duas coisas: tres
+// chamadas de GPU para obter tres vezes o mesmo erro, e um registro perfeitamente valido
+// enterrado na fila morta, de onde so sai se alguem lembrar de procurar.
+//
+// O teto de contexto sobe: so em 18-ago-2026 ele foi de 8192 para 10240 para 14336 tokens por
+// slot. O que nao coube hoje pode caber amanha, e por isso o estado precisa ser recuperavel.
+
+const grandeDemaisLlm = async () => {
+  throw new ContextTooLargeError("contexto excedido: 60031 tokens de prompt para 14336 de contexto",
+    { promptTokens: 60031, ctxTokens: 14336 });
+};
+
+test("registro grande demais vai para quarentena, NAO para a fila morta", async () => {
+  const id = await enqueue("um registro enorme");
+  const stats = await runGraphOnce(pool, { llmFn: grandeDemaisLlm });
+
+  assert.equal(stats.oversized, 1);
+  assert.equal(stats.failed, 0, "nao pode contar como falha comum");
+
+  const q = await pool.query("SELECT status, retry_count, last_error FROM pending_graph WHERE record_id=$1", [id]);
+  assert.equal(q.rows[0].status, "oversized");
+  // Nao gastou tentativa: repetir daria exatamente o mesmo erro.
+  assert.equal(q.rows[0].retry_count, 0);
+  assert.match(q.rows[0].last_error, /contexto excedido/);
+
+  const dlq = await pool.query("SELECT count(*)::int n FROM failed_graph");
+  assert.equal(dlq.rows[0].n, 0, "a fila morta e o lugar do que quebrou, nao do que nao coube");
+});
+
+test("quarentena nao gira: a rodada seguinte nao reivindica o registro", async () => {
+  await enqueue("um registro enorme");
+  await runGraphOnce(pool, { llmFn: grandeDemaisLlm });
+
+  // Se `oversized` fosse reivindicavel, o worker o pegaria de novo a cada ciclo e queimaria
+  // GPU para sempre — o oposto do que a quarentena existe para evitar.
+  const segunda = await runGraphOnce(pool, { llmFn: grandeDemaisLlm });
+  assert.equal(segunda.claimed, 0);
+});
+
+test("falha COMUM continua indo para a fila morta depois das tentativas", async () => {
+  // A guarda so vale se ela discrimina. Se todo erro virasse quarentena, a fila morta ficaria
+  // vazia para sempre e uma pane de verdade passaria despercebida.
+  const id = await enqueue("registro normal");
+  for (let i = 0; i < 4; i++) await runGraphOnce(pool, { llmFn: deadRouterLlm });
+
+  const q = await pool.query("SELECT count(*)::int n FROM pending_graph WHERE record_id=$1", [id]);
+  assert.equal(q.rows[0].n, 0);
+  const dlq = await pool.query("SELECT count(*)::int n FROM failed_graph WHERE record_id=$1", [id]);
+  assert.equal(dlq.rows[0].n, 1);
 });

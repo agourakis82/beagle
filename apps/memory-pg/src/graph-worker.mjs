@@ -64,7 +64,9 @@ export async function runGraphOnce(pool, opts) {
     [batch],
   );
 
-  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, semSentenca: 0, sujeitoAlheio: 0, errors: [] };
+  // `oversized` sai daqui pelo mesmo motivo que `semSentenca` e `sujeitoAlheio`: um registro
+  // posto de lado sem numero visivel e um registro perdido em silencio.
+  const stats = { claimed: claimed.rowCount, processed: 0, facts: 0, entities: 0, failed: 0, oversized: 0, semSentenca: 0, sujeitoAlheio: 0, errors: [] };
 
   for (const row of claimed.rows) {
     try {
@@ -120,6 +122,25 @@ export async function runGraphOnce(pool, opts) {
       // pipeline whose LLM had no backend looked identical to a healthy one.
       console.error(`[graph-worker] record=${row.record_id} try=${next}/${maxRetries} ${reason.slice(0, 240)}`);
       stats.errors.push(reason.slice(0, 240));
+      if (err?.kind === "exceed_context") {
+        // Nao gasta tentativa e nao vai para a fila morta.
+        //
+        // Repetir seria queimar GPU num resultado garantidamente identico: o registro tem o
+        // tamanho que tem. E a fila morta e o lugar do que quebrou, nao do que ainda nao coube
+        // — enterrar aqui faria um registro perfeitamente valido depender de alguem lembrar de
+        // desenterra-lo.
+        //
+        // `oversized` e uma quarentena RECUPERAVEL: a consulta de reivindicacao so pega
+        // `pending`, entao ele para de girar; e quando o teto de contexto subir, um unico
+        // UPDATE devolve todos (`bin/reenqueue-graph.mjs --oversized`). O teto ja subiu duas
+        // vezes num so dia — 8192 -> 10240 -> 14336 tokens por slot.
+        await pool.query(
+          "UPDATE pending_graph SET status='oversized', locked_until=NULL, last_error=$2 WHERE id=$1",
+          [row.id, reason.slice(0, 2000)],
+        );
+        stats.oversized++;
+        continue;
+      }
       if (next > maxRetries) {
         // `created_at` continua sendo copiado da fila — e a hora do ENFILEIRAMENTO, e serve
         // para medir quanto tempo o registro esperou. Mas ela nao responde "desde quando
