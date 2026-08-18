@@ -1272,6 +1272,7 @@ async function completeChatRequest(req, deps, options = {}) {
         assistantText: deepThinkResult.text,
         clientTime: cleanString(req.body?.clientTime),
         timezone: cleanString(req.body?.timezone),
+        spoken: req.body?.spoken === true || req.body?.spoken === "true",
       }, { tokenFn: fetchOperatorToken }).catch(() => {});
     }
   } else if (chatSpace === "personal") {
@@ -1296,6 +1297,12 @@ async function completeChatRequest(req, deps, options = {}) {
       assistantText: cleanString(result?.payload?.text || result?.payload?.answer || result?.payload?.response),
       clientTime: cleanString(req.body?.clientTime),
       timezone: cleanString(req.body?.timezone),
+      // `spoken` é um booleano seco, de propósito: diz que ELE falou, e nada sobre COMO.
+      // O turno de voz do chat desliga o upload acústico (`uploadsAcoustics == false`), e
+      // derivar a modalidade de ritmo/pausa faria a proveniência depender de um sinal que
+      // essa política pode remover — além de transformar cada frase em inferência sobre o
+      // estado dele, que é justamente o que aquela política recusa.
+      spoken: req.body?.spoken === true || req.body?.spoken === "true",
     }, { tokenFn: fetchOperatorToken }).catch(() => {});
   } else {
   const subscriptionProfile = normalizeSubscriptionDiscussionProfile(effectiveDiscussionProfile);

@@ -162,11 +162,33 @@ export async function distillSalient({ userText, assistantText }, { routerUrl, m
 }
 
 /**
+ * A superfície de um turno DELE, nas quatro combinações possíveis.
+ *
+ * Proveniência é sobre COMO a alegação veio a ser acreditada, e as quatro não são a mesma
+ * coisa: "digitou sozinho no widget" ≠ "respondeu ao companion" ≠ "falou". Sem a marca, um
+ * turno falado entra no banco indistinguível de um digitado — foi o que se mediu em
+ * 17-ago-2026: os 120 turnos dele via `companion-ios` carregavam só role, session_id e
+ * space, e a modalidade se perdia na porta.
+ *
+ * ⚠️ O que isto NÃO é: falado e digitado não são canais epistemicamente independentes.
+ * São o MESMO canal — auto-relato — em duas formas. Marcar a modalidade serve para
+ * auditar e para estratificar, nunca para contar como corroboração. A independência que a
+ * Fase 2 exige vem do corpo, não do teclado.
+ */
+export function provSurfaceDoTurno({ spoken = false, standalone = false } = {}) {
+  return `companion-ios${standalone ? "-nota" : ""}${spoken ? "-voz" : ""}`;
+}
+
+/**
  * Capture one personal exchange into the memory spine. Best-effort + fail-soft: any error
  * is swallowed (the chat reply has already gone to the user). Verbatim first (the transcript),
  * then the sovereign distill → atoms ingested with `distill` tags so recall ranks them.
+ *
+ * `spoken` marca que ELE falou, não que a máquina falou. O turno do assistente nunca leva a
+ * marca: se o TTS leu a resposta em voz alta, isso é a boca do companion e não é evidência
+ * nenhuma sobre ele.
  */
-export async function ingestPersonalTurn({ sessionId, userText, assistantText, clientTime, timezone } = {}, deps = {}) {
+export async function ingestPersonalTurn({ sessionId, userText, assistantText, clientTime, timezone, spoken } = {}, deps = {}) {
   const {
     baseUrl = process.env.BEAGLE_INTERNAL_URL || "http://beagle-core.beagle.svc.cluster.local:8080",
     routerUrl = process.env.PROJECT_COCKPIT_LITELLM_ROUTER_URL || "http://router.llm-router.svc.cluster.local:4000",
@@ -210,14 +232,13 @@ export async function ingestPersonalTurn({ sessionId, userText, assistantText, c
     let userId = null;
     if (u) {
       const r = await captureFn(
-        // A superfície distingue nota de turno de chat. Proveniência é sobre COMO
-        // a alegação veio a ser acreditada, e "ele digitou sozinho no widget" não
-        // é a mesma coisa que "ele respondeu ao companion".
+        // A superfície distingue nota de turno de chat e falado de digitado.
         { source_type: "ConversationPassage", content: u, prov_actor: "user_stated",
-          prov_surface: clean(assistantText) ? "companion-ios" : "companion-ios-nota",
+          prov_surface: provSurfaceDoTurno({ spoken: spoken === true, standalone: !a }),
           prov_confidence: 1.0, occurred_at: occurredAt,
           metadata: { space: "personal", session_id: sid, role: "user",
-                      standalone: clean(assistantText) ? undefined : true } },
+                      standalone: a ? undefined : true,
+                      spoken: spoken === true ? true : undefined } },
         capDeps,
       );
       userId = r && r.id ? r.id : null;
@@ -273,6 +294,10 @@ export async function handleIngestRequest(body = {}, { ingestFn = ingestPersonal
     userText, assistantText,
     clientTime: clean(body.clientTime || body.client_time),
     timezone: clean(body.timezone),
+    // Estritamente `true`. Uma string "false" vinda do cliente é verdadeira em JS, e
+    // marcar como falado um turno digitado corromperia a proveniência na direção que
+    // mais importa: seria a máquina afirmando algo sobre COMO ele se expressou.
+    spoken: body.spoken === true || body.spoken === "true",
   }, { tokenFn }).catch(() => {});
   return { status: 202, body: { status: "accepted" } };
 }
