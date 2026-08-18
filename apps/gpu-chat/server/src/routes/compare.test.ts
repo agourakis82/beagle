@@ -23,6 +23,27 @@ describe('POST /api/compare', () => {
     expect(res.body).toContain('event: qwen2.5-7b\ndata: a')
     expect(res.body).toContain('event: qwen2.5-14b\ndata: b')
   })
+
+  it('still emits [DONE] for a model whose stream throws mid-way, without affecting other models', async () => {
+    vi.spyOn(litellmClient, 'streamChatCompletion').mockImplementation(async function* (_url, model) {
+      if (model === 'qwen2.5-7b') {
+        yield 'ok'
+        throw new Error('LiteLLM chat completion failed: 500')
+      }
+      yield* fakeStream(['b'])
+    })
+    const app = buildApp({ dbPath: ':memory:', litellmBaseUrl: 'http://unused:4000' })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/compare',
+      payload: { prompt: 'hi', models: ['qwen2.5-7b', 'qwen2.5-14b'] },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.body).toContain('event: qwen2.5-7b\ndata: ok')
+    expect(res.body).toContain('event: qwen2.5-7b\ndata: [DONE]')
+    expect(res.body).toContain('event: qwen2.5-14b\ndata: b')
+    expect(res.body).toContain('event: qwen2.5-14b\ndata: [DONE]')
+  })
 })
 
 describe('POST /api/compare/save', () => {
