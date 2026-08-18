@@ -3,11 +3,13 @@ import type { Conversation, ModelInfo } from './api.js'
 import { fetchConversations, fetchModels, createConversation } from './api.js'
 import { Sidebar } from './components/Sidebar.js'
 import { ChatView } from './components/ChatView.js'
+import { CompareView } from './components/CompareView.js'
 
 export function App() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [models, setModels] = useState<ModelInfo[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [view, setView] = useState<'chat' | 'compare'>('chat')
 
   useEffect(() => {
     fetchConversations().then(setConversations)
@@ -19,12 +21,20 @@ export function App() {
     const conv = await createConversation('New conversation', model)
     setConversations((prev) => [conv, ...prev])
     setSelectedId(conv.id)
+    setView('chat')
   }
 
   return (
     <div className="app">
-      <Sidebar conversations={conversations} selectedId={selectedId} onSelect={setSelectedId} onNew={handleNew} />
-      {selectedId !== null && <ChatView conversationId={selectedId} models={models} />}
+      <Sidebar conversations={conversations} selectedId={selectedId} onSelect={(id) => { setSelectedId(id); setView('chat') }} onNew={handleNew} />
+      <div className="main">
+        <div className="view-tabs">
+          <button onClick={() => setView('chat')} className={view === 'chat' ? 'active' : ''}>Chat</button>
+          <button onClick={() => setView('compare')} className={view === 'compare' ? 'active' : ''}>Compare</button>
+        </div>
+        {view === 'chat' && selectedId !== null && <ChatView conversationId={selectedId} models={models} />}
+        {view === 'compare' && <CompareView models={models} />}
+      </div>
     </div>
   )
 }

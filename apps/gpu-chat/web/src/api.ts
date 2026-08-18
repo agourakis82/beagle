@@ -82,3 +82,55 @@ export async function streamMessage(
   }
   onDone()
 }
+
+export async function streamCompare(
+  prompt: string,
+  models: string[],
+  onToken: (model: string, token: string) => void,
+  onModelDone: (model: string) => void,
+): Promise<void> {
+  const res = await fetch('/api/compare', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, models }),
+  })
+  if (!res.ok || !res.body) throw new Error(`Failed to compare: ${res.status}`)
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let currentEvent = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        currentEvent = line.slice('event: '.length)
+      } else if (line.startsWith('data: ')) {
+        const data = line.slice('data: '.length)
+        if (data === '[DONE]') {
+          onModelDone(currentEvent)
+        } else {
+          onToken(currentEvent, JSON.parse(data))
+        }
+      }
+    }
+  }
+}
+
+export async function saveCompare(
+  prompt: string,
+  results: Array<{ model: string; response: string }>,
+): Promise<number[]> {
+  const res = await fetch('/api/compare/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, results }),
+  })
+  if (!res.ok) throw new Error(`Failed to save comparison: ${res.status}`)
+  const body = await res.json()
+  return body.conversationIds
+}
