@@ -7,17 +7,23 @@ import { AttachmentPanel, type DraftAttachment } from './AttachmentPanel.js'
 interface ChatViewProps {
   conversationId: number
   models: ModelInfo[]
+  pendingSystemPrompt?: string | null
 }
 
-export function ChatView({ conversationId, models }: ChatViewProps) {
+export function ChatView({ conversationId, models, pendingSystemPrompt }: ChatViewProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [streaming, setStreaming] = useState(false)
 
   useEffect(() => {
-    fetchMessages(conversationId).then(setMessages)
-  }, [conversationId])
+    fetchMessages(conversationId).then(async (existing) => {
+      setMessages(existing)
+      if (existing.length === 0 && pendingSystemPrompt) {
+        setDraft(pendingSystemPrompt)
+      }
+    })
+  }, [conversationId, pendingSystemPrompt])
 
   async function send() {
     if (!draft.trim()) return

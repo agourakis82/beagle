@@ -134,3 +134,31 @@ export async function saveCompare(
   const body = await res.json()
   return body.conversationIds
 }
+
+export interface PromptTemplate {
+  id: number
+  name: string
+  system_prompt: string
+  created_at: string
+}
+
+export async function fetchTemplates(): Promise<PromptTemplate[]> {
+  const res = await fetch('/api/templates')
+  if (!res.ok) throw new Error(`Failed to load templates: ${res.status}`)
+  return res.json()
+}
+
+export async function createTemplate(name: string, system_prompt: string): Promise<PromptTemplate> {
+  const res = await fetch('/api/templates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, system_prompt }),
+  })
+  if (!res.ok) throw new Error(`Failed to create template: ${res.status}`)
+  return res.json()
+}
+
+export async function deleteTemplate(id: number): Promise<void> {
+  const res = await fetch(`/api/templates/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`Failed to delete template: ${res.status}`)
+}
