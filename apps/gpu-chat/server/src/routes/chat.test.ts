@@ -79,8 +79,9 @@ describe('POST /api/conversations/:id/messages', () => {
     expect(messages[1]).toMatchObject({ content: 'Par', truncated: 1 })
   })
 
-  it('preserves embedded newlines in a token when persisted', async () => {
-    vi.spyOn(litellmClient, 'streamChatCompletion').mockReturnValue(fakeStream(['Hello\nWorld']))
+  it('frames a token with an embedded newline as a single JSON-encoded SSE line and preserves it end to end', async () => {
+    const token = 'Hello\nWorld'
+    vi.spyOn(litellmClient, 'streamChatCompletion').mockReturnValue(fakeStream([token]))
     const app = buildApp({ dbPath: ':memory:', litellmBaseUrl: 'http://unused:4000' })
 
     const conv = (
@@ -91,14 +92,22 @@ describe('POST /api/conversations/:id/messages', () => {
       })
     ).json()
 
-    await app.inject({
+    const res = await app.inject({
       method: 'POST',
       url: `/api/conversations/${conv.id}/messages`,
       payload: { content: 'hi there' },
     })
 
+    // The wire format must JSON-encode the token so the embedded \n survives as one SSE
+    // "data:" line (the escaped newline is `\n` two chars, not a raw newline byte).
+    expect(res.body).toContain(`data: ${JSON.stringify(token)}\n\n`)
+    // The old, buggy framing wrote the raw token directly into the frame, which split it
+    // across two physical SSE lines ("data: Hello" then a bare "World" line) — assert that
+    // broken shape is absent so this test actually fails against the pre-fix code.
+    expect(res.body).not.toContain('data: Hello\nWorld\n\n')
+
     const messagesRes = await app.inject({ method: 'GET', url: `/api/conversations/${conv.id}/messages` })
     const messages = messagesRes.json()
-    expect(messages[1]).toMatchObject({ role: 'assistant', content: 'Hello\nWorld', truncated: 0 })
+    expect(messages[1]).toMatchObject({ role: 'assistant', content: token, truncated: 0 })
   })
 })
