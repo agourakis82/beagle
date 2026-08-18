@@ -1,4 +1,6 @@
 import Fastify, { FastifyInstance } from 'fastify'
+import fastifyStatic from '@fastify/static'
+import { existsSync } from 'node:fs'
 import { openDb } from './db.js'
 import { registerModelsRoute } from './routes/models.js'
 import { registerTemplatesRoutes } from './routes/templates.js'
@@ -8,6 +10,7 @@ import { registerCompareRoutes } from './routes/compare.js'
 export interface AppConfig {
   dbPath: string
   litellmBaseUrl: string
+  webDistPath?: string
 }
 
 export function buildApp(config: AppConfig): FastifyInstance {
@@ -19,6 +22,17 @@ export function buildApp(config: AppConfig): FastifyInstance {
   registerTemplatesRoutes(app, db)
   registerChatRoutes(app, db, config.litellmBaseUrl)
   registerCompareRoutes(app, db, config.litellmBaseUrl)
+
+  if (config.webDistPath && existsSync(config.webDistPath)) {
+    app.register(fastifyStatic, { root: config.webDistPath })
+    app.setNotFoundHandler((req, reply) => {
+      if (req.raw.url?.startsWith('/api/')) {
+        reply.code(404).send({ error: 'not found' })
+        return
+      }
+      reply.sendFile('index.html')
+    })
+  }
 
   return app
 }
