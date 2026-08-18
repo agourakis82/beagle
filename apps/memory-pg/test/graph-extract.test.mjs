@@ -8,7 +8,7 @@
 import { test, before, beforeEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { makePool, ensureSchema } from "../src/db.mjs";
-import { extractGraph, applyExtraction, GraphExtractionError, buildExtractionPrompt } from "../src/graph-extract.mjs";
+import { extractGraph, applyExtraction, GraphExtractionError, buildExtractionPrompt, subjectIsSelf } from "../src/graph-extract.mjs";
 
 const DSN = process.env.MEMORY_PG_TEST_DSN;
 if (!DSN) throw new Error("MEMORY_PG_TEST_DSN must be set");
@@ -333,4 +333,94 @@ test("o prompt pede o sinal e manda OMITIR quando nao esta claro", () => {
   assert.match(p, /Do not guess/);
   // "alta" tem que ser MAIS do estado, nunca "melhor": bom e ruim trocam de lado por canal.
   assert.match(p, /never better\/worse/);
+});
+
+// --- O SUJEITO tem que ser o FALANTE ---
+//
+// Medido em 18-ago-2026, no primeiro veredito: 3 de 9 auto-relatos em canal ELEGIVEL eram
+// falsos positivos, e o padrao era um so — o falante era ele, mas o sujeito nao:
+//
+//   "Voce estava confuso."                    -> arousal   (sobre o COMPANION)
+//   "Voce esta me ouvindo?"                   -> arousal   (uma pergunta)
+//   "Tem muita coisa pra melhorar no beagle"  -> fatigue   (sobre o PROJETO)
+//
+// `speakerIsSubject` garante que ELE falou. NAO garante que o estado e DELE — e a
+// corroboracao confronta a fisiologia DELE. Estado da maquina casado com a HRV de um humano
+// e o mesmo erro de sempre com a cara trocada.
+//
+// ⚠️ Um veredito INELEGIVEL mascarou isso: o falso positivo caiu em `valence`, que nao tem
+// canal independente. Em `arousal` teria entrado no caminho da corroboracao.
+test("o prompt exige que o SUJEITO seja o falante", () => {
+  const p = buildExtractionPrompt("x");
+  assert.match(p, /THE SUBJECT MUST BE THE SPEAKER/);
+  assert.match(p, /their OWN state/);
+  // Os contraexemplos sao os falsos positivos REAIS medidos, nao inventados.
+  assert.match(p, /você estava confuso/);
+  assert.match(p, /você está me ouvindo/);
+  assert.match(p, /probabilidade posterior/);
+  // Primeira pessoa nao basta: "acho que voce esta lento" e sobre o sistema.
+  assert.match(p, /even in first person/);
+});
+
+// --- A segunda guarda: o ESTADO é dele? ---
+//
+// `speakerIsSubject` pergunta se ELE FALOU. `subjectIsSelf` pergunta se o ESTADO É DELE.
+// As duas sao necessarias e nenhuma cobre a outra — medido no primeiro veredito da Fase 2:
+// 3 de 9 auto-relatos em canal ELEGIVEL tinham falante certo e sujeito errado.
+//
+// ⚠️ Pediu-se ao modelo a mesma coisa no prompt, e ele obedeceu em 2 dos 4 casos. Instrucao
+// de prompt nao e guarda.
+
+test("sujeitos que sao ELE passam", () => {
+  for (const s of ["eu", "Eu", "  EU  ", "I", "self", "speaker", "user", "ele", "me"]) {
+    assert.equal(subjectIsSelf(s), true, `'${s}' deveria passar`);
+  }
+});
+
+// 🚨 Os falsos positivos REAIS medidos em producao, nao inventados.
+test("sujeitos que NAO sao ele sao recusados", () => {
+  for (const s of ["você", "voce", "Beagle", "Sounio", "pregabalina",
+                   "parser/items alternative metric", "interaction", "companion"]) {
+    assert.equal(subjectIsSelf(s), false, `'${s}' NAO pode passar`);
+  }
+});
+
+test("sujeito ausente ou invalido e recusado", () => {
+  for (const s of [null, undefined, "", "   ", 42, {}]) {
+    assert.equal(subjectIsSelf(s), false);
+  }
+});
+
+// Lista BRANCA e nao negra: o universo do que nao e ele e infinito; o de nomes que ele usa
+// para si e pequeno e medido. Errar recusando e o lado seguro.
+test("nome desconhecido e recusado por padrao, nao aceito", () => {
+  assert.equal(subjectIsSelf("uma coisa que ninguem previu"), false);
+});
+
+test("o fato com sujeito ERRADO nao vira auto-relato, mesmo vindo da boca dele", async () => {
+  await applyExtraction(pool, {
+    entities: [{ name: "você", type: "person" }],
+    facts: [{ subject: "você", predicate: "estava", object_literal: "confuso",
+              statement: "Você estava confuso.", self_report: true,
+              state_channel: "arousal", state_polarity: "alta" }],
+  }, { recordId: null, speaker: { prov_actor: "user_stated", role: "user" } });
+
+  const q = await pool.query("SELECT self_report, state_channel, state_polarity FROM facts");
+  assert.equal(q.rows[0].self_report, false, "falante certo, sujeito errado => nao e auto-relato");
+  assert.equal(q.rows[0].state_channel, null);
+  assert.equal(q.rows[0].state_polarity, null);
+});
+
+test("o fato com sujeito CERTO continua virando auto-relato", async () => {
+  await applyExtraction(pool, {
+    entities: [{ name: "eu", type: "person" }],
+    facts: [{ subject: "eu", predicate: "estava", object_literal: "angustiado",
+              statement: "Estou angustiado hoje, peito apertado.", self_report: true,
+              state_channel: "arousal", state_polarity: "alta" }],
+  }, { recordId: null, speaker: { prov_actor: "user_stated", role: "user" } });
+
+  const q = await pool.query("SELECT self_report, state_channel, state_polarity FROM facts");
+  assert.equal(q.rows[0].self_report, true);
+  assert.equal(q.rows[0].state_channel, "arousal");
+  assert.equal(q.rows[0].state_polarity, "alta");
 });
