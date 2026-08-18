@@ -8,7 +8,7 @@
 // Sem --apply apenas conta. O padrão é não mexer em nada.
 
 import { makePool } from "../src/db.mjs";
-import { reenqueueEmptyExtractions, parkQueuedExcept, requeueOversized } from "../src/reenqueue-graph.mjs";
+import { reenqueueEmptyExtractions, parkQueuedExcept, requeueOversized, requeueFromDlq } from "../src/reenqueue-graph.mjs";
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
@@ -18,12 +18,30 @@ function arg(name, fallback = null) {
 
 const apply = process.argv.includes("--apply");
 const oversized = process.argv.includes("--oversized");
+const dlq = process.argv.includes("--dlq");
 const parkExcept = arg("park-except");
 const roleArg = arg("role");
 const pool = makePool();
 
 try {
-  if (oversized) {
+  if (dlq) {
+    // Traz de volta o que a fila morta guardou. `requeueFromDlq` existia em `src` desde o
+    // conserto da DLQ e NUNCA teve entrada na CLI — mecanismo escrito sem caminho de chegada,
+    // que e como 1.095 registros ficaram enterrados sem ninguem ter como tira-los de la.
+    //
+    // So volta o que nao tem fato nem linha na fila: reenfileirar o que ja foi extraido
+    // duplicaria trabalho e, pior, poderia duplicar fato.
+    const provActor = arg("prov-actor");
+    const limitRaw = arg("limit");
+    const res = await requeueFromDlq(pool, {
+      provActor,
+      limit: limitRaw ? Number(limitRaw) : null,
+      apply,
+    });
+    console.log(`na fila morta, recuperaveis: ${res.candidates}${provActor ? ` (prov_actor=${provActor})` : ""}`);
+    if (res.applied) console.log(`reenfileirados            : ${res.requeued}`);
+    else console.log("simulacao: nada foi alterado. Use --apply.");
+  } else if (oversized) {
     // Devolve o que ficou de fora por tamanho. `--max-chars` e um TETO DECLARADO: sem ele,
     // devolver tudo faria os grandes demais girarem e voltarem para a quarentena.
     const maxRaw = arg("max-chars");
