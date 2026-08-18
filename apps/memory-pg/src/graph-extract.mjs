@@ -36,6 +36,43 @@ export const SELF_STATE_CHANNELS = new Set([
 export const SELF_STATE_POLARITIES = new Set(["alta", "baixa"]);
 
 /**
+ * Como o extrator nomeia O PRÓPRIO SUJEITO quando ele fala de si.
+ *
+ * Derivado dos sujeitos reais medidos em 18-ago-2026, não inventado: `eu` (14), `self` (5),
+ * `speaker` (4), `user` (2), `I` (2), `ele` (2).
+ */
+export const SUJEITOS_DE_SI = new Set([
+  "eu", "i", "me", "self", "myself", "speaker", "user", "ele", "o sujeito", "sujeito",
+]);
+
+/**
+ * O ESTADO É DELE? Diferente de `speakerIsSubject`, que pergunta se ELE FALOU.
+ *
+ * As duas guardas são necessárias e nenhuma cobre a outra. Medido no primeiro veredito da
+ * Fase 2: 3 de 9 auto-relatos em canal ELEGÍVEL eram falsos positivos, e todos tinham a mesma
+ * forma — o falante era ele, o sujeito não:
+ *
+ *   "Você estava confuso."                    sujeito `você`      → o COMPANION
+ *   "Tem muita coisa pra melhorar no beagle"  sujeito `Beagle`    → o PROJETO
+ *   "A probabilidade posterior…"              sujeito `parser/…`  → texto técnico
+ *
+ * Corroboração confronta a fisiologia DELE. Um estado atribuído à máquina, ou ao compilador,
+ * casado com a HRV de um humano é o mesmo erro que a quarentena de proveniência existe para
+ * impedir — só que com a cara trocada.
+ *
+ * ⚠️ LISTA BRANCA de propósito, e não lista negra. O universo de coisas que não são ele é
+ * infinito; o de nomes que ele usa para si é pequeno e medido. Errar para o lado de RECUSAR é
+ * o lado seguro: falso positivo corrompe a ciência, falso negativo só custa cobertura.
+ *
+ * Pediu-se ao modelo a mesma coisa no prompt, e ele obedeceu em 2 dos 4 casos. Instrução de
+ * prompt não é guarda: o modelo propõe, o código decide.
+ */
+export function subjectIsSelf(subject) {
+  if (typeof subject !== "string") return false;
+  return SUJEITOS_DE_SI.has(subject.trim().toLowerCase());
+}
+
+/**
  * Um auto-relato só vale se quem falou for O SUJEITO. Decidido pelo registro,
  * nunca pelo modelo — o extrator lê texto e não tem como saber de quem é a boca.
  *
@@ -185,6 +222,27 @@ export function buildExtractionPrompt(content) {
     "  week's state under today.",
     "If no channel fits, leave state_channel out; never force one. Statements about code, systems",
     "or other people are NOT self-reports.",
+    "",
+    // Medido em 18-ago-2026, no primeiro veredito: 3 de 9 auto-relatos em canal ELEGIVEL eram
+    // falsos positivos, e o padrao era um so — o falante era ele, mas o SUJEITO nao.
+    //
+    //   "Voce estava confuso."                     -> arousal   (e sobre o COMPANION)
+    //   "Voce esta me ouvindo?"                    -> arousal   (e uma pergunta)
+    //   "Tem muita coisa pra melhorar no beagle"   -> fatigue   (e sobre o PROJETO)
+    //
+    // A guarda de falante (`speakerIsSubject`) garante que ELE falou. Nao garante que o
+    // estado e DELE — e a corroboracao confronta a fisiologia DELE. Um estado atribuido a
+    // maquina, ou ao projeto, casado com a HRV de um humano, e o mesmo erro de sempre com a
+    // cara trocada.
+    "THE SUBJECT MUST BE THE SPEAKER. self_report=true only when the person speaking is",
+    "describing their OWN state, right now or at a stated time. First person, about themselves.",
+    "  yes: \"estou ansioso\", \"dormi mal\", \"to cansado\", \"meu peito apertado\"",
+    "  NO:  \"você estava confuso\"        (about the assistant)",
+    "  NO:  \"você está me ouvindo?\"      (a question, not a state)",
+    "  NO:  \"tem muita coisa pra melhorar\" (about a project)",
+    "  NO:  \"a probabilidade posterior…\"  (technical text — no state at all)",
+    "Speaking ABOUT someone or something else is never a self-report, even in first person",
+    "(\"acho que você está lento\" is about the system, not about him).",
     "",
     // O SINAL. Sem ele a direcao pre-registrada nao se aplica a nada. `alta` e sempre "mais do
     // estado que o canal nomeia" — nunca "melhor" ou "pior", porque bom e ruim trocam de lado
@@ -367,6 +425,15 @@ export async function applyExtraction(pool, extraction, opts = {}) {
   let factsInvalidated = 0;
   /** Fatos recusados por não terem sentença. Contado, nunca silencioso. */
   let semSentenca = 0;
+  /**
+   * Auto-relatos recusados porque o SUJEITO nao era ele. Contado, nunca silencioso.
+   *
+   * A lista branca de `subjectIsSelf` e estreita de proposito, e isso CUSTA relatos
+   * legitimos — ja vi um: "Um pouco angustiado, mas sem motivo aparente", com sujeito
+   * `person`, que a lista recusa. O custo foi aceito explicitamente; o que nao pode e ser
+   * invisivel. Sem este numero, ninguem descobre que a guarda esta comendo demais.
+   */
+  let sujeitoAlheio = 0;
   for (let fi = 0; fi < facts.length; fi++) {
     const f = facts[fi];
 
@@ -420,7 +487,12 @@ export async function applyExtraction(pool, extraction, opts = {}) {
     // criterion joins on this column — letting the model coin a channel would
     // let it quietly invent a new kind of evidence. The DB CHECK would reject it
     // anyway; doing it here means one bad field costs a null, not the whole fact.
-    const selfReport = f.self_report === true && auto_ok;
+    // DUAS guardas, e nenhuma cobre a outra: `auto_ok` diz que ELE FALOU (pelo registro),
+    // `subjectIsSelf` diz que o ESTADO E DELE (pelo sujeito do fato).
+    const propoeAuto = f.self_report === true && auto_ok;
+    const selfReport = propoeAuto && subjectIsSelf(f.subject);
+    // A recusa por sujeito e a unica que o dono escolheu pagar: ela vira numero.
+    if (propoeAuto && !selfReport) sujeitoAlheio++;
     const proposed = typeof f.state_channel === "string" ? f.state_channel.trim().toLowerCase() : null;
     const stateChannel = selfReport && SELF_STATE_CHANNELS.has(proposed) ? proposed : null;
     // O SINAL do relato, sob a mesma regra do canal: vocabulario fechado, e o que cair fora
@@ -492,7 +564,7 @@ export async function applyExtraction(pool, extraction, opts = {}) {
       client.release();
     }
   }
-  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca };
+  return { entitiesResolved, factsInserted, factsInvalidated, semSentenca, sujeitoAlheio };
 }
 
 export default applyExtraction;
