@@ -1,5 +1,18 @@
 # Agent Instructions
 
+> ## ⚠️ Antes de mexer nos crates "aspiracionais" — leia primeiro
+>
+> **[docs/ESTADO-2026-08-18-memoria-e-fase2.md](docs/ESTADO-2026-08-18-memoria-e-fase2.md)**
+>
+> O plano manda **remover** a fachada aspiracional, não reimplementá-la. Se sua tarefa é
+> refazer esses crates, confirme com o dono antes de investir — reconstruir o que foi decidido
+> remover some depois, e some com o trabalho junto.
+>
+> O documento também corrige o plano onde ele está desatualizado (`sounio-inference/app.py` é
+> real, não fachada; `crates/beagle-fractal` tem 829 linhas de Rust), lista o que mudou nas
+> últimas 12 h em `apps/memory-pg`, e enumera invariantes vivos que quebram ciência, não só
+> código.
+
 Beagle is a cluster-canonical exocortex. The local workstation is only a client:
 do not store canonical memory on the MacBook or in GitHub.
 

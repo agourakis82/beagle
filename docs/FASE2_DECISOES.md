@@ -48,3 +48,60 @@ deste desenho, e foi escolhido de olhos abertos.
 
 **Se um dia isto for revisto**, a revisão entra aqui com data, e a série passa a ter duas
 épocas — igual ao confundidor já declarado na §6 do pré-registro.
+
+---
+
+## 2026-08-18 — Desmarcar 27 auto-relatos cujo SUJEITO não era ele
+
+**O que motivou.** O primeiro veredito da Fase 2 saiu `INELEGIVEL` sobre a frase *"A
+probabilidade posterior de que as propriedades da ontologia…"* — texto técnico classificado
+como relato emocional. Medindo, **3 de 9** auto-relatos em canal **elegível** eram falsos
+positivos, todos com a mesma forma: o falante era ele, o **sujeito** não.
+
+A guarda `speakerIsSubject` pergunta se ELE FALOU. Não perguntava se o **estado era dele** — e
+a corroboração confronta a fisiologia DELE. `subjectIsSelf()` passou a exigir isso, por lista
+branca derivada dos sujeitos reais medidos.
+
+**A guarda protege o que vem; não desfaz o que entrou.** Havia 27 auto-relatos gravados que a
+regra nova recusa, 3 deles em canal elegível — vivos, e elegíveis pelo caminho antigo.
+
+**Decisão dele: desmarcar os 27.** `self_report`, `state_channel` e `state_polarity` limpos.
+**Nenhum fato foi apagado**: texto, proveniência, hora e vínculos ficam intactos. O fato apenas
+deixa de se apresentar como relato sobre o corpo dele — correção de classificação, não
+reescrita de história.
+
+Os valores anteriores ficam abaixo, para que a correção seja auditável fora do banco.
+
+### Os 27, com o que carregavam antes
+
+| sujeito | canal | sinal | frase |
+|---|---|---|---|
+| `você` | **arousal** | — | Você estava confuso. |
+| `você` | **arousal** | — | Você está me ouvindo? |
+| `Beagle` | **fatigue** | alta | Sim…. Tem muita coisa pra melhorar aqui no beagle ainda |
+| `HRV` | valence | alta | Hrv está alta pro meu padrão, muitas vezes fica cravada em 10- 1 |
+| `Sentimentos` | valence | — | Quero falar de sentimentos. |
+| `Sounio` | valence | alta | A probabilidade posterior de que as propriedades da ontologia se |
+| `Você` | valence | — | Como você está agora? |
+| `choro` | valence | baixa | Choro está travado. |
+| `fumaça` | valence | alta | Parece que a fumaça me alivia. |
+| `interaction` | valence | — | Oi, como você tá hoje? |
+| `sentimento estranho` | valence | — | Nada aparece….é sentimento estranho. |
+| `voz` | valence | — | A voz não tá legal |
+| `Busque na sua memória` | — | — | Busque na sua memória (recall/exocortex) entradas datadas de hoj |
+| `G₂ bridge proposal` | — | — | The proposed experiment is technically feasible. |
+| `IR/lower alternative` | — | — | The user suspects IR/lower alternative as a potential issue. |
+| `Sounio` | — | — | O sistema Sounio relatou o status do check Stale Issue Cleanup c |
+| `Sounio` | — | — | O sistema Sounio relatou o status do check Issue Triage como ski |
+| `Sounio` | — | — | O sistema Sounio está monitorando a PR 1776 até que zero checks  |
+| `Sounio` | — | — | O sistema Sounio relatou o status do check Impact como pending c |
+| `Sounio` | — | — | O sistema Sounio relatou o status do check PR Triage como pendin |
+| `acquisition reason lowerin` | — | — | The user suspects acquisition reason lowering as a potential iss |
+| `exploração` | — | — | É exploração da minha própria exploração. |
+| `parser/items alternative m` | — | — | The user requested the top 3 exact suspects with rationale. |
+| `parser/items alternative m` | — | — | The user suspects parser/items alternative metric parsing as a p |
+| `parser/items alternative m` | — | — | The user requested to focus on likely float/int mismatches only. |
+| `person` | — | — | Um pouco angustiado, mas sem motivo aparente. |
+| `pregabalina` | — | — | Costuma ajudar. |
+
+Em **negrito**, os 3 que estavam em canal elegível — os que teriam entrado na corroboração.
