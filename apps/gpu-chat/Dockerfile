@@ -1,14 +1,14 @@
 FROM node:22-slim AS web-build
 WORKDIR /app/web
-COPY web/package.json ./
-RUN npm install
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
 COPY web/ ./
 RUN npm run build
 
 FROM node:22-slim AS server-build
 WORKDIR /app/server
-COPY server/package.json ./
-RUN npm install
+COPY server/package.json server/package-lock.json ./
+RUN npm ci
 COPY server/ ./
 RUN npm run build
 
