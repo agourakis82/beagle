@@ -48,12 +48,39 @@ export async function runGraphOnce(pool, opts) {
           // Espera antes de reivindicar de novo quando o servidor esta fora. 60s cobre o
           // tempo de um pod de serving subir (medido: ~60s quente, ~5min frio) sem deixar a
           // fila parada muito alem disso.
-          esperaServidorSegundos = 60 } = opts || {};
+          esperaServidorSegundos = 60,
+          // Segundo eixo da particao, ALEM da faixa por `prov_actor`: o TAMANHO do registro.
+          //
+          // Existe porque as duas placas do cluster tem tetos de contexto diferentes — a L4 do
+          // r770 aguenta 14.336 tokens por slot, a A5000 do r740 so 6.144 (ela divide a placa
+          // com o `hunyuan`). Sem este corte, um registro grande cairia no endpoint pequeno,
+          // estouraria o contexto e viraria quarentena — trabalho jogado fora por roteamento.
+          //
+          // E resolve o gargalo que a GPU sozinha nao resolvia: os workers sao SERIAIS, entao um
+          // registro de 5 minutos travava um terco da capacidade enquanto a multidao de
+          // registros pequenos (mediana 776 caracteres) esperava atras dele. Separados, os
+          // pequenos deixam de pagar pelo tamanho dos gigantes.
+          maxChars = null, minChars = null } = opts || {};
   if (typeof llmFn !== "function") throw new Error("runGraphOnce: llmFn required");
   // Faixa desconhecida e erro, nunca "processa tudo": um typo no env viraria os dois workers
   // varrendo a fila inteira e brigando por cada linha.
   const cond = Object.prototype.hasOwnProperty.call(TIERS, tier) ? TIERS[tier] : null;
   if (cond === null) throw new Error(`runGraphOnce: tier desconhecido "${tier}"`);
+
+  // Um teto que nao e numero seria ignorado em silencio pelo SQL e o worker varreria a fila
+  // inteira — o mesmo estrago que a faixa desconhecida causa, e pelo mesmo motivo: config
+  // errada tem que parar o processo, nunca alargar o escopo dele.
+  for (const [nome, v] of [["maxChars", maxChars], ["minChars", minChars]]) {
+    if (v !== null && !Number.isFinite(v)) throw new Error(`runGraphOnce: ${nome} invalido "${v}"`);
+  }
+  // Os limites sao INCLUSIVO em cima (`<=`) e EXCLUSIVO embaixo (`>`) de proposito: e o que faz
+  // dois workers com o mesmo corte formarem uma particao — `<= 18000` e `> 18000` nao deixam vao
+  // nem sobreposicao. Trocar um dos dois por `>=` faria o registro de exatamente 18.000
+  // caracteres ser processado DUAS vezes.
+  const tamanhoArgs = [];
+  let tamanhoCond = "";
+  if (maxChars !== null) { tamanhoArgs.push(maxChars); tamanhoCond += ` AND length(r.content) <= $${tamanhoArgs.length + 1}`; }
+  if (minChars !== null) { tamanhoArgs.push(minChars); tamanhoCond += ` AND length(r.content) > $${tamanhoArgs.length + 1}`; }
 
   const claimed = await pool.query(
     `UPDATE pending_graph
@@ -62,10 +89,10 @@ export async function runGraphOnce(pool, opts) {
         SELECT pg.id FROM pending_graph pg
           JOIN records r ON r.id = pg.record_id
          WHERE (pg.status='pending' OR (pg.status='processing' AND pg.locked_until < now()))
-           AND ${cond}
+           AND ${cond}${tamanhoCond}
          ORDER BY pg.id FOR UPDATE OF pg SKIP LOCKED LIMIT $1)
       RETURNING id, record_id, retry_count`,
-    [batch],
+    [batch, ...tamanhoArgs],
   );
 
   // `oversized` sai daqui pelo mesmo motivo que `semSentenca` e `sujeitoAlheio`: um registro

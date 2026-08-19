@@ -1,4 +1,25 @@
-# Faixa BULK da extração de grafo — todo registro que NÃO é fala do sujeito.
+# Faixa BULK da extração — a metade GRANDE, na L4 do r770.
+#
+# ## A partição tem DOIS eixos
+#
+# Por `prov_actor` (`voice` / `bulk`, ver `graph-worker-voz.yaml`) e, desde 19-ago-2026, também
+# por TAMANHO do registro:
+#
+#   este worker            → `bulk` e `length(content) >  18000`  → L4 do r770 (14.336 tok/slot)
+#   graph-worker-pequenos  → `bulk` e `length(content) <= 18000`  → A5000 do r740 (6.144 tok/slot)
+#
+# `<=` em cima e `>` embaixo formam uma partição exata: o registro de exatamente 18.000
+# caracteres cai em UM dos dois, nunca nos dois nem em nenhum. Trocar um por `>=` produziria
+# fato duplicado; trocar o outro faria o registro sumir da fila sem nada acusar.
+#
+# ## Por que os grandes ficam aqui
+#
+# Não é preferência: a L4 é a ÚNICA placa com contexto para eles. A A5000 divide os 24 GB com o
+# `hunyuan` e comporta 6.144 tokens por slot (~21 mil caracteres).
+#
+# E é o que conserta o bloqueio de cabeça de linha: os workers são SERIAIS, então um registro de
+# 5 minutos travava um terço da capacidade enquanto a multidão de pequenos (mediana 776
+# caracteres) esperava atrás. Agora os gigantes ficam isolados e não cobram pedágio dos outros.
 #
 # O desenho tem duas faixas, particionadas por `prov_actor` e disjuntas por negação (ver
 # `graph-worker-voz.yaml`): `voice` é o que ele disse, e vai no modelo caro; `bulk` é todo o
@@ -20,7 +41,7 @@ spec:
   # `runGraphOnce`). A concorrência real contra o servidor de LLM é 3, não 3×GRAPH_BATCH —
   # `GRAPH_BATCH` é quantas linhas a réplica reivindica por rodada, não quantas dispara juntas.
   # Isso é o que faz as 3 caberem nos 4 slots do llama.cpp sem fila, sobrando um para o chat.
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels: { app: memory-pg, component: graph-worker }
   template:
@@ -89,6 +110,13 @@ spec:
             # pertence ao modelo caro.
             - name: GRAPH_TIER
               value: bulk
+            # A metade GRANDE. Sem este piso, este worker voltaria a competir com o dos pequenos
+            # pela fila inteira — e os gigantes voltariam a bloquear a fila dos rápidos.
+            - name: GRAPH_MIN_CHARS
+              value: "18000"
+            # 1 réplica, não 3: os registros grandes são poucos (p99 = 18.045 caracteres) e cada
+            # um consome minutos de GPU. Três réplicas aqui só disputariam a mesma L4 saturada.
+            # A capacidade que importa agora está do lado dos pequenos.
           resources:
             requests: { cpu: "200m", memory: 256Mi }
             limits: { cpu: "1", memory: 1Gi }

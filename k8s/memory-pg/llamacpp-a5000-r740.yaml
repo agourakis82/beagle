@@ -1,0 +1,133 @@
+# llamacpp-a5000-r740.yaml — o SEGUNDO serving de extração, na A5000 do r740.
+#
+# ## Por que existe
+#
+# A fila de extração estava em déficit: saída de 31 registros/hora contra entrada de ~100/h, com
+# a L4 do r770 a 98% de utilização. A fila não drenava — crescia.
+#
+# O gargalo tinha DUAS causas, e só uma era GPU:
+#
+#   1. teto de placa: a L4 saturada;
+#   2. bloqueio de cabeça de linha: os workers são SERIAIS, e um registro de 5 minutos travava um
+#      terço da capacidade enquanto a multidão de registros pequenos (mediana 776 caracteres)
+#      esperava atrás dele.
+#
+# Este serving ataca as duas. Ver `graph-worker-pequenos.yaml`, que é quem o consome.
+#
+# ## A placa, e por que ela estava disponível
+#
+# Medido em 19-ago-2026: a A5000 do r740 estava a **0% de utilização**, com 12.370 MiB tomados
+# pelo `hunyuan-7b` — um modelo carregado que ninguém usava. Livres: 11.746 MiB de 24.564.
+#
+# O `hunyuan` FICA no ar (decisão declarada; ele está no router como `hunyuan-7b`). Este serving
+# entra no slot time-sliced livre da mesma placa. Time-slicing não isola VRAM: os dois dividem os
+# 24 GB, e é por isso que o contexto aqui é menor que na L4.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llamacpp-a5000
+  namespace: beagle
+  labels: { app: llamacpp-a5000 }
+spec:
+  replicas: 1
+  # `Recreate`, nunca RollingUpdate: numa placa compartilhada o pod novo tenta alocar enquanto o
+  # velho ainda segura a VRAM, e morre em `cudaMalloc failed: out of memory`. Aconteceu no
+  # serving da L4. A janela de indisponibilidade é o preço certo — a alternativa não é
+  # disponibilidade, é um pod que nunca sobe.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: llamacpp-a5000 }
+  template:
+    metadata:
+      labels: { app: llamacpp-a5000 }
+    spec:
+      # Sem isto o hook da NVIDIA não injeta o driver e o processo morre sem enxergar GPU.
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: r740-proxmox
+      tolerations:
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+      containers:
+        - name: llamacpp
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          args:
+            - -hf
+            - bartowski/Qwen2.5-14B-Instruct-GGUF:Q4_K_M
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8000"
+            - -ngl
+            - "99"
+            # `-c` é o contexto TOTAL, repartido entre os slots: 12288 / 2 = 6144 por slot,
+            # ~21 mil caracteres.
+            #
+            # ⚠️ NÃO copiar os 14336/slot da L4. Lá a placa é inteira; aqui sobram 11.746 MiB ao
+            # lado do `hunyuan`, e a conta é ~9 GB de peso + ~2,2 GB de KV + folga. Pedir mais
+            # produz OOM na carga do modelo, não degradação suave.
+            #
+            # É este número que fixa o corte de 18.000 caracteres em `graph-worker-pequenos.yaml`:
+            # o roteamento serve ao teto da placa, não o contrário.
+            - -c
+            - "12288"
+            - --parallel
+            - "2"
+            - --jinja
+            - --alias
+            - qwen2.5-14b-a5000
+          env:
+            - name: LLAMA_CACHE
+              value: /cache
+            - name: HF_HUB_DOWNLOAD_TIMEOUT
+              value: "1800"
+            # ⚠️ AQUI o UUID é OBRIGATÓRIO, e é o oposto da regra da L4.
+            #
+            # No r770 as 4 unidades são fatias da MESMA L4, e fixar UUID não faria sentido. O r740
+            # é MISTO: A5000 + RTX 8000. Sem fixar, o device plugin pode entregar a RTX 8000 —
+            # onde vive o `r1-distill-70b` da faixa de voz — e a extração passaria a competir com
+            # o próprio modelo caro do pipeline, degradando os dois.
+            #
+            # UUID conferido no pod do `hunyuan`, que roda nesta placa.
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: GPU-5618b771-c8f2-16a6-b94e-0ba3537c47db
+          ports:
+            - { name: http, containerPort: 8000 }
+          # startupProbe, nunca `initialDelaySeconds` grande: o download frio leva minutos e o
+          # quente ~1. Atraso fixo dimensionado para o pior caso deixa o serviço sem endpoint
+          # mesmo com o cache pronto.
+          startupProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 160
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests: { cpu: "2", memory: 8Gi, nvidia.com/gpu: "1" }
+            limits: { cpu: "16", memory: 24Gi, nvidia.com/gpu: "1" }
+          volumeMounts:
+            - { name: cache, mountPath: /cache }
+          securityContext:
+            # AppArmor, e não só seccomp: o perfil padrão deste cluster já derrubou serviço por
+            # negar AF_UNIX, e seccomp sozinho não cobre esse caso.
+            appArmorProfile: { type: Unconfined }
+            seccompProfile: { type: Unconfined }
+      volumes:
+        - name: cache
+          persistentVolumeClaim: { claimName: hf-cache-a5000-r740 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llamacpp-a5000
+  namespace: beagle
+spec:
+  selector: { app: llamacpp-a5000 }
+  ports:
+    - { name: http, port: 8000, targetPort: 8000 }

@@ -1,0 +1,99 @@
+# Faixa BULK da extração — a metade PEQUENA, na A5000 do r740.
+#
+# Gêmeo de `graph-worker.yaml`, do outro lado do corte de 18.000 caracteres. Leia lá a explicação
+# da partição de dois eixos; aqui ficam só as diferenças e o motivo delas.
+#
+#   este worker   → `bulk` e `length(content) <= 18000`  → A5000 (6.144 tok/slot)
+#   graph-worker  → `bulk` e `length(content) >  18000`  → L4    (14.336 tok/slot)
+#
+# ## Por que 3 réplicas aqui e 1 lá
+#
+# A mediana da fila é 776 caracteres: a esmagadora maioria dos registros é pequena e rápida. É
+# deste lado que está o volume, e portanto a capacidade. Do outro lado ficam poucos registros
+# caros, isolados para não bloquear estes.
+#
+# ## Por que o modelo tem outro nome
+#
+# `qwen2.5-14b-a5000` é o MESMO modelo do outro endpoint (Qwen2.5-14B Q4_K_M) — o que muda é a
+# placa. O nome vai para `provenance->'extracted_by'->>'model'` de cada fato, e é o que torna a
+# comparação entre os dois endpoints legível no próprio dado, sem cruzar `recorded_at` com a data
+# dos ReplicaSets — que é como eu já medi errado três vezes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memory-pg-graph-worker-pequenos
+  namespace: beagle
+  labels: { app: memory-pg, component: graph-worker-pequenos }
+spec:
+  # 3 réplicas, e cada uma processa seu lote SERIALMENTE (`for ... await` em
+  # `runGraphOnce`). A concorrência real contra o servidor de LLM é 3, não 3×GRAPH_BATCH —
+  # `GRAPH_BATCH` é quantas linhas a réplica reivindica por rodada, não quantas dispara juntas.
+  # Isso é o que faz as 3 caberem nos 4 slots do llama.cpp sem fila, sobrando um para o chat.
+  replicas: 3
+  selector:
+    matchLabels: { app: memory-pg, component: graph-worker-pequenos }
+  template:
+    metadata:
+      labels: { app: memory-pg, component: graph-worker-pequenos }
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: t560-proxmox
+      # HISTÓRICO — não remova esta nota junto com o código que ela explica.
+      # Em 02-ago-2026 pods no dl380 não alcançavam NADA: nem ClusterIP, nem o
+      # próprio host, nem a rede externa. O HOST alcançava; o POD não. Um rollout
+      # reagendou o memory-pg-serve para lá e o recall inteiro do companion parou,
+      # sem nada indicar a causa.
+      #
+      # Causa raiz: /usr/lib/sysctl.d/pve-firewall.conf (vendor Proxmox) define
+      # net.ipv4.conf.all.rp_filter=2 e, por ordem alfabética, é aplicado DEPOIS de
+      # 99-cilium-*.conf (ASCII: "9" < "p"). O valor do vendor vencia e o reverse
+      # path filtering matava o datapath do Cilium. Os outros nós já sombreavam o
+      # arquivo do vendor com /etc/sysctl.d/pve-firewall.conf; o dl380 não.
+      #
+      # CONSERTADO no nó (sombreamento instalado, sobrevive a restart do
+      # pve-firewall e a sysctl --system). A exclusão por nodeAffinity que existia
+      # aqui foi REMOVIDA depois de o companion-health passar rodando no dl380.
+      # Se um pod voltar a falhar em rede, verifique primeiro:
+      #     sysctl -n net.ipv4.conf.all.rp_filter    # tem que ser 0
+      tolerations:
+        - { key: sounio.dev/compute, operator: Equal, value: heavy, effect: NoSchedule }
+        - { key: sounio.dev/pool, operator: Equal, value: gpu-batch, effect: NoSchedule }
+        - { key: node-role.kubernetes.io/control-plane, operator: Exists, effect: NoSchedule }
+      securityContext:
+        seccompProfile: { type: Unconfined }
+      containers:
+        - name: graph-worker
+          image: 192.168.3.207:5003/memory-pg-embed-worker:p36-instante-82f42cc9
+          command: ["node", "bin/graph-worker.mjs"]
+          env:
+            - name: MEMORY_PG_DSN
+              valueFrom: { secretKeyRef: { name: memory-pg, key: DATABASE_URL } }
+            # O serving da A5000 (`llamacpp-a5000-r740.yaml`), que divide a placa com o
+            # `hunyuan`. Linha de base ANTES desta partição, para a comparação não atravessar a
+            # fronteira do rollout: 31 registros/hora com a L4 sozinha, contra ~100/h de entrada
+            # — a fila crescia.
+            - name: GRAPH_LLM_URL
+              value: http://llamacpp-a5000.beagle.svc.cluster.local:8000
+            # MESMO modelo do outro endpoint (Qwen2.5-14B Q4_K_M) — o que muda é a placa. O nome
+            # vai para `provenance->'extracted_by'->>'model'` de cada fato, e é o que permite
+            # comparar os dois endpoints pelo próprio dado.
+            - name: GRAPH_MODEL
+              value: qwen2.5-14b-a5000
+            - name: BEAGLE_TEI_EMBED_URL
+              value: http://beagle-sovereign-embeddings.beagle.svc.cluster.local:80/embed
+            - name: GRAPH_BATCH
+              value: "2"
+            - name: GRAPH_LLM_TIMEOUT_MS
+              value: "300000"
+            # A faixa. Sem isto o worker pegaria TUDO, inclusive a fala do sujeito que
+            # pertence ao modelo caro.
+            - name: GRAPH_TIER
+              value: bulk
+            # A metade PEQUENA. Sem este teto, este worker pegaria também os gigantes — que não
+            # cabem nos 6.144 tokens/slot da A5000 e virariam quarentena por roteamento, não por
+            # defeito. O número é o p99 medido da fila (18.045) e o teto que esta placa comporta.
+            - name: GRAPH_MAX_CHARS
+              value: "18000"
+          resources:
+            requests: { cpu: "200m", memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }

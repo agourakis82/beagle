@@ -1,0 +1,25 @@
+# Cache dos pesos GGUF do serving da A5000 (r740), em arquivo SEPARADO do Deployment.
+#
+# Separado pelo mesmo motivo que o PVC da L4: um `kubectl delete -f` no manifesto do serving
+# levou o PVC junto do Deployment uma vez, e o pod seguinte ficou Pending sem causa óbvia. Dado
+# com ciclo de vida próprio (um download de 9 GB) não mora no mesmo arquivo do que é descartável.
+#
+# O PVC é o que mantém o peso FORA do disco do nó. O r740 tem folga real — medido em
+# 19-ago-2026: filesystem de imagens com 133 GB livres de 439 GB, raiz com 73,9 GB livres, sem
+# DiskPressure —, bem diferente dos 19 GB apertados do r770. Ainda assim o peso vai para o
+# CephFS: 9 GB por modelo, multiplicados por cada serving que subir, é como um nó folgado vira
+# um nó apertado sem ninguém notar a passagem.
+#
+# RWX porque as réplicas compartilham UM download; os `hf-cache-*` mais antigos são RWO e só uma
+# réplica conseguiria montar.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hf-cache-a5000-r740
+  namespace: beagle
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs-scratch
+  resources:
+    requests:
+      storage: 120Gi

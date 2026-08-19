@@ -36,6 +36,18 @@ async function main() {
   if (!embedUrl) throw new Error("BEAGLE_TEI_EMBED_URL is required");
   const llmBase = process.env.GRAPH_LLM_URL || "http://router.llm-router.svc.cluster.local:4000";
   const model = process.env.GRAPH_MODEL || "r1-distill-70b";
+  // Teto e piso de tamanho do registro, em caracteres. Ausentes = sem corte (comportamento
+  // anterior). Ver `runGraphOnce`: dois workers com o mesmo numero, um em cada lado, formam
+  // uma particao exata da fila.
+  const numEnv = (nome) => {
+    const v = process.env[nome];
+    if (v === undefined || v === "") return null;
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new Error(`${nome} invalido: "${v}"`);
+    return n;
+  };
+  const maxChars = numEnv("GRAPH_MAX_CHARS");
+  const minChars = numEnv("GRAPH_MIN_CHARS");
 
   const pool = makePool(dsn);
   const llmFn = makeRouterLlmFn(llmBase, { model, timeoutMs: intEnv("GRAPH_LLM_TIMEOUT_MS", 240000) });
@@ -51,12 +63,16 @@ async function main() {
   const stop = () => (stopping = true);
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  console.log(`[graph-worker] started tier=${tier} model=${model} batch=${batch}`);
+  console.log(`[graph-worker] started tier=${tier} model=${model} batch=${batch}`
+    // A faixa de tamanho no log de arranque: sem isto, dois workers identicos nos
+    // logs processariam metades diferentes da fila sem nada dizer qual e qual.
+    + (maxChars !== null ? ` maxChars=${maxChars}` : "")
+    + (minChars !== null ? ` minChars=${minChars}` : ""));
 
   while (!stopping) {
     let res;
     try {
-      res = await runGraphOnce(pool, { llmFn, embedFn, batch, maxRetries, model, tier });
+      res = await runGraphOnce(pool, { llmFn, embedFn, batch, maxRetries, model, tier, maxChars, minChars });
     } catch (err) {
       console.error(`[graph-worker] runGraphOnce error: ${err.message}`);
       await sleep(idle);
