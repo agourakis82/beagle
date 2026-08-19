@@ -118,6 +118,10 @@ struct ChatComposer: View {
     /// push-to-talk turn would also toggle hands-free.
     @State private var holdEngagedAt: Date?
     @State private var mostrandoSeletor = false
+    /// A folha de "quando foi isso?", aberta pelo próprio envio quando o texto é um relato.
+    @State private var perguntandoInstante = false
+    /// Texto falado esperando a declaração do instante. `nil` quando o gate veio do teclado.
+    @State private var faladoPendente: String?
     @State private var horaEscolhida = Date()
     /// Accessibility: Reduce Transparency swaps the Liquid Glass for a solid material so the
     /// draft text never loses contrast over a busy aurora (iOS 27 contrast guidance).
@@ -212,9 +216,37 @@ struct ChatComposer: View {
         .padding(.vertical, BeagleSpacing.xs)
         .padding(.horizontal, BeagleSpacing.sm)
         .modifier(ComposerGlass(reduceTransparency: reduceTransparency))
+        // `confirmationDialog` e não `sheet`: as opções aparecem na borda inferior, ao alcance do
+        // polegar e sobre a conversa, sem cobrir o que ele acabou de escrever. Uma folha inteira
+        // para uma pergunta de uma linha pareceria um formulário, e a diferença entre "um toque"
+        // e "um formulário" é a diferença entre ele usar e não usar.
+        .confirmationDialog("Quando esse estado aconteceu?",
+                            isPresented: $perguntandoInstante, titleVisibility: .visible) {
+            ForEach(AncoraTemporal.rapidas, id: \.chave) { op in
+                Button(op.rotulo) { declararEEnviar(op) }
+            }
+            Button("Escolher hora…") { mostrandoSeletor = true }
+            // Sem escapatória silenciosa: `cancel` volta ao texto, não envia sem instante. Um
+            // botão "enviar assim mesmo" reabriria exatamente o buraco que isto fecha, e seria
+            // o caminho de menor esforço em todo relato.
+            Button("Voltar", role: .cancel) {
+                // O falado volta para o campo em vez de sumir: ele acabou de DIZER aquilo, e
+                // perder o texto por ter recuado da pergunta seria pior que a pergunta.
+                if let falado = faladoPendente { text = falado; faladoPendente = nil }
+            }
+        } message: {
+            Text("O confronto com o corpo usa esse instante — não o da mensagem.")
+        }
         .sheet(isPresented: $mostrandoSeletor) {
             SeletorDeInstante(hora: $horaEscolhida) { escolhida in
-                ancora = .horario(escolhida)
+                // Se o seletor foi aberto pelo gate do envio, declarar já envia — mesmo gesto.
+                // Se foi aberto pelo relógio, só marca a âncora e devolve o controle.
+                if perguntandoInstante {
+                    perguntandoInstante = false
+                    declararEEnviar(.horario(escolhida))
+                } else {
+                    ancora = .horario(escolhida)
+                }
             }
         }
         // SOTA-chat: subtle light-impact haptic confirming the send, contained and non-decorative.
@@ -229,6 +261,17 @@ struct ChatComposer: View {
             voice.onCommit = { spoken in
                 attachedData = nil
                 pickedItem = nil
+                // O turno FALADO passa pelo mesmo gate do digitado. Ele conversa por voz o
+                // tempo todo; cobrir só o teclado deixaria a maior parte dos relatos sem
+                // instante — o defeito de "ligar a guarda numa rota só", que nesta base já
+                // apareceu mais de uma vez.
+                //
+                // O texto falado não está em `text`, então fica guardado até a declaração.
+                if ancora == nil && RelatoDeEstado.pareceRelato(spoken) {
+                    faladoPendente = spoken
+                    perguntandoInstante = true
+                    return
+                }
                 onVoiceCommit(spoken)
             }
         }
@@ -477,11 +520,50 @@ struct ChatComposer: View {
         .accessibilityLabel("Profundidade: \(depth.label)")
     }
 
+    /// Precisa perguntar QUANDO antes de enviar?
+    ///
+    /// Só quando o texto parece auto-relato de estado (ver `RelatoDeEstado`) e ele ainda não
+    /// declarou. Exigir em toda mensagem transformaria cada "bom dia" numa pergunta sobre
+    /// quando — e app que atrapalha deixa de ser usado, o que custaria o dado inteiro.
+    private var precisaDeclararInstante: Bool {
+        ancora == nil && RelatoDeEstado.pareceRelato(trimmed)
+    }
+
     private func send() {
+        // O gate. Sob a `direcao-v2` só o instante DECLARADO entra no confronto com a
+        // fisiologia, e enquanto declarar era opcional simplesmente não acontecia: dos 10
+        // auto-relatos que o funil contava como tendo hora, os 10 eram imputados da fala.
+        //
+        // Aqui o envio não é bloqueado com um aviso — ele ABRE a escolha. Tocar uma opção
+        // declara e envia no mesmo gesto: um toque a mais, não dois, e nenhuma tela nova.
+        if precisaDeclararInstante {
+            perguntandoInstante = true
+            return
+        }
         sendHaptic &+= 1   // SOTA-chat: bump trigger before the send so the haptic fires with the action.
         onSend()
         attachedData = nil
         pickedItem = nil
+        // A âncora vale por UM turno. Sem zerar aqui, o próximo relato herdaria em silêncio o
+        // instante do anterior — e sob a v2 esse instante entraria como declarado.
+        ancora = nil
+    }
+
+    /// Declara e envia no mesmo gesto.
+    private func declararEEnviar(_ escolhida: AncoraTemporal) {
+        ancora = escolhida
+        sendHaptic &+= 1
+        // Uma porta de saída para as duas rotas: falado tem o texto guardado, digitado está no
+        // campo. Duplicar o caminho de envio faria a declaração valer numa e não na outra.
+        if let falado = faladoPendente {
+            faladoPendente = nil
+            onVoiceCommit(falado)
+        } else {
+            onSend()
+        }
+        attachedData = nil
+        pickedItem = nil
+        ancora = nil
     }
 
     /// Abre as âncoras. Fica ao lado do enviar porque a pergunta que ele responde — "isto é
