@@ -28,12 +28,13 @@ function CodeBlock({ children, ...rest }: PropsWithChildren<Record<string, unkno
   )
 }
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+export function MessageBubble({ message, streaming = false }: { message: ChatMessage; streaming?: boolean }) {
   return (
-    <div className={`bubble bubble-${message.role}`}>
+    <div className={`bubble bubble-${message.role}${streaming ? ' bubble-streaming' : ''}`}>
       <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={{ pre: CodeBlock }}>
         {message.content}
       </ReactMarkdown>
+      {streaming && <span className="stream-cursor" aria-hidden="true" />}
       {message.truncated === 1 && <span className="truncated-flag">⚠ truncated by upstream error</span>}
     </div>
   )

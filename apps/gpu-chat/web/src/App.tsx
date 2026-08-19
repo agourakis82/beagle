@@ -30,6 +30,10 @@ export function App() {
   return (
     <div className="app">
       <div className="sidebar-column">
+        <div className="brand">
+          <span className="brand-mark" aria-hidden="true" />
+          <span className="brand-name">GPU CHAT</span>
+        </div>
         <Sidebar
           conversations={conversations}
           selectedId={selectedId}
@@ -45,6 +49,15 @@ export function App() {
         </div>
         {view === 'chat' && selectedId !== null && (
           <ChatView conversationId={selectedId} models={models} pendingSystemPrompt={pendingSystemPrompt} />
+        )}
+        {view === 'chat' && selectedId === null && (
+          <div className="empty-state">
+            <div className="empty-state-mark" aria-hidden="true" />
+            <p>No conversation open</p>
+            <button className="btn btn-primary" onClick={handleNew}>
+              Start one
+            </button>
+          </div>
         )}
         {view === 'compare' && <CompareView models={models} />}
       </div>

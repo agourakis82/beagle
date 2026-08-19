@@ -26,23 +26,39 @@ export function AttachmentPanel({ attachments, onAdd, onRemove }: AttachmentPane
 
   return (
     <div className="attachment-panel">
-      <input type="file" onChange={handleFile} />
-      <button
-        onClick={async () => {
-          const text = await navigator.clipboard.readText()
-          handlePaste(text)
-        }}
-      >
-        Paste as attachment
-      </button>
-      <ul>
-        {attachments.map((a) => (
-          <li key={a.filename}>
-            {a.filename} ({a.content.length} chars)
-            <button onClick={() => onRemove(a.filename)}>✕</button>
-          </li>
-        ))}
-      </ul>
+      <div className="attachment-actions">
+        <label className="btn btn-ghost btn-small">
+          Attach file
+          <input type="file" onChange={handleFile} hidden />
+        </label>
+        <button
+          className="btn btn-ghost btn-small"
+          type="button"
+          onClick={async () => {
+            const text = await navigator.clipboard.readText()
+            handlePaste(text)
+          }}
+        >
+          Paste as attachment
+        </button>
+      </div>
+      {attachments.length > 0 && (
+        <ul className="attachment-chips">
+          {attachments.map((a) => (
+            <li key={a.filename} className="attachment-chip">
+              <span className="attachment-chip-name">{a.filename}</span>
+              <span className="attachment-chip-size">{a.content.length.toLocaleString()} ch</span>
+              <button
+                className="attachment-chip-remove"
+                onClick={() => onRemove(a.filename)}
+                aria-label={`Remove ${a.filename}`}
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

@@ -10,6 +10,7 @@ export function TemplateLibrary({ onApply }: TemplateLibraryProps) {
   const [templates, setTemplates] = useState<PromptTemplate[]>([])
   const [name, setName] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     fetchTemplates().then(setTemplates)
@@ -21,6 +22,7 @@ export function TemplateLibrary({ onApply }: TemplateLibraryProps) {
     setTemplates((prev) => [t, ...prev])
     setName('')
     setSystemPrompt('')
+    setCreating(false)
   }
 
   async function handleDelete(id: number) {
@@ -30,21 +32,53 @@ export function TemplateLibrary({ onApply }: TemplateLibraryProps) {
 
   return (
     <div className="template-library">
-      <ul>
-        {templates.map((t) => (
-          <li key={t.id}>
-            <button onClick={() => onApply(t.system_prompt)}>{t.name}</button>
-            <button onClick={() => handleDelete(t.id)}>✕</button>
-          </li>
-        ))}
-      </ul>
-      <input placeholder="Template name" value={name} onChange={(e) => setName(e.target.value)} />
-      <textarea
-        placeholder="System prompt"
-        value={systemPrompt}
-        onChange={(e) => setSystemPrompt(e.target.value)}
-      />
-      <button onClick={handleCreate}>Save template</button>
+      <div className="template-library-header">
+        <span className="sidebar-section-label">Templates</span>
+        <button className="btn btn-ghost btn-small" onClick={() => setCreating((v) => !v)}>
+          {creating ? 'Cancel' : '+ New'}
+        </button>
+      </div>
+
+      {creating && (
+        <div className="template-form">
+          <input
+            className="text-input"
+            placeholder="Template name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <textarea
+            className="text-input template-form-prompt"
+            placeholder="System prompt"
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+          />
+          <button className="btn btn-primary btn-small" onClick={handleCreate}>
+            Save template
+          </button>
+        </div>
+      )}
+
+      {templates.length === 0 ? (
+        <p className="sidebar-empty">No saved templates.</p>
+      ) : (
+        <ul className="template-list">
+          {templates.map((t) => (
+            <li key={t.id} className="template-chip">
+              <button className="template-chip-apply" onClick={() => onApply(t.system_prompt)}>
+                {t.name}
+              </button>
+              <button
+                className="template-chip-remove"
+                onClick={() => handleDelete(t.id)}
+                aria-label={`Delete template ${t.name}`}
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

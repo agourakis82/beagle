@@ -8,6 +8,8 @@ interface CompareViewProps {
   models: ModelInfo[]
 }
 
+const CHANNEL_CLASSES = ['channel-a', 'channel-b', 'channel-c', 'channel-d']
+
 export function CompareView({ models }: CompareViewProps) {
   const [selected, setSelected] = useState<string[]>([])
   const [prompt, setPrompt] = useState('')
@@ -52,29 +54,68 @@ export function CompareView({ models }: CompareViewProps) {
   return (
     <div className="compare-view">
       <div className="compare-controls">
-        {models.map((m) => (
-          <label key={m.id}>
-            <input type="checkbox" checked={selected.includes(m.id)} onChange={() => toggleModel(m.id)} />
-            {m.id}
-          </label>
-        ))}
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} />
-        <button onClick={run} disabled={running || selected.length < 2}>
-          Compare
-        </button>
-        <button onClick={save} disabled={running || Object.keys(responses).length === 0}>
-          Save as conversations
-        </button>
-      </div>
-      <div className="compare-columns">
-        {selected.map((model) => (
-          <div key={model} className="compare-column">
-            <h3>{model}</h3>
-            <ReactMarkdown rehypePlugins={[rehypeHighlight]}>{responses[model] ?? ''}</ReactMarkdown>
-            {!done[model] && running && <span className="streaming-indicator">…</span>}
+        <div className="compare-model-picker">
+          {models.map((m) => (
+            <label key={m.id} className={`model-chip${selected.includes(m.id) ? ' selected' : ''}`}>
+              <input
+                type="checkbox"
+                checked={selected.includes(m.id)}
+                onChange={() => toggleModel(m.id)}
+                hidden
+              />
+              {m.id}
+            </label>
+          ))}
+        </div>
+        <div className="compare-prompt-row">
+          <textarea
+            className="text-input compare-prompt"
+            placeholder="Prompt every selected model with…"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+          <div className="compare-actions">
+            <button className="btn btn-primary" onClick={run} disabled={running || selected.length < 2}>
+              Compare
+            </button>
+            <button
+              className="btn btn-ghost"
+              onClick={save}
+              disabled={running || Object.keys(responses).length === 0}
+            >
+              Save as conversations
+            </button>
           </div>
-        ))}
+        </div>
       </div>
+
+      {selected.length === 0 ? (
+        <p className="messages-empty">Pick two or more models above to compare.</p>
+      ) : (
+        <div className="compare-columns">
+          {selected.map((model, i) => (
+            <div key={model} className="compare-column">
+              <div className="compare-column-header">
+                <span
+                  className={`channel-dot ${CHANNEL_CLASSES[i % CHANNEL_CLASSES.length]}`}
+                  aria-hidden="true"
+                />
+                <span className="compare-column-title">{model}</span>
+              </div>
+              <div className="compare-column-body">
+                <ReactMarkdown rehypePlugins={[rehypeHighlight]}>{responses[model] ?? ''}</ReactMarkdown>
+                {!done[model] && running && (
+                  <span className="typing-dots" aria-label="Generating">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

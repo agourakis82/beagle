@@ -85,24 +85,34 @@ export function ChatView({ conversationId, models, pendingSystemPrompt }: ChatVi
   return (
     <div className="chat-view">
       <div className="model-select-row">
-        <label>
-          Model:{' '}
-          <select value={currentModel} onChange={(e) => handleModelChange(e.target.value)}>
-            {!models.some((m) => m.id === currentModel) && currentModel && (
-              <option value={currentModel}>{currentModel}</option>
-            )}
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.id}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span className="model-select-label">Model</span>
+        <select
+          className="model-select"
+          value={currentModel}
+          onChange={(e) => handleModelChange(e.target.value)}
+        >
+          {!models.some((m) => m.id === currentModel) && currentModel && (
+            <option value={currentModel}>{currentModel}</option>
+          )}
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.id}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="messages">
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
+        {messages.length === 0 ? (
+          <p className="messages-empty">Say something to get started.</p>
+        ) : (
+          messages.map((m, i) => (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              streaming={streaming && i === messages.length - 1 && m.role === 'assistant'}
+            />
+          ))
+        )}
       </div>
       <AttachmentPanel
         attachments={attachments}
@@ -110,9 +120,21 @@ export function ChatView({ conversationId, models, pendingSystemPrompt }: ChatVi
         onRemove={(filename) => setAttachments((prev) => prev.filter((a) => a.filename !== filename))}
       />
       <div className="composer">
-        <textarea value={draft} onChange={(e) => setDraft(e.target.value)} disabled={streaming} />
-        <button onClick={send} disabled={streaming}>
-          Send
+        <textarea
+          className="composer-input"
+          placeholder="Message the model…"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              send()
+            }
+          }}
+          disabled={streaming}
+        />
+        <button className="send-button" onClick={send} disabled={streaming} aria-label="Send message">
+          <span aria-hidden="true">→</span>
         </button>
       </div>
     </div>

@@ -10,15 +10,29 @@ interface SidebarProps {
 export function Sidebar({ conversations, selectedId, onSelect, onNew }: SidebarProps) {
   return (
     <div className="sidebar">
-      <button onClick={onNew}>+ New conversation</button>
-      <ul>
-        {conversations.map((c) => (
-          <li key={c.id} className={c.id === selectedId ? 'active' : ''} onClick={() => onSelect(c.id)}>
-            <div>{c.title}</div>
-            <div className="model-tag">{c.model}</div>
-          </li>
-        ))}
-      </ul>
+      <button className="btn btn-primary btn-new" onClick={onNew}>
+        <span className="btn-new-icon" aria-hidden="true">
+          +
+        </span>
+        New conversation
+      </button>
+      {conversations.length === 0 ? (
+        <p className="sidebar-empty">Nothing here yet.</p>
+      ) : (
+        <ul className="conversation-list">
+          {conversations.map((c) => (
+            <li key={c.id}>
+              <button
+                className={`conversation-item${c.id === selectedId ? ' active' : ''}`}
+                onClick={() => onSelect(c.id)}
+              >
+                <span className="conversation-title">{c.title}</span>
+                <span className="model-tag">{c.model}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
