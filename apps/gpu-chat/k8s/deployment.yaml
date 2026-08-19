@@ -23,7 +23,7 @@ spec:
           type: Unconfined
       containers:
         - name: gpu-chat
-          image: 192.168.3.207:5003/gpu-chat:759b0558-ui1
+          image: 192.168.3.207:5003/gpu-chat:759b0558-ui2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8090

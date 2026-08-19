@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ChatMessage, ModelInfo } from '../api.js'
 import { fetchMessages, streamMessage, fetchConversation, updateConversationModel } from '../api.js'
 import { MessageBubble } from './MessageBubble.js'
@@ -16,6 +16,23 @@ export function ChatView({ conversationId, models, pendingSystemPrompt }: ChatVi
   const [attachments, setAttachments] = useState<DraftAttachment[]>([])
   const [streaming, setStreaming] = useState(false)
   const [currentModel, setCurrentModel] = useState<string>('')
+  const pendingTokens = useRef('')
+  const flushHandle = useRef<number | null>(null)
+
+  function scheduleFlush() {
+    if (flushHandle.current !== null) return
+    flushHandle.current = requestAnimationFrame(() => {
+      flushHandle.current = null
+      const chunk = pendingTokens.current
+      pendingTokens.current = ''
+      if (!chunk) return
+      setMessages((prev) => {
+        const next = [...prev]
+        next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + chunk }
+        return next
+      })
+    })
+  }
 
   useEffect(() => {
     fetchMessages(conversationId).then(async (existing) => {
@@ -54,24 +71,29 @@ export function ChatView({ conversationId, models, pendingSystemPrompt }: ChatVi
         conversationId,
         content,
         (token) => {
-          setMessages((prev) => {
-            const next = [...prev]
-            next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + token }
-            return next
-          })
+          pendingTokens.current += token
+          scheduleFlush()
         },
         async () => {
+          if (flushHandle.current !== null) {
+            cancelAnimationFrame(flushHandle.current)
+            flushHandle.current = null
+          }
+          pendingTokens.current = ''
           setStreaming(false)
           setMessages(await fetchMessages(conversationId))
         },
         pendingAttachments,
         (message) => {
+          const errorText = pendingTokens.current + '\n\n⚠ Error: ' + message
+          pendingTokens.current = ''
+          if (flushHandle.current !== null) {
+            cancelAnimationFrame(flushHandle.current)
+            flushHandle.current = null
+          }
           setMessages((prev) => {
             const next = [...prev]
-            next[next.length - 1] = {
-              ...next[next.length - 1],
-              content: next[next.length - 1].content + '\n\n⚠ Error: ' + message,
-            }
+            next[next.length - 1] = { ...next[next.length - 1], content: next[next.length - 1].content + errorText }
             return next
           })
           setStreaming(false)

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeHighlight from 'rehype-highlight'
 import type { ModelInfo } from '../api.js'
@@ -16,6 +16,26 @@ export function CompareView({ models }: CompareViewProps) {
   const [responses, setResponses] = useState<Record<string, string>>({})
   const [done, setDone] = useState<Record<string, boolean>>({})
   const [running, setRunning] = useState(false)
+  const pendingByModel = useRef<Record<string, string>>({})
+  const flushHandle = useRef<number | null>(null)
+
+  function scheduleFlush() {
+    if (flushHandle.current !== null) return
+    flushHandle.current = requestAnimationFrame(() => {
+      flushHandle.current = null
+      const pending = pendingByModel.current
+      pendingByModel.current = {}
+      const models = Object.keys(pending)
+      if (models.length === 0) return
+      setResponses((prev) => {
+        const next = { ...prev }
+        for (const model of models) {
+          next[model] = (next[model] ?? '') + pending[model]
+        }
+        return next
+      })
+    })
+  }
 
   function toggleModel(id: string) {
     setSelected((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]))
@@ -25,21 +45,41 @@ export function CompareView({ models }: CompareViewProps) {
     if (!prompt.trim() || selected.length < 2) return
     setResponses({})
     setDone({})
+    pendingByModel.current = {}
     setRunning(true)
     try {
       await streamCompare(
         prompt,
         selected,
-        (model, token) => setResponses((prev) => ({ ...prev, [model]: (prev[model] ?? '') + token })),
+        (model, token) => {
+          pendingByModel.current[model] = (pendingByModel.current[model] ?? '') + token
+          scheduleFlush()
+        },
         (model) => setDone((prev) => ({ ...prev, [model]: true })),
         (model, message) => {
-          setResponses((prev) => ({ ...prev, [model]: (prev[model] ?? '') + '\n\n⚠ Error: ' + message }))
+          pendingByModel.current[model] = (pendingByModel.current[model] ?? '') + '\n\n⚠ Error: ' + message
+          scheduleFlush()
           setDone((prev) => ({ ...prev, [model]: true }))
         },
       )
     } catch (err) {
       console.error(err)
     } finally {
+      if (flushHandle.current !== null) {
+        cancelAnimationFrame(flushHandle.current)
+        flushHandle.current = null
+      }
+      if (Object.keys(pendingByModel.current).length > 0) {
+        const pending = pendingByModel.current
+        pendingByModel.current = {}
+        setResponses((prev) => {
+          const next = { ...prev }
+          for (const model of Object.keys(pending)) {
+            next[model] = (next[model] ?? '') + pending[model]
+          }
+          return next
+        })
+      }
       setRunning(false)
     }
   }
