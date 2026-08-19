@@ -75,7 +75,7 @@ spec:
         seccompProfile: { type: Unconfined }
       containers:
         - name: graph-worker
-          image: 192.168.3.207:5003/memory-pg-embed-worker:p36-instante-82f42cc9
+          image: 192.168.3.207:5003/memory-pg-embed-worker:p39-particao-1d4052e9
           command: ["node", "bin/graph-worker.mjs"]
           env:
             - name: MEMORY_PG_DSN

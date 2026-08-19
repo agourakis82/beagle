@@ -10,7 +10,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: memory-pg-embed-worker-build
+  name: memory-pg-embed-worker-build-p39
   namespace: beagle
   labels:
     app: memory-pg
@@ -25,7 +25,13 @@ spec:
         component: embed-worker
     spec:
       nodeSelector:
-        sounio.dev/runtime-role: io-lab
+        # 19-ago-2026: era `sounio.dev/runtime-role: io-lab`, que resolve para o 5860 — 12 CPUs,
+        # sem 1 CPU livre. O build ficou Pending 12 min sem nada explodir: `FailedScheduling` nao
+        # falha o Job, so nao anda. Preso e diferente de quebrado, e os dois parecem "esperando".
+        #
+        # r740: 80 CPUs a 41%, e o filesystem de imagens com 133 GB livres (medido). NAO usar o
+        # r770 — 19 GB livres la, e puxar camadas de build foi o que causou DiskPressure nele.
+        kubernetes.io/hostname: r740-proxmox
       tolerations:
         - key: sounio.dev/compute
           operator: Equal
@@ -52,7 +58,7 @@ spec:
           image: alpine/git:latest
           env:
             - name: BEAGLE_GIT_BRANCH
-              value: reconcile/unify-beagle
+              value: integration/instante-do-estado
           command:
             - /bin/sh
             - -lc
@@ -71,7 +77,7 @@ spec:
           args:
             - "--dockerfile=/workspace/apps/memory-pg/Dockerfile"
             - "--context=dir:///workspace"
-            - "--destination=192.168.3.207:5003/memory-pg-embed-worker:p9-a1429496"
+            - "--destination=192.168.3.207:5003/memory-pg-embed-worker:p39-particao-1d4052e9"
             - "--insecure-registry=192.168.3.207:5003"
             - "--cache=false"
             - "--snapshot-mode=redo"
