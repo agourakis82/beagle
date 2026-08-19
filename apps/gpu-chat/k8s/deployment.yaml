@@ -23,16 +23,14 @@ spec:
           type: Unconfined
       containers:
         - name: gpu-chat
-          # Placeholder tag — the deploy pipeline should pin a real image tag
-          # (matching the git-sha scheme other beagle apps use, e.g.
-          # project-cockpit:l2tune-503cbb6f) before this ships to prod.
-          image: 192.168.3.207:5003/gpu-chat:latest
+          image: 192.168.3.207:5003/gpu-chat:759b0558
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8090
               name: http
           env:
             - name: LITELLM_BASE_URL
-              value: http://litellm:4000
+              value: http://router.llm-router.svc.cluster.local:4000
           volumeMounts:
             - name: data
               mountPath: /app/data
