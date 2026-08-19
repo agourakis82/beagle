@@ -76,7 +76,9 @@ public enum AncoraTemporal: Equatable, Sendable {
         case .atras(let m):
             if m % 60 == 0 { return "há \(m / 60)h" }
             return "há \(m)min"
-        case .horario(let d): return Self.formatadorCurto.string(from: d)
+        case .horario(let d):
+            // Idem: `DateFormatter` estático não passa na concorrência estrita.
+            return d.formatted(.dateTime.hour().minute().locale(Locale(identifier: "pt_BR")))
         }
     }
 
@@ -92,13 +94,6 @@ public enum AncoraTemporal: Equatable, Sendable {
         case .horario(let d): return d
         }
     }
-
-    private static let formatadorCurto: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "pt_BR")
-        f.dateFormat = "HH:mm"
-        return f
-    }()
 
     /// Identificador estável para viajar no payload, ao lado do instante.
     ///
@@ -136,13 +131,14 @@ public struct InstanteDeclarado: Equatable, Sendable {
     }
 
     /// ISO 8601 com fuso — o servidor precisa do deslocamento, não de um horário solto.
-    public var instanteISO: String { Self.iso.string(from: instante) }
-
-    private static let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
+    ///
+    /// `FormatStyle` e não um `ISO8601DateFormatter` estático: sob Swift 6 com concorrência
+    /// estrita, o formatter estático **não compila** — `ISO8601DateFormatter` é uma classe
+    /// mutável e não-`Sendable`, e um estático compartilhado é data race de verdade, não
+    /// formalidade. Este projeto já tropeçou nisso antes (ver o conserto na Oficina).
+    ///
+    /// `.iso8601` produz `2026-08-19T16:33:33Z` — data, hora e fuso, que é o contrato.
+    public var instanteISO: String { instante.formatted(.iso8601) }
 
     /// Os campos do corpo JSON. Nomes casados com o que o cockpit repassa ao `capture_turn`.
     public var camposJSON: [String: String] {

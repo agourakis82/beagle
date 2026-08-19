@@ -704,7 +704,6 @@ public final class ConversationStore {
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
             voiceModel: voiceModel,
             deepThink: deepThink,
-            instanteDeclarado: instanteDeclarado,
             // Presence: written to the presence LAYER, not to the message slot — so the
             // on-device quickAck (which owns that slot) always wins, by construction, and
             // no server-authored sentence can ever be mistaken for his voice.
@@ -725,7 +724,10 @@ public final class ConversationStore {
                         self.presenceNote = text.isEmpty ? "estou com você…" : text + "…"
                     }
                 }
-            }
+            },
+            // A ordem segue a DECLARACAO em `chatStream`, onde `instanteDeclarado`
+            // vem depois de `onPhase`. Swift exige, e foi o erro que este build pegou.
+            instanteDeclarado: instanteDeclarado
         )
 
         var streamedText = ""

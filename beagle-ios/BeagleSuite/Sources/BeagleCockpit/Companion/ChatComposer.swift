@@ -674,3 +674,62 @@ private struct ComposerGlass: ViewModifier {
         }
     }
 }
+
+// MARK: - Seletor de instante
+
+// Mora AQUI, e não em arquivo próprio, por uma razão do projeto e não de estilo: o alvo
+// `BeagleCockpit` vem do `.xcodeproj`, que lista os arquivos EXPLICITAMENTE (zero
+// `PBXFileSystemSynchronizedRootGroup`). Um `.swift` novo no disco não entra no build — o
+// compilador acusou `cannot find 'SeletorDeInstante' in scope` com o arquivo ali, presente.
+//
+// Editar o `pbxproj` por script é justamente o que já custou caro nesta base. Como é uma view
+// auxiliar da tela que a usa, ficar no mesmo arquivo resolve sem tocar no projeto. Se um dia ela
+// crescer, o caminho certo é adicioná-la ao target pelo Xcode — não por edição de texto.
+
+struct SeletorDeInstante: View {
+    @Binding var hora: Date
+    var aoConfirmar: (Date) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    /// Ontem, mesma hora. Ver a nota de topo sobre por que não é mais que isso.
+    private var minimo: Date { Date().addingTimeInterval(-36 * 3600) }
+    private var maximo: Date { Date() }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: BeagleSpacing.md) {
+                DatePicker(
+                    "Quando o estado aconteceu",
+                    selection: $hora,
+                    in: minimo...maximo,
+                    displayedComponents: [.date, .hourAndMinute]
+                )
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+
+                Text("Isto grava o instante do ESTADO, não o da mensagem.")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.55))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, BeagleSpacing.md)
+
+                Spacer()
+            }
+            .padding(.top, BeagleSpacing.md)
+            .navigationTitle("Quando foi")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Usar") {
+                        aoConfirmar(hora)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
