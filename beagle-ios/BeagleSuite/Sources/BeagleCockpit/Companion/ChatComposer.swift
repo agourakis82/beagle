@@ -233,19 +233,13 @@ struct ChatComposer: View {
             // esta em `faladoPendente`. Usar so `trimmed` faria a ancora de sono sumir
             // justamente no caminho que ele mais usa, que e falar.
             if RelatoDeEstado.pareceSono(faladoPendente ?? trimmed) {
-                Button("Ontem à noite…") {
-                    horaEscolhida = Self.pontoDePartidaNoite()
-                    mostrandoSeletor = true
-                }
-                Button("Ao acordar…") {
-                    horaEscolhida = Self.pontoDePartidaAoAcordar()
-                    mostrandoSeletor = true
-                }
+                Button("Ontem à noite…") { abrirSeletor(em: Self.pontoDePartidaNoite()) }
+                Button("Ao acordar…") { abrirSeletor(em: Self.pontoDePartidaAoAcordar()) }
             }
             ForEach(AncoraTemporal.rapidas, id: \.chave) { op in
                 Button(op.rotulo) { declararEEnviar(op) }
             }
-            Button("Escolher hora…") { mostrandoSeletor = true }
+            Button("Escolher hora…") { abrirSeletor(em: horaEscolhida) }
             // Sem escapatória silenciosa: `cancel` volta ao texto, não envia sem instante. Um
             // botão "enviar assim mesmo" reabriria exatamente o buraco que isto fecha, e seria
             // o caminho de menor esforço em todo relato.
@@ -257,7 +251,13 @@ struct ChatComposer: View {
         } message: {
             Text("O confronto com o corpo usa esse instante — não o da mensagem.")
         }
-        .sheet(isPresented: $mostrandoSeletor) {
+        // `onDismiss` fecha o outro caminho de estado preso: se ele CANCELAR o seletor, sem
+        // isto `perguntandoInstante` fica `true` para sempre e o texto falado some — a tela
+        // parece funcionar e o turno nunca sai. Recuar tem que devolver o controle, sempre.
+        .sheet(isPresented: $mostrandoSeletor, onDismiss: {
+            perguntandoInstante = false
+            if let falado = faladoPendente { text = falado; faladoPendente = nil }
+        }) {
             SeletorDeInstante(hora: $horaEscolhida) { escolhida in
                 // Se o seletor foi aberto pelo gate do envio, declarar já envia — mesmo gesto.
                 // Se foi aberto pelo relógio, só marca a âncora e devolve o controle.
@@ -570,6 +570,23 @@ struct ChatComposer: View {
     }
 
     /// Declara e envia no mesmo gesto.
+    /// Abre o seletor DEPOIS que o diálogo fechou.
+    ///
+    /// 🚨 Apresentar a `sheet` no mesmo ciclo em que o `confirmationDialog` se fecha faz o
+    /// SwiftUI engolir a apresentação: o diálogo some, o seletor NÃO abre, e a mensagem fica
+    /// presa sem erro nenhum na tela. Foi o que aconteceu com o primeiro relato de sono — o
+    /// texto nunca saiu do aparelho, e do lado do servidor só chegaram as mensagens de teste
+    /// que vieram depois.
+    ///
+    /// Este arquivo já tinha o aviso: o `ChatScreen` usa UM sheet dirigido por enum
+    /// "para evitar o conflito de múltiplos `.sheet` do SwiftUI, que quebrou silenciosamente a
+    /// gaveta de histórico". Silenciosamente é a palavra: nada acusa.
+    private func abrirSeletor(em partida: Date) {
+        horaEscolhida = partida
+        // Um ciclo de execução depois — tempo de o diálogo terminar de sair de cena.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { mostrandoSeletor = true }
+    }
+
     /// Ponto de partida para "ontem à noite": 23h de ontem.
     ///
     /// É PONTO DE PARTIDA do seletor, não valor gravado. A diferença é a coisa toda: gravar 23h
