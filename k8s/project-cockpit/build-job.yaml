@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: project-cockpit-build
+  name: project-cockpit-build-instante
   namespace: beagle
 spec:
   backoffLimit: 0
@@ -9,7 +9,12 @@ spec:
   template:
     spec:
       nodeSelector:
-        sounio.dev/runtime-role: infra-control
+        # 20-ago-2026: era `sounio.dev/runtime-role: infra-control`, que resolve para o t560 —
+        # o SPOF do cluster, que saturou por memoria em 18-ago (169/188 GB, swap 0, load 60).
+        # Build de Next.js (npm install + build) ali e exatamente a carga que o derruba.
+        #
+        # r740: 80 CPUs a 41%, 133 GB livres no filesystem de imagens. NAO usar o r770 (19 GB).
+        kubernetes.io/hostname: r740-proxmox
       securityContext:
         seccompProfile:
           type: Unconfined
@@ -38,9 +43,9 @@ spec:
           image: alpine/git:latest
           env:
             - name: BEAGLE_GIT_BRANCH
-              value: reconcile/unify-beagle
+              value: integration/instante-do-estado
             - name: BEAGLE_GIT_REF
-              value: "00b19561"
+              value: "64340e24"
           command:
             - /bin/sh
             - -lc
@@ -53,7 +58,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: evidencia-00b19561
+              value: instante-64340e24
           args:
             - "--dockerfile=/workspace/apps/project-cockpit/Dockerfile"
             - "--context=dir:///workspace"
