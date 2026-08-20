@@ -98,6 +98,24 @@ public enum RelatoDeEstado {
         texto.range(of: "\\b" + padrao + "\\b", options: [.regularExpression]) != nil
     }
 
+    /// Marcadores do canal `sleep`. Relato de sono é RETROSPECTIVO por natureza — o estado
+    /// aconteceu na noite anterior, nunca no instante da fala.
+    ///
+    /// Isto existe por um veredito real: "Dormi sim, estava cansado ontem" foi declarado com a
+    /// âncora "agora" (11h10 da manhã, o padrão mais fácil de tocar), o join perguntou ao corpo
+    /// naquela janela e achou `n_samples = 0` — às 11h ele estava acordado. O veredito saiu
+    /// INELEGIVEL por falta de medida, com o instante tecnicamente honesto e semanticamente
+    /// errado.
+    ///
+    /// O defeito era da INTERFACE: as âncoras rápidas cobriam só o presente, e deixavam a saída
+    /// errada mais acessível que a certa.
+    public static func pareceSono(_ texto: String) -> Bool {
+        let t = normaliza(texto)
+        let doSono = ["dormi", "dormindo", "sono", "insonia", "acordei", "madrugada",
+                      "sonolent\\w*", "noite", "cochil\\w*"]
+        return doSono.contains { contemPalavra(t, $0) }
+    }
+
     /// Vale a pena perguntar QUANDO este texto aconteceu?
     public static func pareceRelato(_ texto: String) -> Bool {
         let t = normaliza(texto)

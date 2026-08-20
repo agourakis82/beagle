@@ -222,6 +222,26 @@ struct ChatComposer: View {
         // e "um formulário" é a diferença entre ele usar e não usar.
         .confirmationDialog("Quando esse estado aconteceu?",
                             isPresented: $perguntandoInstante, titleVisibility: .visible) {
+            // Relato de SONO e retrospectivo: o estado foi na noite anterior, nunca agora. Estas
+            // opcoes aparecem PRIMEIRO nesse caso, porque a ordem do menu decide o que se toca.
+            //
+            // Elas NAO gravam uma hora convencionada — abrem o seletor POSICIONADO. Mapear
+            // "ontem a noite" para 23:00 direto seria imputacao com outro nome, exatamente o que
+            // a `direcao-v2` declarou ineleg~ivel. O atalho faz o trabalho pesado; a hora final
+            // continua sendo declaracao dele, confirmada num toque.
+            // O texto avaliado tem que ser o do TURNO, e o turno falado nao esta em `text` —
+            // esta em `faladoPendente`. Usar so `trimmed` faria a ancora de sono sumir
+            // justamente no caminho que ele mais usa, que e falar.
+            if RelatoDeEstado.pareceSono(faladoPendente ?? trimmed) {
+                Button("Ontem à noite…") {
+                    horaEscolhida = Self.pontoDePartidaNoite()
+                    mostrandoSeletor = true
+                }
+                Button("Ao acordar…") {
+                    horaEscolhida = Self.pontoDePartidaAoAcordar()
+                    mostrandoSeletor = true
+                }
+            }
             ForEach(AncoraTemporal.rapidas, id: \.chave) { op in
                 Button(op.rotulo) { declararEEnviar(op) }
             }
@@ -550,6 +570,26 @@ struct ChatComposer: View {
     }
 
     /// Declara e envia no mesmo gesto.
+    /// Ponto de partida para "ontem à noite": 23h de ontem.
+    ///
+    /// É PONTO DE PARTIDA do seletor, não valor gravado. A diferença é a coisa toda: gravar 23h
+    /// porque ele tocou um botão chamado "ontem à noite" seria convenção disfarçada de
+    /// declaração. Ele vê a hora, ajusta se quiser, e confirma — aí é dele.
+    static func pontoDePartidaNoite(agora: Date = Date(), calendario: Calendar = .current) -> Date {
+        let ontem = calendario.date(byAdding: .day, value: -1, to: agora) ?? agora
+        return calendario.date(bySettingHour: 23, minute: 0, second: 0, of: ontem) ?? ontem
+    }
+
+    /// Ponto de partida para "ao acordar": 7h de hoje. Mesma regra — ele confirma.
+    ///
+    /// ⚠️ Deliberadamente NÃO lê o HealthKit, que sabe a hora exata em que ele acordou. Datar o
+    /// relato pela fisiologia e depois confrontar esse relato com a fisiologia destrói a
+    /// independência entre as modalidades — que é a tese inteira da Fase 2. A medida não pode
+    /// fornecer o eixo do tempo do que ela vai testar.
+    static func pontoDePartidaAoAcordar(agora: Date = Date(), calendario: Calendar = .current) -> Date {
+        calendario.date(bySettingHour: 7, minute: 0, second: 0, of: agora) ?? agora
+    }
+
     private func declararEEnviar(_ escolhida: AncoraTemporal) {
         ancora = escolhida
         sendHaptic &+= 1

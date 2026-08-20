@@ -102,3 +102,21 @@ import Foundation
     #expect(RelatoDeEstado.pareceRelato("dormi mal"))            // sleep
     #expect(RelatoDeEstado.pareceRelato("estou de plantao"))     // oncall
 }
+
+@Test func relatoDeSONO_eReconhecido() {
+    // Relato de sono e RETROSPECTIVO: o estado foi na noite anterior, nunca no instante da fala.
+    // Isto existe por um veredito real — "Dormi sim, estava cansado ontem" foi declarado com a
+    // ancora "agora" (11h10 da manha, o padrao mais facil de tocar), o join perguntou ao corpo
+    // naquela janela e achou n_samples = 0: as 11h ele estava acordado. INELEGIVEL por falta de
+    // medida, com o instante tecnicamente honesto e semanticamente errado.
+    #expect(RelatoDeEstado.pareceSono("Dormi sim, estava cansado ontem"))
+    #expect(RelatoDeEstado.pareceSono("acordei com o peito apertado"))
+    #expect(RelatoDeEstado.pareceSono("não consegui dormir, insônia de novo"))
+    #expect(RelatoDeEstado.pareceSono("passei a madrugada acordado"))
+}
+
+@Test func oQueNAOeSonoNaoGanhaAncoraDeNoite() {
+    // Oferecer "ontem a noite" num relato de dor de agora seria empurrar a hora errada.
+    #expect(!RelatoDeEstado.pareceSono("estou com dor de cabeça"))
+    #expect(!RelatoDeEstado.pareceSono("estou ansioso com o compilador"))
+}
