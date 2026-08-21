@@ -183,6 +183,7 @@ struct ChatComposer: View {
             avisoDeVoz
             if attachedData != nil { attachmentChip }
             if ancora != nil { ancoraChip }
+            if perguntandoInstante { perguntaDeInstante }
 
             HStack(alignment: .bottom, spacing: BeagleSpacing.xs) {
                 // Depth gear — Rápido / Pensar / Fundo. Lives in the composer edge (Kimi/MiniMax
@@ -216,44 +217,10 @@ struct ChatComposer: View {
         .padding(.vertical, BeagleSpacing.xs)
         .padding(.horizontal, BeagleSpacing.sm)
         .modifier(ComposerGlass(reduceTransparency: reduceTransparency))
-        // `confirmationDialog` e não `sheet`: as opções aparecem na borda inferior, ao alcance do
-        // polegar e sobre a conversa, sem cobrir o que ele acabou de escrever. Uma folha inteira
-        // para uma pergunta de uma linha pareceria um formulário, e a diferença entre "um toque"
-        // e "um formulário" é a diferença entre ele usar e não usar.
-        .confirmationDialog("Quando esse estado aconteceu?",
-                            isPresented: $perguntandoInstante, titleVisibility: .visible) {
-            // Relato de SONO e retrospectivo: o estado foi na noite anterior, nunca agora. Estas
-            // opcoes aparecem PRIMEIRO nesse caso, porque a ordem do menu decide o que se toca.
-            //
-            // Elas NAO gravam uma hora convencionada — abrem o seletor POSICIONADO. Mapear
-            // "ontem a noite" para 23:00 direto seria imputacao com outro nome, exatamente o que
-            // a `direcao-v2` declarou ineleg~ivel. O atalho faz o trabalho pesado; a hora final
-            // continua sendo declaracao dele, confirmada num toque.
-            // O texto avaliado tem que ser o do TURNO, e o turno falado nao esta em `text` —
-            // esta em `faladoPendente`. Usar so `trimmed` faria a ancora de sono sumir
-            // justamente no caminho que ele mais usa, que e falar.
-            if RelatoDeEstado.pareceSono(faladoPendente ?? trimmed) {
-                Button("Ontem à noite…") { abrirSeletor(em: Self.pontoDePartidaNoite()) }
-                Button("Ao acordar…") { abrirSeletor(em: Self.pontoDePartidaAoAcordar()) }
-            }
-            ForEach(AncoraTemporal.rapidas, id: \.chave) { op in
-                Button(op.rotulo) { declararEEnviar(op) }
-            }
-            Button("Escolher hora…") { abrirSeletor(em: horaEscolhida) }
-            // Sem escapatória silenciosa: `cancel` volta ao texto, não envia sem instante. Um
-            // botão "enviar assim mesmo" reabriria exatamente o buraco que isto fecha, e seria
-            // o caminho de menor esforço em todo relato.
-            Button("Voltar", role: .cancel) {
-                // O falado volta para o campo em vez de sumir: ele acabou de DIZER aquilo, e
-                // perder o texto por ter recuado da pergunta seria pior que a pergunta.
-                if let falado = faladoPendente { text = falado; faladoPendente = nil }
-            }
-        } message: {
-            Text("O confronto com o corpo usa esse instante — não o da mensagem.")
-        }
-        // `onDismiss` fecha o outro caminho de estado preso: se ele CANCELAR o seletor, sem
-        // isto `perguntandoInstante` fica `true` para sempre e o texto falado some — a tela
-        // parece funcionar e o turno nunca sai. Recuar tem que devolver o controle, sempre.
+        // Este sheet e o SELETOR DE HORA, o unico modal que sobrou — e so abre por toque
+        // explicito em "Escolher hora…" / "Ontem a noite…", nunca no caminho comum. A pergunta
+        // de quando virou chip inline justamente porque apresentacao modal a partir desta barra
+        // flutuante se provou nao-confiavel aqui.
         .sheet(isPresented: $mostrandoSeletor, onDismiss: {
             perguntandoInstante = false
             if let falado = faladoPendente { text = falado; faladoPendente = nil }
@@ -651,6 +618,70 @@ struct ChatComposer: View {
                 ? "Declarar quando o estado aconteceu"
                 : "Estado declarado \(ancora?.rotulo ?? ""), tocar para mudar")
         }
+    }
+
+    /// A pergunta "quando foi isso?", INLINE — sem modal nenhum.
+    ///
+    /// 🚨 Era um `confirmationDialog`, e ele NÃO APARECIA. Diagnosticado pelo banco em
+    /// 21-ago-2026: em seis horas, os 88 destilados ancoravam em três registros antigos
+    /// ("Está me ouvindo?" 79 vezes, "quem sou eu…", "Bom dia") — as mensagens de teste, que não
+    /// são relato de estado e passam direto. Nenhum relato de sono saiu do aparelho em três
+    /// tentativas, e nada na tela acusou.
+    ///
+    /// Apresentação modal a partir desta barra flutuante é frágil por natureza: já engoliu a
+    /// gaveta de histórico (ver o comentário do sheet único em `ChatScreen`) e engoliu isto.
+    /// Chips inline não apresentam nada — aparecem no lugar, no fluxo, e não há o que o SwiftUI
+    /// possa recusar.
+    ///
+    /// Sem escapatória: não há "enviar assim mesmo". Só "Voltar", que devolve o texto.
+    private var perguntaDeInstante: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            Text("Quando esse estado aconteceu?")
+                .font(BeagleFont.caption2.font.weight(.semibold))
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.75))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    // Relato de sono é retrospectivo: estas vêm PRIMEIRO, e a ordem decide o
+                    // que se toca. Elas posicionam o seletor; a hora final é declarada por ele.
+                    if RelatoDeEstado.pareceSono(faladoPendente ?? trimmed) {
+                        chip("Ontem à noite…") { abrirSeletor(em: Self.pontoDePartidaNoite()) }
+                        chip("Ao acordar…") { abrirSeletor(em: Self.pontoDePartidaAoAcordar()) }
+                    }
+                    ForEach(AncoraTemporal.rapidas, id: \.chave) { op in
+                        chip(op.rotulo) { declararEEnviar(op) }
+                    }
+                    chip("Escolher hora…") { abrirSeletor(em: horaEscolhida) }
+                    chip("Voltar", suave: true) {
+                        perguntandoInstante = false
+                        if let falado = faladoPendente { text = falado; faladoPendente = nil }
+                    }
+                }
+                .padding(.horizontal, BeagleSpacing.xxs)
+            }
+
+            Text("O confronto com o corpo usa esse instante — não o da mensagem.")
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(0.5))
+        }
+        .padding(.horizontal, BeagleSpacing.xs)
+        .padding(.vertical, BeagleSpacing.xxs)
+        .transition(.opacity)
+    }
+
+    private func chip(_ rotulo: String, suave: Bool = false, acao: @escaping () -> Void) -> some View {
+        Button(action: acao) {
+            Text(rotulo)
+                .font(BeagleFont.caption2.font)
+                .foregroundStyle(BeagleTheme.companionInk.opacity(suave ? 0.55 : 0.9))
+                .padding(.horizontal, BeagleSpacing.sm)
+                .padding(.vertical, BeagleSpacing.xs)
+                .background(Capsule().fill(BeagleTheme.companionInk.opacity(suave ? 0.06 : 0.12)))
+                // Sem isto a área de toque é só o glifo — o defeito que já deixou um botão
+                // morto nesta tela.
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     /// O chip existe para que a declaração seja VISÍVEL antes de enviar. Uma âncora escolhida e
