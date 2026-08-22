@@ -14,6 +14,8 @@ export interface Message {
   content: string
   model: string | null
   truncated: number
+  chairman_group_id: string | null
+  is_synthesis: number
   created_at: string
 }
 
@@ -31,6 +33,17 @@ export interface PromptTemplate {
   name: string
   system_prompt: string
   created_at: string
+}
+
+export function migrateChairmanColumns(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(messages)").all() as Array<{ name: string }>
+  const names = new Set(columns.map((c) => c.name))
+  if (!names.has('chairman_group_id')) {
+    db.exec('ALTER TABLE messages ADD COLUMN chairman_group_id TEXT')
+  }
+  if (!names.has('is_synthesis')) {
+    db.exec('ALTER TABLE messages ADD COLUMN is_synthesis INTEGER NOT NULL DEFAULT 0')
+  }
 }
 
 export function openDb(path: string): Database.Database {
@@ -67,6 +80,7 @@ export function openDb(path: string): Database.Database {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `)
+  migrateChairmanColumns(db)
   return db
 }
 
@@ -94,10 +108,14 @@ export function addMessage(
   content: string,
   model: string | null,
   truncated = false,
+  chairmanGroupId: string | null = null,
+  isSynthesis = false,
 ): Message {
   const info = db
-    .prepare('INSERT INTO messages (conversation_id, role, content, model, truncated) VALUES (?, ?, ?, ?, ?)')
-    .run(conversationId, role, content, model, truncated ? 1 : 0)
+    .prepare(
+      'INSERT INTO messages (conversation_id, role, content, model, truncated, chairman_group_id, is_synthesis) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    )
+    .run(conversationId, role, content, model, truncated ? 1 : 0, chairmanGroupId, isSynthesis ? 1 : 0)
   return db.prepare('SELECT * FROM messages WHERE id = ?').get(info.lastInsertRowid) as Message
 }
 

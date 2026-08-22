@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import Database from 'better-sqlite3'
 import {
   openDb, createConversation, listConversations, getConversation,
-  addMessage, listMessages, addAttachment, createTemplate, listTemplates, deleteTemplate,
+  addMessage, listMessages, addAttachment, createTemplate, listTemplates, deleteTemplate, migrateChairmanColumns,
 } from './db.js'
 
 let db: Database.Database
@@ -58,5 +58,48 @@ describe('prompt templates', () => {
     expect(listTemplates(db)).toHaveLength(1)
     deleteTemplate(db, t.id)
     expect(listTemplates(db)).toHaveLength(0)
+  })
+})
+
+describe('grouped (chairman) messages', () => {
+  it('re-running openDb on an existing database does not error (idempotent migration)', () => {
+    const db1 = openDb(':memory:')
+    expect(() => openDb(':memory:')).not.toThrow()
+    db1.close()
+  })
+
+  it('calling migrateChairmanColumns twice on the same handle does not error', () => {
+    const db1 = openDb(':memory:')
+    expect(() => migrateChairmanColumns(db1)).not.toThrow()
+    db1.close()
+  })
+
+  it('stores and retrieves chairman_group_id and is_synthesis on a message', () => {
+    const db1 = openDb(':memory:')
+    const conv = createConversation(db1, 'Chairman test', 'qwen2.5-14b')
+    const groupId = 'group-123'
+    addMessage(db1, conv.id, 'user', 'prompt', null)
+    addMessage(db1, conv.id, 'assistant', 'participant reply', 'qwen2.5-7b', false, groupId, false)
+    addMessage(db1, conv.id, 'assistant', 'synthesis', 'qwen2.5-14b', false, groupId, true)
+
+    const messages = listMessages(db1, conv.id)
+    const participant = messages.find((m) => m.model === 'qwen2.5-7b')
+    const synthesis = messages.find((m) => m.is_synthesis === 1)
+
+    expect(participant?.chairman_group_id).toBe(groupId)
+    expect(participant?.is_synthesis).toBe(0)
+    expect(synthesis?.chairman_group_id).toBe(groupId)
+    expect(synthesis?.model).toBe('qwen2.5-14b')
+    db1.close()
+  })
+
+  it('existing non-grouped messages have null chairman_group_id and is_synthesis 0', () => {
+    const db1 = openDb(':memory:')
+    const conv = createConversation(db1, 'Plain thread', 'qwen2.5-14b')
+    addMessage(db1, conv.id, 'user', 'hi', null)
+    const [message] = listMessages(db1, conv.id)
+    expect(message.chairman_group_id).toBeNull()
+    expect(message.is_synthesis).toBe(0)
+    db1.close()
   })
 })
