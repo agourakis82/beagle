@@ -4,7 +4,8 @@ import {
   createConversation, listConversations, getConversation,
   addMessage, listMessages, addAttachment, listAttachments, updateConversationModel,
 } from '../db.js'
-import { streamChatCompletion, ChatMessage } from '../litellm-client.js'
+import { chatCompletion, ChatMessage } from '../litellm-client.js'
+import { toolDefinitions, findTool } from '../tools/index.js'
 
 interface AttachmentInput {
   filename: string
@@ -72,20 +73,62 @@ export function registerChatRoutes(app: FastifyInstance, db: Database.Database, 
       Connection: 'keep-alive',
     })
 
-    let assembled = ''
+    const MAX_TOOL_ROUNDS = 3
+    let workingMessages: ChatMessage[] = [...chatMessages]
+    let finalContent = ''
     let truncated = false
     let errorMessage: string | undefined
+
     try {
-      for await (const token of streamChatCompletion(litellmBaseUrl, conversation.model, chatMessages)) {
-        assembled += token
-        reply.raw.write(`data: ${JSON.stringify(token)}\n\n`)
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const result = await chatCompletion(litellmBaseUrl, conversation.model, workingMessages, toolDefinitions())
+
+        if (result.finish_reason !== 'tool_calls' || !result.tool_calls?.length) {
+          finalContent = result.content
+          break
+        }
+
+        workingMessages.push({ role: 'assistant', content: result.content, tool_calls: result.tool_calls })
+
+        for (const call of result.tool_calls) {
+          reply.raw.write(
+            `event: tool_call\ndata: ${JSON.stringify({ name: call.function.name, arguments: call.function.arguments })}\n\n`,
+          )
+          const tool = findTool(call.function.name)
+          let toolResultText: string
+          if (!tool) {
+            toolResultText = `Error: unknown tool ${call.function.name}`
+          } else {
+            try {
+              const args = JSON.parse(call.function.arguments || '{}')
+              toolResultText = tool.execute(args)
+            } catch (err) {
+              toolResultText = `Error: ${(err as Error).message}`
+            }
+          }
+          reply.raw.write(
+            `event: tool_result\ndata: ${JSON.stringify({ name: call.function.name, result: toolResultText })}\n\n`,
+          )
+          workingMessages.push({ role: 'tool', tool_call_id: call.id, content: toolResultText })
+        }
+
+        if (round === MAX_TOOL_ROUNDS - 1) {
+          // Still wants tools after the last tools-enabled round — force a
+          // final, tool-free answer so the loop always terminates.
+          const forced = await chatCompletion(litellmBaseUrl, conversation.model, workingMessages)
+          finalContent = forced.content
+        }
       }
     } catch (err) {
       truncated = true
       errorMessage = (err as Error).message
     }
 
-    addMessage(db, conversationId, 'assistant', assembled, conversation.model, truncated)
+    // Only the original user message (already persisted above) and this final
+    // answer are saved — the tool-call/tool-result exchange is ephemeral
+    // orchestration state, not part of the persisted conversation history.
+    addMessage(db, conversationId, 'assistant', finalContent, conversation.model, truncated)
+    reply.raw.write(`data: ${JSON.stringify(finalContent)}\n\n`)
     if (errorMessage) {
       reply.raw.write(`event: error\ndata: ${JSON.stringify(errorMessage)}\n\n`)
     }
