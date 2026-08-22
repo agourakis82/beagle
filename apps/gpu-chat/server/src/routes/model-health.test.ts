@@ -34,4 +34,28 @@ describe('GET /api/models/health', () => {
 
     expect(probeSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('never runs more than 5 probes concurrently, even with many models', async () => {
+    const modelCount = 20
+    vi.spyOn(litellmClient, 'listModels').mockResolvedValue(
+      Array.from({ length: modelCount }, (_, i) => ({ id: `model-${i}` })),
+    )
+
+    let inFlight = 0
+    let maxInFlight = 0
+    vi.spyOn(litellmClient, 'probeModelHealth').mockImplementation(async () => {
+      inFlight += 1
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      inFlight -= 1
+      return true
+    })
+
+    const app = buildApp({ dbPath: ':memory:', litellmBaseUrl: 'http://unused:4000' })
+    const res = await app.inject({ method: 'GET', url: '/api/models/health' })
+
+    expect(res.statusCode).toBe(200)
+    expect(Object.keys(res.json())).toHaveLength(modelCount)
+    expect(maxInFlight).toBeLessThanOrEqual(5)
+  })
 })

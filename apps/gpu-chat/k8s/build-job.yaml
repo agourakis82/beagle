@@ -1,0 +1,66 @@
+# Kaniko build for the gpu-chat image. Run with:
+#   kubectl delete job gpu-chat-build -n beagle --ignore-not-found
+#   kubectl apply -f apps/gpu-chat/k8s/build-job.yaml
+# Then poll the registry tag (NOT the Job — TTL deletes it): 192.168.3.207:5003/v2/gpu-chat/tags/list
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gpu-chat-build
+  namespace: beagle
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      restartPolicy: Never
+      initContainers:
+        - name: clone
+          image: alpine/git:latest
+          env:
+            - name: BEAGLE_GIT_REF
+              value: "931aef0f"
+          command:
+            - /bin/sh
+            - -lc
+            - git clone --depth=50 --branch=reconcile/unify-beagle https://github.com/agourakis82/beagle.git /workspace && cd /workspace && git checkout "$BEAGLE_GIT_REF"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests: { memory: 256Mi }
+            limits: { memory: 512Mi }
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          env:
+            - name: BEAGLE_IMAGE_TAG
+              value: "931aef0f"
+          args:
+            - "--dockerfile=/workspace/apps/gpu-chat/Dockerfile"
+            - "--context=dir:///workspace/apps/gpu-chat"
+            - "--destination=192.168.3.207:5003/gpu-chat:$(BEAGLE_IMAGE_TAG)"
+            - "--insecure-registry=192.168.3.207:5003"
+            - "--cache=false"
+            - "--snapshot-mode=redo"
+            - "--verbosity=info"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests: { cpu: "1", memory: 2Gi, ephemeral-storage: 4Gi }
+            limits: { cpu: "4", memory: 6Gi, ephemeral-storage: 10Gi }
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 4Gi
