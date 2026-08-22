@@ -16,6 +16,35 @@ export async function listModels(baseUrl: string): Promise<ModelInfo[]> {
   return body.data
 }
 
+/**
+ * Cheap per-model liveness probe. Several models in this cluster's LiteLLM
+ * config point at scale-to-0 GPU deployments (shared RTX8000 slot, manual
+ * switch script) — they stay listed in /v1/models forever even when no
+ * pod is backing them, which previously meant picking one of those model
+ * names from a client's model picker just hung the request indefinitely.
+ * A short, aborted completion request is the only reliable signal LiteLLM
+ * exposes short of its own /health endpoint, which probes every configured
+ * deployment sequentially with a long timeout and is too slow to call on
+ * every model-list load.
+ */
+export async function probeModelHealth(baseUrl: string, model: string, timeoutMs = 4000): Promise<boolean> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
+      signal: controller.signal,
+    })
+    return res.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export async function* streamChatCompletion(
   baseUrl: string,
   model: string,
