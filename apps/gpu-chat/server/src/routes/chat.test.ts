@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { buildApp } from '../app.js'
 import * as litellmClient from '../litellm-client.js'
-import * as toolsRegistry from '../tools/index.js'
 
 afterEach(() => vi.restoreAllMocks())
 
