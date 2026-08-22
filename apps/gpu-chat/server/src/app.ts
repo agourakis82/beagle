@@ -6,6 +6,7 @@ import { registerModelsRoute } from './routes/models.js'
 import { registerTemplatesRoutes } from './routes/templates.js'
 import { registerChatRoutes } from './routes/chat.js'
 import { registerCompareRoutes } from './routes/compare.js'
+import { registerChairmanRoutes } from './routes/chairman.js'
 
 export interface AppConfig {
   dbPath: string
@@ -22,6 +23,7 @@ export function buildApp(config: AppConfig): FastifyInstance {
   registerTemplatesRoutes(app, db)
   registerChatRoutes(app, db, config.litellmBaseUrl)
   registerCompareRoutes(app, db, config.litellmBaseUrl)
+  registerChairmanRoutes(app, db, config.litellmBaseUrl)
 
   if (config.webDistPath && existsSync(config.webDistPath)) {
     app.register(fastifyStatic, { root: config.webDistPath })
