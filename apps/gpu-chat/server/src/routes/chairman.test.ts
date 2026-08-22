@@ -103,6 +103,38 @@ describe('POST /api/conversations/:id/chairman-messages', () => {
     expect(synthesisMsg).toBeUndefined()
   })
 
+  it('returns 400 and never calls streamChatCompletion when participantModels is empty', async () => {
+    const streamSpy = vi.spyOn(litellmClient, 'streamChatCompletion')
+
+    const app = buildApp({ dbPath: ':memory:', litellmBaseUrl: 'http://unused:4000' })
+    const conv = await createConversation(app, 'Bad request', 'qwen2.5-32b')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${conv.id}/chairman-messages`,
+      payload: { prompt: 'p', participantModels: [], chairmanModel: 'qwen2.5-32b' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(streamSpy).not.toHaveBeenCalled()
+  })
+
+  it('returns 400 and never calls streamChatCompletion when chairmanModel is missing', async () => {
+    const streamSpy = vi.spyOn(litellmClient, 'streamChatCompletion')
+
+    const app = buildApp({ dbPath: ':memory:', litellmBaseUrl: 'http://unused:4000' })
+    const conv = await createConversation(app, 'Bad request 2', 'qwen2.5-32b')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/conversations/${conv.id}/chairman-messages`,
+      payload: { prompt: 'p', participantModels: ['qwen2.5-7b'] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(streamSpy).not.toHaveBeenCalled()
+  })
+
   it('returns 404 for an unknown conversation', async () => {
     const app = buildApp({ dbPath: ':memory:', litellmBaseUrl: 'http://unused:4000' })
     const res = await app.inject({

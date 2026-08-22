@@ -17,6 +17,12 @@ export function registerChairmanRoutes(app: FastifyInstance, db: Database.Databa
     }
 
     const { prompt, participantModels, chairmanModel } = req.body
+
+    if (!Array.isArray(participantModels) || participantModels.length === 0 || typeof chairmanModel !== 'string' || !chairmanModel) {
+      reply.code(400)
+      return { error: 'participantModels must be a non-empty array and chairmanModel must be a non-empty string' }
+    }
+
     addMessage(db, conversationId, 'user', prompt, null)
 
     reply.raw.writeHead(200, {
