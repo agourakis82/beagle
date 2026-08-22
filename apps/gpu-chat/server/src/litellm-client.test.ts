@@ -1,12 +1,13 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createServer, Server } from 'node:http'
-import { listModels, streamChatCompletion } from './litellm-client.js'
+import { listModels, streamChatCompletion, chatCompletion } from './litellm-client.js'
 
 let server: Server
 let baseUrl: string
 
 afterEach(() => {
   server?.close()
+  vi.restoreAllMocks()
 })
 
 function startMockLiteLLM(handler: Parameters<typeof createServer>[0]) {
@@ -64,5 +65,55 @@ describe('streamChatCompletion', () => {
         // drain
       }
     }).rejects.toThrow(/500/)
+  })
+})
+
+describe('chatCompletion', () => {
+  it('returns content and finish_reason for a plain text response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: 'hello', tool_calls: undefined }, finish_reason: 'stop' }],
+      }),
+    }) as unknown as typeof fetch
+
+    const result = await chatCompletion('http://unused:4000', 'chat-fast', [{ role: 'user', content: 'hi' }])
+    expect(result).toEqual({ content: 'hello', finish_reason: 'stop', tool_calls: undefined })
+  })
+
+  it('returns tool_calls when finish_reason is tool_calls', async () => {
+    const toolCalls = [{ id: 'call_1', type: 'function', function: { name: 'calculate', arguments: '{"expression":"2+2"}' } }]
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '', tool_calls: toolCalls }, finish_reason: 'tool_calls' }],
+      }),
+    }) as unknown as typeof fetch
+
+    const result = await chatCompletion('http://unused:4000', 'chat-fast', [{ role: 'user', content: 'what is 2+2' }])
+    expect(result.finish_reason).toBe('tool_calls')
+    expect(result.tool_calls).toEqual(toolCalls)
+  })
+
+  it('throws on a non-ok response', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 }) as unknown as typeof fetch
+    await expect(chatCompletion('http://unused:4000', 'chat-fast', [{ role: 'user', content: 'hi' }])).rejects.toThrow(
+      'LiteLLM chat completion failed: 500',
+    )
+  })
+
+  it('sends the tools array in the request body when provided', async () => {
+    let capturedBody: string | undefined
+    globalThis.fetch = vi.fn().mockImplementation(async (_url, init) => {
+      capturedBody = init.body as string
+      return { ok: true, json: async () => ({ choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] }) }
+    }) as unknown as typeof fetch
+
+    await chatCompletion('http://unused:4000', 'chat-fast', [{ role: 'user', content: 'hi' }], [
+      { type: 'function', function: { name: 'calculate', description: 'd', parameters: {} } },
+    ])
+    const parsed = JSON.parse(capturedBody!)
+    expect(parsed.tools).toHaveLength(1)
+    expect(parsed.tools[0].function.name).toBe('calculate')
   })
 })

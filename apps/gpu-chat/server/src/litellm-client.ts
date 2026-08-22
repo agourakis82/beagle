@@ -1,6 +1,25 @@
+export interface ToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
 export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
+  role: 'system' | 'user' | 'assistant' | 'tool'
   content: string
+  tool_calls?: ToolCall[]
+  tool_call_id?: string
+}
+
+export interface ToolDefinition {
+  type: 'function'
+  function: { name: string; description: string; parameters: Record<string, unknown> }
+}
+
+export interface ChatCompletionResult {
+  content: string
+  finish_reason: string
+  tool_calls?: ToolCall[]
 }
 
 export interface ModelInfo {
@@ -78,5 +97,30 @@ export async function* streamChatCompletion(
       const token = parsed.choices[0]?.delta?.content
       if (token) yield token
     }
+  }
+}
+
+export async function chatCompletion(
+  baseUrl: string,
+  model: string,
+  messages: ChatMessage[],
+  tools?: ToolDefinition[],
+): Promise<ChatCompletionResult> {
+  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, messages, ...(tools ? { tools } : {}) }),
+  })
+  if (!res.ok) {
+    throw new Error(`LiteLLM chat completion failed: ${res.status}`)
+  }
+  const body = (await res.json()) as {
+    choices: Array<{ message: { content: string | null; tool_calls?: ToolCall[] }; finish_reason: string }>
+  }
+  const choice = body.choices[0]
+  return {
+    content: choice.message.content ?? '',
+    finish_reason: choice.finish_reason,
+    tool_calls: choice.message.tool_calls,
   }
 }
