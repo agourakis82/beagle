@@ -29,7 +29,7 @@ Renders and server-validates an isolated retained-PVC StatefulSet by default.
 Live execution requires both --execute and an exact 40-character Sounio SHA.
 
 Options:
-  --execute                 apply the canary and execute all three Pod phases
+  --execute                 apply the canary and execute all four Pod phases
   --keep                    retain the canary StatefulSet, Service, and PVC
   --name NAME               exact sounio-loom-replay-* resource prefix
   --source-commit SHA       required exact Sounio commit
@@ -175,14 +175,18 @@ uid_two="$(wait_successor "$uid_one")"
 run_phase phase-two "$EVIDENCE_DIR/phase-two.txt"
 uid_three="$(wait_successor "$uid_two")"
 run_phase phase-three "$EVIDENCE_DIR/phase-three.txt"
+uid_four="$(wait_successor "$uid_three")"
+run_phase phase-four "$EVIDENCE_DIR/phase-four.txt"
 
 kubectl -n "$NAMESPACE" exec "$POD" -- \
   bash /state/sounio/scripts/ci/sounio_loom_pod_replay_canary.sh report \
   > "$EVIDENCE_DIR/result.txt"
 grep -q '^SOUNIO_LOOM_SEPARATE_POD_REPLAY_PASS=true$' "$EVIDENCE_DIR/result.txt" || \
   fail 'final canary result did not pass'
-[[ "$uid_one" != "$uid_two" && "$uid_one" != "$uid_three" && "$uid_two" != "$uid_three" ]] || \
-  fail 'canary did not observe three distinct Kubernetes Pod UIDs'
+[[ "$uid_one" != "$uid_two" && "$uid_one" != "$uid_three" && "$uid_one" != "$uid_four" && \
+   "$uid_two" != "$uid_three" && "$uid_two" != "$uid_four" && \
+   "$uid_three" != "$uid_four" ]] || \
+  fail 'canary did not observe four distinct Kubernetes Pod UIDs'
 
 protected_after="$(kubectl -n "$NAMESPACE" get pod "$PROTECTED_POD" \
   -o jsonpath='{.metadata.uid} {.status.phase}')"
@@ -192,7 +196,7 @@ printf 'after=%s\n' "$protected_after" >> "$EVIDENCE_DIR/protected-workspace.txt
 
 cat > "$EVIDENCE_DIR/runner-receipt.txt" <<EOF
 SOUNIO_LOOM_REAL_POD_CANARY_PASS=true
-schema=beagle-sounio-loom-real-pod-canary-v1
+schema=beagle-sounio-loom-real-pod-canary-v2
 beagle_source_commit=$BEAGLE_SOURCE_COMMIT
 sounio_source_commit=$SOUNIO_SOURCE_COMMIT
 namespace=$NAMESPACE
@@ -200,10 +204,11 @@ statefulset=$CANARY_NAME
 pod_uid_one=$uid_one
 pod_uid_two=$uid_two
 pod_uid_three=$uid_three
+pod_uid_four=$uid_four
 protected_workspace=$PROTECTED_POD
 protected_workspace_uid_phase=$protected_after
 cleanup_requested=$((1 - KEEP))
 EOF
 
-printf 'SOUNIO_LOOM_REAL_POD_CANARY_PASS=true name=%s evidence=%s pod_uids=%s,%s,%s\n' \
-  "$CANARY_NAME" "$EVIDENCE_DIR" "$uid_one" "$uid_two" "$uid_three"
+printf 'SOUNIO_LOOM_REAL_POD_CANARY_PASS=true name=%s evidence=%s pod_uids=%s,%s,%s,%s\n' \
+  "$CANARY_NAME" "$EVIDENCE_DIR" "$uid_one" "$uid_two" "$uid_three" "$uid_four"
