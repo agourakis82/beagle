@@ -116,6 +116,12 @@ spec:
               value: /state/loom-pod-replay
             - name: SOUNIO_SOURCE_COMMIT
               value: ${SOUNIO_SOURCE_COMMIT}
+            - name: SOUNIO_LOOM_REQUIRE_SIGNED_RECEIPTS
+              value: "1"
+            - name: SOUNIO_LOOM_SIGNING_KEY
+              value: /var/run/sounio-loom-signing/private.pem
+            - name: SOUNIO_LOOM_VERIFY_KEY
+              value: /var/run/sounio-loom-signing/public.pem
           readinessProbe:
             exec:
               command:
@@ -129,6 +135,9 @@ spec:
           volumeMounts:
             - name: state
               mountPath: /state
+            - name: signing-key
+              mountPath: /var/run/sounio-loom-signing
+              readOnly: true
           resources:
             requests:
               cpu: "1"
@@ -136,6 +145,11 @@ spec:
             limits:
               cpu: "4"
               memory: 4Gi
+      volumes:
+        - name: signing-key
+          secret:
+            secretName: ${SIGNING_SECRET}
+            defaultMode: 0440
   volumeClaimTemplates:
     - metadata:
         name: state

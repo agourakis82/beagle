@@ -13,6 +13,7 @@ RUN apt-get update \
       libcryptokit-ocaml-dev \
       ocaml-findlib \
       ocaml-nox \
+      openssl \
       pkg-config \
       util-linux \
     && rm -rf /var/lib/apt/lists/* \
