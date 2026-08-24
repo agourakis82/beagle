@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${CANARY_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: sounio-loom-replay-canary
+    app.kubernetes.io/instance: ${CANARY_NAME}
+    app.kubernetes.io/managed-by: beagle-source-control
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: sounio-loom-replay-canary
+    app.kubernetes.io/instance: ${CANARY_NAME}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ${CANARY_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: sounio-loom-replay-canary
+    app.kubernetes.io/instance: ${CANARY_NAME}
+    app.kubernetes.io/managed-by: beagle-source-control
+  annotations:
+    beagle.dev/source-commit: ${BEAGLE_SOURCE_COMMIT}
+    sounio.dev/source-commit: ${SOUNIO_SOURCE_COMMIT}
+spec:
+  serviceName: ${CANARY_NAME}
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sounio-loom-replay-canary
+      app.kubernetes.io/instance: ${CANARY_NAME}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sounio-loom-replay-canary
+        app.kubernetes.io/instance: ${CANARY_NAME}
+        app.kubernetes.io/managed-by: beagle-source-control
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 2
+      nodeSelector:
+        kubernetes.io/hostname: ${NODE_NAME}
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      initContainers:
+        - name: source-proof
+          image: ${WORKSPACE_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              umask 077
+              source_root=/state/sounio
+              if [[ -d "$source_root/.git" ]]; then
+                actual="$(git -C "$source_root" rev-parse HEAD)"
+                [[ "$actual" == "$SOUNIO_SOURCE_COMMIT" ]] || {
+                  echo "retained source mismatch: expected=$SOUNIO_SOURCE_COMMIT actual=$actual" >&2
+                  exit 42
+                }
+                git -C "$source_root" diff --quiet
+                git -C "$source_root" diff --cached --quiet
+              else
+                git clone --depth 1 --single-branch --branch "$SOUNIO_SOURCE_REF" \
+                  "$SOUNIO_REPO_URL" "$source_root"
+                actual="$(git -C "$source_root" rev-parse HEAD)"
+                if [[ "$actual" != "$SOUNIO_SOURCE_COMMIT" ]]; then
+                  git -C "$source_root" fetch --depth 1 origin "$SOUNIO_SOURCE_COMMIT"
+                  git -C "$source_root" checkout --detach "$SOUNIO_SOURCE_COMMIT"
+                fi
+                [[ "$(git -C "$source_root" rev-parse HEAD)" == "$SOUNIO_SOURCE_COMMIT" ]]
+              fi
+              printf '%s\n' "$SOUNIO_SOURCE_COMMIT" > /state/source-ready
+          env:
+            - name: SOUNIO_REPO_URL
+              value: ${SOUNIO_REPO_URL}
+            - name: SOUNIO_SOURCE_REF
+              value: ${SOUNIO_SOURCE_REF}
+            - name: SOUNIO_SOURCE_COMMIT
+              value: ${SOUNIO_SOURCE_COMMIT}
+          volumeMounts:
+            - name: state
+              mountPath: /state
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+      containers:
+        - name: canary
+          image: ${WORKSPACE_IMAGE}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-lc", "exec sleep infinity"]
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: SOUNIO_CANARY_SOURCE_ROOT
+              value: /state/sounio
+            - name: SOUNIO_LOOM_POD_CANARY_ROOT
+              value: /state/loom-pod-replay
+          readinessProbe:
+            exec:
+              command:
+                - /bin/bash
+                - -lc
+                - test "$(cat /state/source-ready)" = "$SOUNIO_SOURCE_COMMIT"
+            initialDelaySeconds: 1
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 30
+          volumeMounts:
+            - name: state
+              mountPath: /state
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1536Mi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+  volumeClaimTemplates:
+    - metadata:
+        name: state
+        labels:
+          app.kubernetes.io/name: sounio-loom-replay-canary
+          app.kubernetes.io/instance: ${CANARY_NAME}
+      spec:
+        accessModes:
+          - ReadWriteOncePod
+        storageClassName: ${STORAGE_CLASS}
+        resources:
+          requests:
+            storage: ${STORAGE_SIZE}
