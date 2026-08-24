@@ -4,6 +4,39 @@ import { createHash, randomUUID } from "node:crypto";
 
 export const WORKBENCH_PROTOCOL = "beagle-terminal-v1";
 export const WORKBENCH_BRIDGE_VERSION = "beagle-warp-bridge-v0.2";
+export const LEGACY_SUPERVISOR_RUNTIME = "beagle-pty-supervisor-v1";
+
+export function normalizeSupervisorIdentity(source = {}) {
+  const reportedSupervisor = cleanString(source.supervisor || source.supervisor_runtime);
+  const runtime = cleanString(source.supervisorRuntime || source.supervisor_runtime) ||
+    (reportedSupervisor === "beagle-pty-supervisor" ? LEGACY_SUPERVISOR_RUNTIME : reportedSupervisor) ||
+    LEGACY_SUPERVISOR_RUNTIME;
+  const protocol = cleanString(source.supervisorProtocol || source.supervisor_protocol) ||
+    LEGACY_SUPERVISOR_RUNTIME;
+  const authorityStatus = source.authorityStatus || source.authority_status || {};
+  const runtimeAuthority = cleanString(authorityStatus.owner || source.runtimeAuthority || source.runtime_authority) ||
+    (runtime.startsWith("sounio-loom-") ? "loom" : "pty-supervisor");
+  const loomInstanceId = cleanString(source.loomInstanceId || source.loom_instance_id);
+  const generationFingerprint = cleanString(source.generationFingerprint || source.generation_fingerprint);
+
+  return {
+    runtime,
+    protocol,
+    runtimeAuthority,
+    loomInstanceId: loomInstanceId || null,
+    generationFingerprint: generationFingerprint || null,
+    journalVerified: authorityStatus.journalVerified === true || authorityStatus.journal_verified === true,
+    semanticJournalHead: cleanString(
+      authorityStatus.semanticJournalHead || authorityStatus.semantic_journal_head,
+    ) || null,
+    guardianJournalHead: cleanString(
+      authorityStatus.guardianJournalHead || authorityStatus.guardian_journal_head,
+    ) || null,
+    kernelRecoveryCount: Number(
+      authorityStatus.kernelRecoveryCount || authorityStatus.kernel_recovery_count || 0,
+    ),
+  };
+}
 
 export const AGENT_KINDS = new Set([
   "human",

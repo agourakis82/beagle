@@ -19,6 +19,7 @@ import {
   hasSecret,
   hashObject,
   normalizePane,
+  normalizeSupervisorIdentity,
   nowIso,
   readBlockEvents,
   readProviderConfig,
@@ -142,9 +143,12 @@ async function supervisorJson(path, body = null, method = body ? "POST" : "GET")
 async function supervisorStatus() {
   try {
     const health = await supervisorJson("/v1/health");
+    const identity = normalizeSupervisorIdentity(health);
     return {
       status: "healthy",
-      runtime: "beagle-pty-supervisor-v1",
+      runtime: identity.runtime,
+      protocol: identity.protocol,
+      runtimeAuthority: identity.runtimeAuthority,
       panes: Number(health.panes || 0),
       url: supervisorUrl,
       updatedAt: nowIso(),
@@ -152,7 +156,9 @@ async function supervisorStatus() {
   } catch (error) {
     return {
       status: "degraded",
-      runtime: "beagle-pty-supervisor-v1",
+      runtime: normalizeSupervisorIdentity().runtime,
+      protocol: normalizeSupervisorIdentity().protocol,
+      runtimeAuthority: "unavailable",
       panes: 0,
       url: supervisorUrl,
       error: error?.message || "supervisor_unreachable",
@@ -712,8 +718,9 @@ wss.on("connection", async (ws, req, context) => {
       console.warn(`provider-config load for pane ${paneId} skipped: ${error?.message || error}`);
     }
   }
+  let supervisorPane = {};
   try {
-    await supervisorJson("/v1/spawn", {
+    const spawned = await supervisorJson("/v1/spawn", {
       sessionId,
       paneId: supervisorPaneId,
       cwd: cleanString(pane.cwd) || workspaceRoot,
@@ -721,6 +728,7 @@ wss.on("connection", async (ws, req, context) => {
       rows: Number(context.rows || 34),
       ...(providerEnv ? { providerEnv } : {}),
     });
+    supervisorPane = spawned?.pane || {};
   } catch (error) {
     send(ws, {
       type: "error",
@@ -730,6 +738,19 @@ wss.on("connection", async (ws, req, context) => {
     ws.close();
     return;
   }
+
+  const supervisorIdentity = normalizeSupervisorIdentity(supervisorPane);
+  const runtimeProvenance = {
+    supervisor_runtime: supervisorIdentity.runtime,
+    supervisor_protocol: supervisorIdentity.protocol,
+    runtime_authority: supervisorIdentity.runtimeAuthority,
+    loom_instance_id: supervisorIdentity.loomInstanceId,
+    generation_fingerprint: supervisorIdentity.generationFingerprint,
+    journal_verified: supervisorIdentity.journalVerified,
+    semantic_journal_head: supervisorIdentity.semanticJournalHead,
+    guardian_journal_head: supervisorIdentity.guardianJournalHead,
+    kernel_recovery_count: supervisorIdentity.kernelRecoveryCount,
+  };
 
   let activeBlock = null;
   let inputBuffer = "";
@@ -755,6 +776,12 @@ wss.on("connection", async (ws, req, context) => {
       sessionHash: activeBlock.sessionHash,
       rendererHint: WORKBENCH_PROTOCOL,
       authority: "workspace-agent",
+      runtimeAuthority: supervisorIdentity.runtimeAuthority,
+      supervisorRuntime: supervisorIdentity.runtime,
+      supervisorProtocol: supervisorIdentity.protocol,
+      loomInstanceId: supervisorIdentity.loomInstanceId,
+      generationFingerprint: supervisorIdentity.generationFingerprint,
+      journalVerified: supervisorIdentity.journalVerified,
     };
     await appendBlockEvent(rootDir, slug, sessionId, event);
     send(ws, event);
@@ -816,6 +843,12 @@ wss.on("connection", async (ws, req, context) => {
       sessionHash: activeBlock.sessionHash,
       rendererHint: WORKBENCH_PROTOCOL,
       authority: "workspace-agent",
+      runtimeAuthority: supervisorIdentity.runtimeAuthority,
+      supervisorRuntime: supervisorIdentity.runtime,
+      supervisorProtocol: supervisorIdentity.protocol,
+      loomInstanceId: supervisorIdentity.loomInstanceId,
+      generationFingerprint: supervisorIdentity.generationFingerprint,
+      journalVerified: supervisorIdentity.journalVerified,
       provenance: {
         protocol: WORKBENCH_PROTOCOL,
         bridge_version: bridge.bridgeVersion,
@@ -828,7 +861,7 @@ wss.on("connection", async (ws, req, context) => {
         renderer_hint: WORKBENCH_PROTOCOL,
         source_surface: "beagle-workbench",
         authority: "workspace-agent",
-        supervisor_runtime: "beagle-pty-supervisor-v1",
+        ...runtimeProvenance,
       },
     };
     await appendBlockEvent(rootDir, slug, sessionId, event);
@@ -850,7 +883,17 @@ wss.on("connection", async (ws, req, context) => {
     if (message.type === "raw_output") {
       const data = String(message.data || "");
       send(ws, { type: "data", data });
-      send(ws, { ...message, sourceModel: "beagle", bridgeVersion: WORKBENCH_BRIDGE_VERSION, authority: "workspace-agent" });
+      send(ws, {
+        ...message,
+        sourceModel: "beagle",
+        bridgeVersion: WORKBENCH_BRIDGE_VERSION,
+        authority: "workspace-agent",
+        runtimeAuthority: supervisorIdentity.runtimeAuthority,
+        supervisorRuntime: supervisorIdentity.runtime,
+        supervisorProtocol: supervisorIdentity.protocol,
+        loomInstanceId: message.loomInstanceId || supervisorIdentity.loomInstanceId,
+        generationFingerprint: supervisorIdentity.generationFingerprint,
+      });
       if (activeBlock) {
         if (hasSecret(data)) {
           activeBlock.privacyClass = "restricted_local_only";
@@ -868,6 +911,12 @@ wss.on("connection", async (ws, req, context) => {
           sourceModel: activeBlock.sourceModel,
           bridgeVersion: WORKBENCH_BRIDGE_VERSION,
           authority: "workspace-agent",
+          runtimeAuthority: supervisorIdentity.runtimeAuthority,
+          supervisorRuntime: supervisorIdentity.runtime,
+          supervisorProtocol: supervisorIdentity.protocol,
+          loomInstanceId: message.loomInstanceId || supervisorIdentity.loomInstanceId,
+          loomCursor: Number(message.loomCursor || 0) || null,
+          generationFingerprint: supervisorIdentity.generationFingerprint,
         };
         await appendBlockEvent(rootDir, slug, sessionId, blockEvent);
         send(ws, blockEvent);
@@ -896,6 +945,12 @@ wss.on("connection", async (ws, req, context) => {
           bridgeVersion: WORKBENCH_BRIDGE_VERSION,
           rendererHint: WORKBENCH_PROTOCOL,
           authority: await authorityStatus(),
+          runtimeAuthority: supervisorIdentity.runtimeAuthority,
+          supervisorRuntime: supervisorIdentity.runtime,
+          supervisorProtocol: supervisorIdentity.protocol,
+          loomInstanceId: message.loomInstanceId || supervisorIdentity.loomInstanceId,
+          generationFingerprint: supervisorIdentity.generationFingerprint,
+          journalVerified: supervisorIdentity.journalVerified,
           reconnectState: cleanString(message.snapshot) ? "replayed_snapshot" : "attached",
         },
       });
@@ -903,7 +958,13 @@ wss.on("connection", async (ws, req, context) => {
     }
     if (message.type === "exit") {
       await finishActiveBlock("terminal_exit", Number(message.exitCode || 0));
-      send(ws, { type: "exit", data: message.detail || "pty exited" });
+      send(ws, {
+        type: "exit",
+        data: message.detail || "pty exited",
+        runtimeAuthority: supervisorIdentity.runtimeAuthority,
+        supervisorRuntime: supervisorIdentity.runtime,
+        loomInstanceId: supervisorIdentity.loomInstanceId,
+      });
     }
   });
 

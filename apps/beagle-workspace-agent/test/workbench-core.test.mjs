@@ -5,6 +5,7 @@ import {
   foldBlocks,
   hasSecret,
   findAgentRole,
+  normalizeSupervisorIdentity,
   normalizeSession,
   routeAgentTask,
   shouldAutoRememberBlock,
@@ -59,6 +60,48 @@ test("normalizeSession carries authority status without requiring it", () => {
   assert.equal(legacy.authorityStatus, null);
   assert.equal(current.authorityStatus.authority, "workspace-agent");
   assert.equal(current.panes[0].reconnectState, "attached");
+});
+
+test("normalizeSupervisorIdentity preserves the legacy Node backend", () => {
+  assert.deepEqual(normalizeSupervisorIdentity({
+    supervisor: "beagle-pty-supervisor",
+  }), {
+    runtime: "beagle-pty-supervisor-v1",
+    protocol: "beagle-pty-supervisor-v1",
+    runtimeAuthority: "pty-supervisor",
+    loomInstanceId: null,
+    generationFingerprint: null,
+    journalVerified: false,
+    semanticJournalHead: null,
+    guardianJournalHead: null,
+    kernelRecoveryCount: 0,
+  });
+});
+
+test("normalizeSupervisorIdentity carries Loom generation evidence", () => {
+  assert.deepEqual(normalizeSupervisorIdentity({
+    supervisorRuntime: "sounio-loom-beagle-bridge-v1",
+    supervisorProtocol: "beagle-pty-supervisor-v1",
+    loomInstanceId: "instance-7",
+    generationFingerprint: "fingerprint-7",
+    authorityStatus: {
+      owner: "loom",
+      journalVerified: true,
+      semanticJournalHead: "semantic-head",
+      guardianJournalHead: "guardian-head",
+      kernelRecoveryCount: 3,
+    },
+  }), {
+    runtime: "sounio-loom-beagle-bridge-v1",
+    protocol: "beagle-pty-supervisor-v1",
+    runtimeAuthority: "loom",
+    loomInstanceId: "instance-7",
+    generationFingerprint: "fingerprint-7",
+    journalVerified: true,
+    semanticJournalHead: "semantic-head",
+    guardianJournalHead: "guardian-head",
+    kernelRecoveryCount: 3,
+  });
 });
 
 test("secret matcher catches common credential shapes", () => {
