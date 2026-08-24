@@ -266,8 +266,13 @@ export_signed_receipt() {
       --public-key /var/run/sounio-loom-signing/public.pem \
       --adapter /state/sounio/tools/loom/_build/default/src/sounio-loom-continuity-runtime
   ' _ "$generation" > "$verification"
-  grep -q '^SOUNIO_LOOM_CONTINUITY_RECEIPT_VALID=true$' "$verification" || \
+  grep -q '^LOOM_CONTINUITY_RECEIPT_VERIFIED schema=loom-native-continuity-receipt-v2 algorithm=ed25519 ' \
+    "$verification" || \
     fail "public-key verification failed for exported receipt $label"
+  grep -q " key_id=$SIGNER_KEY_ID " "$verification" || \
+    fail "public-key verification used an unexpected signer for receipt $label"
+  grep -q " receipt_sha256=$expected_digest " "$verification" || \
+    fail "public-key verification reported an unexpected digest for receipt $label"
 }
 
 uid_one="$(pod_uid)"
