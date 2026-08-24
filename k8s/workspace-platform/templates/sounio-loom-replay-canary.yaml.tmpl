@@ -114,6 +114,8 @@ spec:
               value: /state/sounio
             - name: SOUNIO_LOOM_POD_CANARY_ROOT
               value: /state/loom-pod-replay
+            - name: SOUNIO_SOURCE_COMMIT
+              value: ${SOUNIO_SOURCE_COMMIT}
           readinessProbe:
             exec:
               command:
