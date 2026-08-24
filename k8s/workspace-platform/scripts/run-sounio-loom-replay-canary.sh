@@ -223,6 +223,53 @@ run_phase() {
     | tee "$output"
 }
 
+result_value() {
+  local key="$1" value
+  value="$(sed -n "s/^${key}=//p" "$EVIDENCE_DIR/result.txt")"
+  [[ -n "$value" && "$value" != *$'\n'* ]] || \
+    fail "result must contain exactly one non-empty $key value"
+  printf '%s\n' "$value"
+}
+
+export_signed_receipt() {
+  local label="$1" generation="$2" expected_digest="$3"
+  local receipt="$EVIDENCE_DIR/signed-receipt-$label.txt"
+  local verification="$EVIDENCE_DIR/signed-receipt-$label-verification.txt"
+  local actual_digest
+
+  kubectl -n "$NAMESPACE" exec "$POD" -- bash -lc '
+    set -euo pipefail
+    generation="$1"
+    mapfile -t receipts < <(
+      find /state/loom-pod-replay/loom \
+        -path "*/generations/$generation/sounio-continuity.receipt" -type f -print
+    )
+    [[ ${#receipts[@]} -eq 1 ]]
+    cat "${receipts[0]}"
+  ' _ "$generation" > "$receipt"
+
+  actual_digest="$(sha256sum "$receipt" | awk '{print $1}')"
+  [[ "$actual_digest" == "$expected_digest" ]] || \
+    fail "exported receipt $label digest mismatch: expected=$expected_digest actual=$actual_digest"
+
+  kubectl -n "$NAMESPACE" exec "$POD" -- bash -lc '
+    set -euo pipefail
+    generation="$1"
+    mapfile -t receipts < <(
+      find /state/loom-pod-replay/loom \
+        -path "*/generations/$generation/sounio-continuity.receipt" -type f -print
+    )
+    [[ ${#receipts[@]} -eq 1 ]]
+    SOUNIO_COORD_RUNTIME_MODE=local \
+      /state/sounio/bin/sounio-loom verify-continuity-receipt \
+      --receipt "${receipts[0]}" \
+      --public-key /var/run/sounio-loom-signing/public.pem \
+      --adapter /state/sounio/tools/loom/_build/default/src/sounio-loom-continuity-runtime
+  ' _ "$generation" > "$verification"
+  grep -q '^SOUNIO_LOOM_CONTINUITY_RECEIPT_VALID=true$' "$verification" || \
+    fail "public-key verification failed for exported receipt $label"
+}
+
 uid_one="$(pod_uid)"
 node_one="$(pod_node)"
 [[ "$node_one" == "$NODE_NAME" ]] || fail "initial Pod landed on unexpected node $node_one"
@@ -249,6 +296,11 @@ grep -q '^signed_predecessor_chain=verified$' "$EVIDENCE_DIR/result.txt" || \
 result_signer_key_id="$(sed -n 's/^signer_key_id=//p' "$EVIDENCE_DIR/result.txt")"
 [[ "$result_signer_key_id" == "$SIGNER_KEY_ID" ]] || \
   fail 'canary signer identity does not match the generated public key'
+for label in one two three four; do
+  export_signed_receipt "$label" \
+    "$(result_value "generation_$label")" \
+    "$(result_value "native_sounio_receipt_${label}_sha256")"
+done
 [[ "$uid_one" != "$uid_two" && "$uid_one" != "$uid_three" && "$uid_one" != "$uid_four" && \
    "$uid_two" != "$uid_three" && "$uid_two" != "$uid_four" && \
    "$uid_three" != "$uid_four" ]] || \
@@ -282,6 +334,8 @@ cross_node_transition=$node_one->$node_two
 signature_algorithm=ed25519
 signer_key_id=$SIGNER_KEY_ID
 signer_public_key_sha256=$SIGNER_KEY_ID
+signed_receipt_bundle=4
+public_receipt_verifications=4
 signing_secret=$SIGNING_SECRET
 protected_workspace=$PROTECTED_POD
 protected_workspace_uid_phase=$protected_after
