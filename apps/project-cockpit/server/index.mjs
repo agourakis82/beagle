@@ -13273,6 +13273,71 @@ function renderVisualWorkbenchPrototypePage(project) {
       return block.memoryStatus || "not_saved";
     }
 
+    function runtimeContinuity(block) {
+      if (block && block.runtimeContinuity && typeof block.runtimeContinuity === "object") {
+        return block.runtimeContinuity;
+      }
+      return {
+        status: "unattributed",
+        verified: false,
+        hasRuntimeEvidence: false,
+        transitionLabel: "Unknown transition",
+        runtimeAuthority: null,
+        supervisorRuntime: null,
+        loomInstanceId: null,
+        generationFingerprint: null,
+        journalVerified: false,
+        semanticJournalHead: null,
+        guardianJournalHead: null,
+        kernelRecoveryCount: 0,
+        lineageVerified: false,
+        generationLineageHead: null,
+        generationTransitionCount: 0,
+        podResurrectionCount: 0,
+        predecessorInstanceId: null,
+        predecessorSemanticJournalHead: null,
+        predecessorGuardianJournalHead: null
+      };
+    }
+
+    function runtimeStatusLabel(continuity) {
+      const labels = {
+        "verified-initial-generation": "verified initial generation",
+        "verified-clean-respawn": "verified clean respawn",
+        "verified-pod-resurrection": "verified Pod resurrection",
+        "proof-incomplete": "proof incomplete",
+        "foreign-runtime": "foreign runtime",
+        "unattributed": "unattributed runtime"
+      };
+      return labels[continuity.status] || "unverified runtime";
+    }
+
+    function runtimeBadgeClass(continuity) {
+      if (continuity.verified) return "ready";
+      return continuity.hasRuntimeEvidence ? "warn" : "blocked";
+    }
+
+    function compactRuntimeValue(value) {
+      const text = String(value || "");
+      if (!text) return "none";
+      if (text.length <= 22) return text;
+      return text.slice(0, 10) + "..." + text.slice(-8);
+    }
+
+    function runtimeContinuitySummary(block) {
+      const continuity = runtimeContinuity(block);
+      if (continuity.verified) {
+        return continuity.transitionLabel + "; generation " + compactRuntimeValue(continuity.loomInstanceId) +
+          "; Pod resurrections " + Number(continuity.podResurrectionCount || 0) +
+          "; kernel recoveries " + Number(continuity.kernelRecoveryCount || 0) + ".";
+      }
+      if (continuity.hasRuntimeEvidence) {
+        return "Continuity proof incomplete for " + (continuity.runtimeAuthority || "unknown authority") +
+          "; transition " + (continuity.transitionLabel || "unknown") + ".";
+      }
+      return "No runtime continuity receipt is attached to this block.";
+    }
+
     function latestSession() {
       return state.sessions[0] || null;
     }
@@ -13319,27 +13384,30 @@ function renderVisualWorkbenchPrototypePage(project) {
     function renderArtifacts() {
       const block = selectedBlock();
       const role = selectedRole();
-      const session = latestSession();
+      const continuity = runtimeContinuity(block);
       const artifacts = [
         {
           title: "Active task",
           badge: role.readiness && role.readiness.status || "observed",
+          badgeClass: normalizeStatus(role.readiness && role.readiness.status || "observed"),
           body: roleTask(role)
         },
         {
           title: "Latest evidence",
           badge: block ? blockKind(block) : "waiting",
+          badgeClass: block ? normalizeStatus(memoryStatus(block)) : "warn",
           body: block ? blockPreview(block) : "No Workbench block selected yet."
         },
         {
-          title: "Workspace continuity",
-          badge: session ? session.status || "active" : "offline",
-          body: session ? "Session " + session.id + " has " + asArray(session.panes).length + " pane(s)." : "No session loaded from Project Cockpit."
+          title: "Runtime continuity",
+          badge: runtimeStatusLabel(continuity),
+          badgeClass: runtimeBadgeClass(continuity),
+          body: runtimeContinuitySummary(block)
         }
       ];
       artifactStrip.innerHTML = artifacts.map(function(item) {
         return '<article class="artifact">' +
-          '<span class="badge">' + escapeHtmlClient(item.badge) + '</span>' +
+          '<span class="badge ' + escapeHtmlClient(item.badgeClass || "") + '">' + escapeHtmlClient(item.badge) + '</span>' +
           '<div class="artifact-title">' + escapeHtmlClient(item.title) + '</div>' +
           '<div class="artifact-body">' + escapeHtmlClient(item.body) + '</div>' +
         '</article>';
@@ -13401,6 +13469,7 @@ function renderVisualWorkbenchPrototypePage(project) {
         return;
       }
       const restricted = isRestricted(block);
+      const continuity = runtimeContinuity(block);
       inspector.innerHTML =
         '<article class="memory-item">' +
           '<span class="badge ' + (restricted ? "blocked" : normalizeStatus(status)) + '">' + escapeHtmlClient(restricted ? "restricted redacted" : status) + '</span>' +
@@ -13410,6 +13479,29 @@ function renderVisualWorkbenchPrototypePage(project) {
         '<article class="memory-item">' +
           '<div class="memory-title">Sounio typing candidate</div>' +
           '<div class="memory-body">' + escapeHtmlClient(restricted ? "Blocked from automatic typing. Requires explicit review." : "Candidate SounioMoment only. Claims remain belief/contest until evidence and provenance support promotion.") + '</div>' +
+        '</article>' +
+        '<article class="memory-item" data-runtime-continuity="' + escapeHtmlClient(continuity.status || "unattributed") + '">' +
+          '<div class="lane-meta">' +
+            '<span class="badge ' + runtimeBadgeClass(continuity) + '">' + escapeHtmlClient(runtimeStatusLabel(continuity)) + '</span>' +
+            '<span class="pill">' + escapeHtmlClient(continuity.runtimeAuthority || "no authority") + '</span>' +
+          '</div>' +
+          '<div class="memory-title">Runtime continuity</div>' +
+          '<div class="memory-body">' + escapeHtmlClient(runtimeContinuitySummary(block)) + '</div>' +
+          '<div class="kv"><span>transition</span><strong>' + escapeHtmlClient(continuity.transitionLabel || "Unknown transition") + '</strong></div>' +
+          '<div class="kv"><span>runtime</span><strong>' + escapeHtmlClient(continuity.supervisorRuntime || "unattributed") + '</strong></div>' +
+          '<div class="kv"><span>generation</span><strong>' + escapeHtmlClient(continuity.loomInstanceId || "none") + '</strong></div>' +
+          '<div class="kv"><span>fingerprint</span><strong>' + escapeHtmlClient(continuity.generationFingerprint || "none") + '</strong></div>' +
+          '<div class="kv"><span>predecessor</span><strong>' + escapeHtmlClient(continuity.predecessorInstanceId || "not applicable") + '</strong></div>' +
+          '<div class="kv"><span>lineage head</span><strong>' + escapeHtmlClient(continuity.generationLineageHead || "not applicable") + '</strong></div>' +
+          '<div class="kv"><span>journal proof</span><strong>' + escapeHtmlClient(continuity.journalVerified ? "verified" : "unverified") + '</strong></div>' +
+          '<div class="kv"><span>semantic head</span><strong>' + escapeHtmlClient(continuity.semanticJournalHead || "none") + '</strong></div>' +
+          '<div class="kv"><span>guardian head</span><strong>' + escapeHtmlClient(continuity.guardianJournalHead || "none") + '</strong></div>' +
+          '<div class="kv"><span>lineage proof</span><strong>' + escapeHtmlClient(continuity.lineageVerified ? "verified" : "unverified") + '</strong></div>' +
+          '<div class="kv"><span>prior semantic</span><strong>' + escapeHtmlClient(continuity.predecessorSemanticJournalHead || "not applicable") + '</strong></div>' +
+          '<div class="kv"><span>prior guardian</span><strong>' + escapeHtmlClient(continuity.predecessorGuardianJournalHead || "not applicable") + '</strong></div>' +
+          '<div class="kv"><span>transitions</span><strong>' + escapeHtmlClient(String(continuity.generationTransitionCount || 0)) + '</strong></div>' +
+          '<div class="kv"><span>Pod recoveries</span><strong>' + escapeHtmlClient(String(continuity.podResurrectionCount || 0)) + '</strong></div>' +
+          '<div class="kv"><span>kernel recoveries</span><strong>' + escapeHtmlClient(String(continuity.kernelRecoveryCount || 0)) + '</strong></div>' +
         '</article>' +
         '<article class="memory-item">' +
           '<div class="memory-title">Provenance</div>' +

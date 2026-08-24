@@ -10,6 +10,7 @@ import { createHash, randomUUID } from "node:crypto";
 import pty from "node-pty";
 import { WebSocket } from "ws";
 import { fetchOperatorToken } from "./auth-bridge.mjs";
+import { attachRuntimeContinuity, normalizeRuntimeContinuity } from "./runtime-continuity.mjs";
 
 const WORKBENCH_DIR =
   process.env.PROJECT_COCKPIT_WORKBENCH_DIR || "/var/lib/beagle/workbench";
@@ -400,9 +401,12 @@ function foldBlocks(events) {
       });
     }
   }
-  return Array.from(byId.values()).sort((left, right) =>
-    cleanString(right.startedAt).localeCompare(cleanString(left.startedAt))
-  );
+  return Array.from(byId.values())
+    .map((block) => ({
+      ...block,
+      runtimeContinuity: normalizeRuntimeContinuity(block),
+    }))
+    .sort((left, right) => cleanString(right.startedAt).localeCompare(cleanString(left.startedAt)));
 }
 
 function workspaceSummaryFromProject(project = {}) {
@@ -485,6 +489,7 @@ async function proxyWorkspaceAgentJson(req, res, project, agentPath, authToken =
       error.statusCode = response.status;
       throw error;
     }
+    payload = attachRuntimeContinuity(payload);
     if (!res.headersSent) res.status(response.status).json(payload);
     return true;
   } catch (error) {

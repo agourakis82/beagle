@@ -6,8 +6,8 @@
   "license": "MIT",
   "description": "Beagle Project Cockpit gateway for workspaces, agent sessions, and Sounio Workday daily-driver flows.",
   "scripts": {
-    "check": "node --check server/index.mjs && node --check server/workspace-routes.mjs && node --check server/agent-routes.mjs && node --check server/auth-bridge.mjs && node --check server/job-routes.mjs && node --check server/mobile-routes.mjs && node --check server/queue-routes.mjs && node --check server/scratchpad-routes.mjs && node --check server/job-reconciler.mjs",
-    "test": "node --test --test-concurrency=1 server/",
+    "check": "node --check server/index.mjs && node --check server/workspace-routes.mjs && node --check server/runtime-continuity.mjs && node --check server/agent-routes.mjs && node --check server/auth-bridge.mjs && node --check server/job-routes.mjs && node --check server/mobile-routes.mjs && node --check server/queue-routes.mjs && node --check server/scratchpad-routes.mjs && node --check server/job-reconciler.mjs",
+    "test": "node --test --test-concurrency=1 server/*.test.mjs server/loom/*.test.mjs",
     "start": "node server/index.mjs"
   },
   "dependencies": {

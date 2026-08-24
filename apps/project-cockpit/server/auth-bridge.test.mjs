@@ -42,19 +42,29 @@ test("fetchRecentMemories empty query → no call, empty array", async () => {
 import { fetchSounioState, fetchSounioRelationship } from "./auth-bridge.mjs";
 
 test("fetchSounioState: returns latest state digest on 200", async () => {
-  const stub = async () => ({
-    ok: true,
-    text: async () => JSON.stringify({ highlights: [
-      { snippet: "Sounio agora: branch ativa `feat/x`.", date: "2026-06-28T10:00:00Z" },
-      { snippet: "stale", date: "2026-06-20T10:00:00Z" },
-    ] }),
-  });
+  let requestedUrl = "";
+  const stub = async (url) => {
+    requestedUrl = url;
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ records: [
+        {
+          content: "Commit abc123 em feat/x (clean): feat: runtime continuity",
+          metadata: { branch: "feat/x" },
+        },
+      ] }),
+    };
+  };
   const out = await fetchSounioState({ token: "t", fetchImpl: stub, cache: false });
-  assert.equal(out.digest, "Sounio agora: branch ativa `feat/x`.");
+  assert.match(requestedUrl, /source_type=SounioCommit/);
+  assert.equal(
+    out.digest,
+    "Branch ativa: feat/x. Movimento mais recente observado: Commit abc123 em feat/x (clean): feat: runtime continuity",
+  );
 });
 
-test("fetchSounioState: empty highlights → empty digest", async () => {
-  const stub = async () => ({ ok: true, text: async () => JSON.stringify({ highlights: [] }) });
+test("fetchSounioState: empty records → empty digest", async () => {
+  const stub = async () => ({ ok: true, text: async () => JSON.stringify({ records: [] }) });
   const out = await fetchSounioState({ token: "t", fetchImpl: stub, cache: false });
   assert.equal(out.digest, "");
 });
