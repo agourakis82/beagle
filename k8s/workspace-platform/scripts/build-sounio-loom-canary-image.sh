@@ -103,6 +103,11 @@ kubectl get node "$NODE_NAME" >/dev/null
 if kubectl -n "$NAMESPACE" get job "$BUILD_JOB_NAME" >/dev/null 2>&1; then
   fail "refusing pre-existing Job: $BUILD_JOB_NAME"
 fi
+if curl --fail --silent --output /dev/null \
+  --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
+  "http://192.168.3.207:5003/v2/sounio-loom-canary/manifests/$IMAGE_TAG"; then
+  fail "refusing pre-existing image tag: $IMAGE_DESTINATION"
+fi
 
 cleanup() {
   local rc=$?
@@ -137,7 +142,7 @@ done
 [[ "${succeeded:-}" == 1 ]] || fail "Kaniko Job timed out after $TIMEOUT: $BUILD_JOB_NAME"
 manifest_headers="$EVIDENCE_DIR/manifest-headers.txt"
 curl --fail --silent --show-error --dump-header "$manifest_headers" --output "$EVIDENCE_DIR/manifest.json" \
-  --header 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+  --header 'Accept: application/vnd.oci.image.manifest.v1+json' \
   "http://192.168.3.207:5003/v2/sounio-loom-canary/manifests/$IMAGE_TAG"
 image_digest="$(awk 'tolower($1) == "docker-content-digest:" {gsub("\r", "", $2); print $2}' "$manifest_headers" | tail -1)"
 [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]] || fail 'registry omitted the immutable image digest'
