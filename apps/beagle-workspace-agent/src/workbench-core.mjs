@@ -35,6 +35,28 @@ export function normalizeSupervisorIdentity(source = {}) {
     kernelRecoveryCount: Number(
       authorityStatus.kernelRecoveryCount || authorityStatus.kernel_recovery_count || 0,
     ),
+    lineageVerified: authorityStatus.lineageVerified === true || authorityStatus.lineage_verified === true,
+    generationLineageHead: cleanString(
+      authorityStatus.generationLineageHead || authorityStatus.generation_lineage_head,
+    ) || null,
+    generationTransition: cleanString(
+      authorityStatus.generationTransition || authorityStatus.generation_transition,
+    ) || null,
+    generationTransitionCount: Number(
+      authorityStatus.generationTransitionCount || authorityStatus.generation_transition_count || 0,
+    ),
+    podResurrectionCount: Number(
+      authorityStatus.podResurrectionCount || authorityStatus.pod_resurrection_count || 0,
+    ),
+    predecessorInstanceId: cleanString(
+      authorityStatus.predecessorInstanceId || authorityStatus.predecessor_instance_id,
+    ) || null,
+    predecessorSemanticJournalHead: cleanString(
+      authorityStatus.predecessorSemanticJournalHead || authorityStatus.predecessor_semantic_journal_head,
+    ) || null,
+    predecessorGuardianJournalHead: cleanString(
+      authorityStatus.predecessorGuardianJournalHead || authorityStatus.predecessor_guardian_journal_head,
+    ) || null,
   };
 }
 

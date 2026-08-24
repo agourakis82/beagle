@@ -19,6 +19,14 @@ const runtimeEvidence = {
     semanticJournalHead: "semantic-head-test",
     guardianJournalHead: "guardian-head-test",
     kernelRecoveryCount: 2,
+    lineageVerified: true,
+    generationLineageHead: "lineage-head-test",
+    generationTransition: "pod-resurrected",
+    generationTransitionCount: 3,
+    podResurrectionCount: 1,
+    predecessorInstanceId: "loom-instance-predecessor",
+    predecessorSemanticJournalHead: "predecessor-semantic-head-test",
+    predecessorGuardianJournalHead: "predecessor-guardian-head-test",
   },
 };
 
@@ -201,6 +209,11 @@ test("Workspace Agent attributes terminal blocks to the Loom runtime", async (t)
   assert.equal(observed.block.provenance.loom_instance_id, runtimeEvidence.loomInstanceId);
   assert.equal(observed.block.provenance.generation_fingerprint, runtimeEvidence.generationFingerprint);
   assert.equal(observed.block.provenance.journal_verified, true);
+  assert.equal(observed.ready.lineageVerified, true);
+  assert.equal(observed.ready.generationTransition, "pod-resurrected");
+  assert.equal(observed.block.provenance.lineage_verified, true);
+  assert.equal(observed.block.provenance.generation_lineage_head, "lineage-head-test");
+  assert.equal(observed.block.provenance.predecessor_instance_id, "loom-instance-predecessor");
 
   await new Promise((resolve) => setTimeout(resolve, 50));
   const blocks = await fetch(`${baseUrl}/v1/sessions/session-runtime/blocks`).then((response) => response.json());
@@ -209,4 +222,8 @@ test("Workspace Agent attributes terminal blocks to the Loom runtime", async (t)
   assert.equal(blocks.blocks[0].provenance.semantic_journal_head, "semantic-head-test");
   assert.equal(blocks.blocks[0].provenance.guardian_journal_head, "guardian-head-test");
   assert.equal(blocks.blocks[0].provenance.kernel_recovery_count, 2);
+  assert.equal(blocks.blocks[0].provenance.generation_transition_count, 3);
+  assert.equal(blocks.blocks[0].provenance.pod_resurrection_count, 1);
+  assert.equal(blocks.blocks[0].provenance.predecessor_semantic_journal_head, "predecessor-semantic-head-test");
+  assert.equal(blocks.blocks[0].provenance.predecessor_guardian_journal_head, "predecessor-guardian-head-test");
 });

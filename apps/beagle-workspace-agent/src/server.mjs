@@ -750,6 +750,24 @@ wss.on("connection", async (ws, req, context) => {
     semantic_journal_head: supervisorIdentity.semanticJournalHead,
     guardian_journal_head: supervisorIdentity.guardianJournalHead,
     kernel_recovery_count: supervisorIdentity.kernelRecoveryCount,
+    lineage_verified: supervisorIdentity.lineageVerified,
+    generation_lineage_head: supervisorIdentity.generationLineageHead,
+    generation_transition: supervisorIdentity.generationTransition,
+    generation_transition_count: supervisorIdentity.generationTransitionCount,
+    pod_resurrection_count: supervisorIdentity.podResurrectionCount,
+    predecessor_instance_id: supervisorIdentity.predecessorInstanceId,
+    predecessor_semantic_journal_head: supervisorIdentity.predecessorSemanticJournalHead,
+    predecessor_guardian_journal_head: supervisorIdentity.predecessorGuardianJournalHead,
+  };
+  const runtimeLineageEvidence = {
+    lineageVerified: supervisorIdentity.lineageVerified,
+    generationLineageHead: supervisorIdentity.generationLineageHead,
+    generationTransition: supervisorIdentity.generationTransition,
+    generationTransitionCount: supervisorIdentity.generationTransitionCount,
+    podResurrectionCount: supervisorIdentity.podResurrectionCount,
+    predecessorInstanceId: supervisorIdentity.predecessorInstanceId,
+    predecessorSemanticJournalHead: supervisorIdentity.predecessorSemanticJournalHead,
+    predecessorGuardianJournalHead: supervisorIdentity.predecessorGuardianJournalHead,
   };
 
   let activeBlock = null;
@@ -782,6 +800,7 @@ wss.on("connection", async (ws, req, context) => {
       loomInstanceId: supervisorIdentity.loomInstanceId,
       generationFingerprint: supervisorIdentity.generationFingerprint,
       journalVerified: supervisorIdentity.journalVerified,
+      ...runtimeLineageEvidence,
     };
     await appendBlockEvent(rootDir, slug, sessionId, event);
     send(ws, event);
@@ -849,6 +868,7 @@ wss.on("connection", async (ws, req, context) => {
       loomInstanceId: supervisorIdentity.loomInstanceId,
       generationFingerprint: supervisorIdentity.generationFingerprint,
       journalVerified: supervisorIdentity.journalVerified,
+      ...runtimeLineageEvidence,
       provenance: {
         protocol: WORKBENCH_PROTOCOL,
         bridge_version: bridge.bridgeVersion,
@@ -893,6 +913,7 @@ wss.on("connection", async (ws, req, context) => {
         supervisorProtocol: supervisorIdentity.protocol,
         loomInstanceId: message.loomInstanceId || supervisorIdentity.loomInstanceId,
         generationFingerprint: supervisorIdentity.generationFingerprint,
+        ...runtimeLineageEvidence,
       });
       if (activeBlock) {
         if (hasSecret(data)) {
@@ -917,6 +938,7 @@ wss.on("connection", async (ws, req, context) => {
           loomInstanceId: message.loomInstanceId || supervisorIdentity.loomInstanceId,
           loomCursor: Number(message.loomCursor || 0) || null,
           generationFingerprint: supervisorIdentity.generationFingerprint,
+          ...runtimeLineageEvidence,
         };
         await appendBlockEvent(rootDir, slug, sessionId, blockEvent);
         send(ws, blockEvent);
@@ -951,6 +973,7 @@ wss.on("connection", async (ws, req, context) => {
           loomInstanceId: message.loomInstanceId || supervisorIdentity.loomInstanceId,
           generationFingerprint: supervisorIdentity.generationFingerprint,
           journalVerified: supervisorIdentity.journalVerified,
+          ...runtimeLineageEvidence,
           reconnectState: cleanString(message.snapshot) ? "replayed_snapshot" : "attached",
         },
       });
@@ -964,6 +987,7 @@ wss.on("connection", async (ws, req, context) => {
         runtimeAuthority: supervisorIdentity.runtimeAuthority,
         supervisorRuntime: supervisorIdentity.runtime,
         loomInstanceId: supervisorIdentity.loomInstanceId,
+        ...runtimeLineageEvidence,
       });
     }
   });

@@ -75,6 +75,14 @@ test("normalizeSupervisorIdentity preserves the legacy Node backend", () => {
     semanticJournalHead: null,
     guardianJournalHead: null,
     kernelRecoveryCount: 0,
+    lineageVerified: false,
+    generationLineageHead: null,
+    generationTransition: null,
+    generationTransitionCount: 0,
+    podResurrectionCount: 0,
+    predecessorInstanceId: null,
+    predecessorSemanticJournalHead: null,
+    predecessorGuardianJournalHead: null,
   });
 });
 
@@ -90,6 +98,14 @@ test("normalizeSupervisorIdentity carries Loom generation evidence", () => {
       semanticJournalHead: "semantic-head",
       guardianJournalHead: "guardian-head",
       kernelRecoveryCount: 3,
+      lineageVerified: true,
+      generationLineageHead: "lineage-head",
+      generationTransition: "pod-resurrected",
+      generationTransitionCount: 4,
+      podResurrectionCount: 2,
+      predecessorInstanceId: "instance-6",
+      predecessorSemanticJournalHead: "predecessor-semantic-head",
+      predecessorGuardianJournalHead: "predecessor-guardian-head",
     },
   }), {
     runtime: "sounio-loom-beagle-bridge-v1",
@@ -101,6 +117,14 @@ test("normalizeSupervisorIdentity carries Loom generation evidence", () => {
     semanticJournalHead: "semantic-head",
     guardianJournalHead: "guardian-head",
     kernelRecoveryCount: 3,
+    lineageVerified: true,
+    generationLineageHead: "lineage-head",
+    generationTransition: "pod-resurrected",
+    generationTransitionCount: 4,
+    podResurrectionCount: 2,
+    predecessorInstanceId: "instance-6",
+    predecessorSemanticJournalHead: "predecessor-semantic-head",
+    predecessorGuardianJournalHead: "predecessor-guardian-head",
   });
 });
 
