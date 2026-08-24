@@ -42,6 +42,16 @@ fail() {
   exit 1
 }
 
+duration_seconds() {
+  local value="$1" amount="${1%?}" suffix="${1: -1}"
+  case "$suffix" in
+    s) printf '%s\n' "$amount" ;;
+    m) printf '%s\n' "$((amount * 60))" ;;
+    h) printf '%s\n' "$((amount * 3600))" ;;
+    *) fail "unsupported timeout: $value" ;;
+  esac
+}
+
 while (($#)); do
   case "$1" in
     --execute) MODE=execute; shift ;;
@@ -111,8 +121,20 @@ trap cleanup EXIT
 
 EXECUTED=1
 kubectl apply -f "$RENDERED" > "$EVIDENCE_DIR/apply.txt"
-kubectl -n "$NAMESPACE" wait --for=condition=complete "job/$BUILD_JOB_NAME" \
-  --timeout="$TIMEOUT" > "$EVIDENCE_DIR/wait.txt"
+deadline="$((SECONDS + $(duration_seconds "$TIMEOUT")))"
+while ((SECONDS < deadline)); do
+  succeeded="$(kubectl -n "$NAMESPACE" get job "$BUILD_JOB_NAME" \
+    -o jsonpath='{.status.succeeded}' 2>/dev/null || true)"
+  failed="$(kubectl -n "$NAMESPACE" get job "$BUILD_JOB_NAME" \
+    -o jsonpath='{.status.failed}' 2>/dev/null || true)"
+  if [[ "$succeeded" == 1 ]]; then
+    printf 'job=%s state=complete\n' "$BUILD_JOB_NAME" > "$EVIDENCE_DIR/wait.txt"
+    break
+  fi
+  [[ -z "$failed" || "$failed" == 0 ]] || fail "Kaniko Job failed: $BUILD_JOB_NAME"
+  sleep 2
+done
+[[ "${succeeded:-}" == 1 ]] || fail "Kaniko Job timed out after $TIMEOUT: $BUILD_JOB_NAME"
 manifest_headers="$EVIDENCE_DIR/manifest-headers.txt"
 curl --fail --silent --show-error --dump-header "$manifest_headers" --output "$EVIDENCE_DIR/manifest.json" \
   --header 'Accept: application/vnd.docker.distribution.manifest.v2+json' \

@@ -7,7 +7,7 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       build-essential \
       ca-certificates \
-      dune \
+      ocaml-dune \
       git \
       curl \
       libcryptokit-ocaml-dev \
