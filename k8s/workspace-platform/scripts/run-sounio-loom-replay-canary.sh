@@ -34,6 +34,7 @@ Options:
   --name NAME               exact sounio-loom-replay-* resource prefix
   --source-commit SHA       required exact Sounio commit
   --source-ref REF          clone ref containing SHA
+  --image IMAGE             canary image tag or immutable digest
   --evidence-dir DIR        output directory (default: /tmp/NAME-evidence)
   --timeout DURATION        kubectl wait duration (default: 900s)
   -h, --help                show this help
@@ -52,6 +53,7 @@ while (($#)); do
     --name) [[ $# -ge 2 ]] || fail '--name requires a value'; CANARY_NAME="$2"; shift 2 ;;
     --source-commit) [[ $# -ge 2 ]] || fail '--source-commit requires a value'; SOUNIO_SOURCE_COMMIT="$2"; shift 2 ;;
     --source-ref) [[ $# -ge 2 ]] || fail '--source-ref requires a value'; SOUNIO_SOURCE_REF="$2"; shift 2 ;;
+    --image) [[ $# -ge 2 ]] || fail '--image requires a value'; WORKSPACE_IMAGE="$2"; shift 2 ;;
     --evidence-dir) [[ $# -ge 2 ]] || fail '--evidence-dir requires a value'; EVIDENCE_DIR="$2"; shift 2 ;;
     --timeout) [[ $# -ge 2 ]] || fail '--timeout requires a value'; TIMEOUT="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -66,6 +68,7 @@ done
 [[ "$SOUNIO_SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
   fail '--source-commit must be an exact lowercase 40-character Git SHA'
 [[ "$SOUNIO_SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || fail 'source ref contains unsupported characters'
+[[ "$WORKSPACE_IMAGE" =~ ^[A-Za-z0-9./:@_-]+$ ]] || fail 'image reference contains unsupported characters'
 [[ "$TIMEOUT" =~ ^[1-9][0-9]*[smh]$ ]] || fail 'timeout must look like 900s, 15m, or 1h'
 command -v kubectl >/dev/null || fail 'kubectl is required'
 
