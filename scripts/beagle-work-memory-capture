@@ -7,6 +7,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${BEAGLE_MCP_LOCAL_ENV:-${HOME}/.beagle/mcp-local.env}"
+GENERATE_ID="${ROOT_DIR}/scripts/beagle-generate-id"
 
 if [[ -f "${ENV_FILE}" ]]; then
   # shellcheck disable=SC1090
@@ -123,13 +124,20 @@ repo="${repo:-beagle}"
 branch="${branch:-unknown}"
 commit="${commit:-unknown}"
 source_surface="${source_surface:-${agent}-work-memory}"
-session_id="${session_id:-${agent}-$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+session_id="${session_id:-${agent}-$(date -u +%Y%m%dT%H%M%SZ)-$("${GENERATE_ID}")}"
 summary="${summary:-${agent} ${phase} event for ${project_slug} at ${commit}}"
 core_url="${BEAGLE_CORE_URL:-http://beagle-core.tail21cbc4.ts.net}"
 cockpit_url="${BEAGLE_COCKPIT_URL:-${COCKPIT_URL:-http://project-cockpit.tail21cbc4.ts.net}}"
 api_token="${BEAGLE_CORE_API_TOKEN:-${BEAGLE_API_TOKEN:-}}"
 consumer_header_name="${BEAGLE_CORE_CONSUMER_HEADER_NAME:-}"
 consumer_header_value="${BEAGLE_CORE_CONSUMER_HEADER_VALUE:-}"
+connect_timeout="${BEAGLE_WORK_MEMORY_CONNECT_TIMEOUT_SECONDS:-5}"
+request_timeout="${BEAGLE_WORK_MEMORY_REQUEST_TIMEOUT_SECONDS:-20}"
+
+if ! [[ "${connect_timeout}" =~ ^[1-9][0-9]*$ && "${request_timeout}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "BEAGLE_WORK_MEMORY_CONNECT_TIMEOUT_SECONDS and BEAGLE_WORK_MEMORY_REQUEST_TIMEOUT_SECONDS must be positive integers." >&2
+  exit 2
+fi
 
 fetch_cockpit_token() {
   command -v curl >/dev/null 2>&1 || return 1
@@ -396,18 +404,25 @@ build_curl_headers() {
 
 post_payload() {
   build_curl_headers
-  curl -sS -o "${response}" -w "%{http_code}" \
+  curl -sS --connect-timeout "${connect_timeout}" --max-time "${request_timeout}" \
+    -o "${response}" -w "%{http_code}" \
     -X POST "${core_url%/}/api/exocortex/v1/memory/assisted-import" \
     "${curl_headers[@]}" \
     --data-binary @"${payload}"
 }
 
-status="$(post_payload)"
+if ! status="$(post_payload)"; then
+  echo "beagle-work-memory-capture could not reach Beagle Core within ${request_timeout}s" >&2
+  exit 6
+fi
 
 if [[ "${status}" == "401" ]]; then
   if fetch_cockpit_token; then
     : >"${response}"
-    status="$(post_payload)"
+    if ! status="$(post_payload)"; then
+      echo "beagle-work-memory-capture retry could not reach Beagle Core within ${request_timeout}s" >&2
+      exit 6
+    fi
   fi
 fi
 

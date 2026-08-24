@@ -10,6 +10,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CAPTURE="${ROOT_DIR}/scripts/beagle-work-memory-capture"
+GENERATE_ID="${ROOT_DIR}/scripts/beagle-generate-id"
 STATE_DIR="${BEAGLE_WORK_MEMORY_DAEMON_DIR:-${HOME}/.beagle/work-memory-daemon}"
 OUTBOX_DIR="${STATE_DIR}/outbox"
 STATUS_FILE="${STATE_DIR}/status.json"
@@ -97,7 +98,7 @@ umask 077
 mkdir -p "${OUTBOX_DIR}"
 chmod 700 "${STATE_DIR}" "${OUTBOX_DIR}" 2>/dev/null || true
 
-session_id="${session_id:-${agent}-daemon-$(date -u +%Y%m%dT%H%M%SZ)-$(uuidgen | tr '[:upper:]' '[:lower:]')}"
+session_id="${session_id:-${agent}-daemon-$(date -u +%Y%m%dT%H%M%SZ)-$("${GENERATE_ID}")}"
 
 write_status() {
   local status="$1"
