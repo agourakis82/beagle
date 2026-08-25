@@ -5,7 +5,7 @@
 # the catalog while Fable-1 is recovered independently of tmux and of the
 # workspace Pod lifecycle. The old additive herd CronJob remains installed until
 # every lane has an explicit persistent-catalog migration receipt; it explicitly
-# excludes Fable-1 while this guardian owns that lane's recovery.
+# excludes each slot listed in TARGET_SLOTS while this guardian owns recovery.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -80,9 +80,10 @@ spec:
               RUNTIME=/workspace/sounio/.git/sounio-coord-runtime/current/bin/sounio-fleet-runtime
               MANIFEST=/workspace/sounio/.git/sounio-coord-runtime/current/manifest
               FLEET_CONFIG=/workspace/.home/openvscode-server/.config/sounio-dev/fleet.toml
-              RECOVERY_BUDGET=/workspace/.home/openvscode-server/.config/sounio-dev/fleet-live/fable-1/recovery-budget-guardian-v2.json
-              REMOTE_HALT_FILE=/workspace/.home/openvscode-server/.config/sounio-dev/fleet-live/fable-1/recovery-guardian-v2.halted
-              LOCAL_HALT_FILE=/tmp/sounio-fleet-guardian.halted
+              RECOVERY_ROOT=/workspace/.home/openvscode-server/.config/sounio-dev/fleet-live/recovery-guardian-v3
+              RECOVERY_BUDGET_DIR=$RECOVERY_ROOT/budgets
+              RECOVERY_LATCH_DIR=$RECOVERY_ROOT/latches
+              TARGET_SLOTS="fable-1 cursor-1 grok-cli2"
               LAST_STATE=/tmp/sounio-fleet-guardian.state
               LAST_SUCCESS=/tmp/sounio-fleet-guardian.last-success
 
@@ -120,7 +121,7 @@ spec:
                 if [ "$current" != "$previous" ]; then
                   if [ "$current" = down ]; then
                     notify "Sounio fleet guardian unavailable" high warning \
-                      "The guardian could not verify Fable-1 in $TARGET_POD."
+                      "The guardian could not verify every migrated slot ($TARGET_SLOTS) in $TARGET_POD."
                   fi
                   printf '%s\n' "$current" > "$LAST_STATE.tmp"
                   mv "$LAST_STATE.tmp" "$LAST_STATE"
@@ -128,37 +129,9 @@ spec:
                 fi
               }
 
-              latch_guardian() {
-                reason=$1
-                if ! exec_ws "umask 077 && printf '%s\\n' '$reason' > $REMOTE_HALT_FILE" >/dev/null; then
-                  echo "failed to persist guardian latch in the workspace PVC" >&2
-                fi
-                printf '%s\n' "$reason" > "$LOCAL_HALT_FILE"
-              }
-
               previous=booting
               printf '%s\n' "$previous" > "$LAST_STATE"
               while :; do
-                if [ -f "$LOCAL_HALT_FILE" ]; then
-                  record_state down
-                  sleep "$GUARD_INTERVAL_SECONDS"
-                  continue
-                fi
-
-                latch_query="if test -f $REMOTE_HALT_FILE; then printf '%s\\n' halted; else printf '%s\\n' clear; fi"
-                if ! latch_state=$(exec_ws "$latch_query"); then
-                  echo "guardian latch state is unavailable; recovery fails closed" >&2
-                  record_state down
-                  sleep "$GUARD_INTERVAL_SECONDS"
-                  continue
-                fi
-                if [ "$latch_state" = halted ]; then
-                  printf '%s\n' remote-latch-present > "$LOCAL_HALT_FILE"
-                  record_state down
-                  sleep "$GUARD_INTERVAL_SECONDS"
-                  continue
-                fi
-
                 observe_command="cd $WORKTREE && exec $RUNTIME --cwd $WORKTREE watch --config $FLEET_CONFIG --cycles 1 --interval 0.01"
                 if ! observed=$(exec_ws "$observe_command"); then
                   echo "fleet preflight observation failed: $observed" >&2
@@ -166,23 +139,29 @@ spec:
                   sleep "$GUARD_INTERVAL_SECONDS"
                   continue
                 fi
-                command="cd $WORKTREE && grep -qx capability=fleet-recovery-start-only-v1 $MANIFEST && test -r $FLEET_CONFIG && test -r $RECOVERY_BUDGET && exec $RUNTIME --cwd $WORKTREE watch --config $FLEET_CONFIG --cycles 1 --interval 0.01 --apply-recovery --recovery-budget $RECOVERY_BUDGET"
+                command="cd $WORKTREE && grep -qx capability=fleet-recovery-directory-v1 $MANIFEST && grep -qx capability=fleet-recovery-latch-trace-v1 $MANIFEST && test -r $FLEET_CONFIG && test -d $RECOVERY_BUDGET_DIR && test -d $RECOVERY_LATCH_DIR && exec $RUNTIME --cwd $WORKTREE watch --config $FLEET_CONFIG --cycles 1 --interval 0.01 --apply-recovery --recovery-budget-dir $RECOVERY_BUDGET_DIR --recovery-latch-dir $RECOVERY_LATCH_DIR"
                 if reconciled=$(exec_ws "$command"); then
-                  status_command="cd $WORKTREE && exec $RUNTIME --cwd $WORKTREE status --slot fable-1"
-                  if status=$(exec_ws "$status_command") && \
-                    echo "$status" | grep -q 'observed=active .*decision=noop'; then
+                  status_command="cd $WORKTREE && for slot in $TARGET_SLOTS; do $RUNTIME --cwd $WORKTREE status --slot \$slot || exit; done"
+                  all_active=1
+                  if status=$(exec_ws "$status_command"); then
+                    for slot in $TARGET_SLOTS; do
+                      echo "$status" | grep -q "slot=$slot observed=active .*decision=noop" || all_active=0
+                    done
+                  else
+                    all_active=0
+                  fi
+                  if [ "$all_active" -eq 1 ]; then
                     now=$(date +%s)
                     printf '%s\n' "$now" > "$LAST_SUCCESS.tmp"
                     mv "$LAST_SUCCESS.tmp" "$LAST_SUCCESS"
                     current=live
                     echo "$reconciled"
                     echo "$status"
-                    case "$reconciled" in
-                      *"slot=fable-1 action=start status=committed"*)
-                        notify "Sounio lane recovered" default arrows_counterclockwise \
-                          "The Pod-external fleet guardian restored Fable-1 with bounded start authority."
-                        ;;
-                    esac
+                    recovered_slots=$(echo "$reconciled" | sed -n 's/^FLEET_ACTION slot=\([^ ]*\) action=start status=committed.*/\1/p' | tr '\n' ' ')
+                    if [ -n "$recovered_slots" ]; then
+                      notify "Sounio lane recovered" default arrows_counterclockwise \
+                        "The Pod-external fleet guardian restored:$recovered_slots with independent bounded start authority."
+                    fi
                   else
                     current=down
                     echo "fleet status verification failed: ${status:-unavailable}" >&2
@@ -190,13 +169,8 @@ spec:
                 else
                   current=down
                   echo "fleet reconciliation failed: $reconciled" >&2
-                  case "$reconciled" in
-                    *"slot=fable-1 action=start status=failed"*|\
-                    *"slot=fable-1 action=start status=refused"*|\
-                    *"reason=recovery-budget-exhausted"*)
-                      latch_guardian fable-start-authority-failed
-                      ;;
-                  esac
+                  latches=$(exec_ws "find $RECOVERY_LATCH_DIR -maxdepth 1 -type f -name '*.halted.json' -printf '%f '" || echo unavailable)
+                  echo "persistent per-slot recovery latches: $latches" >&2
                 fi
 
                 record_state "$current"
@@ -207,7 +181,7 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                - 'test ! -f /tmp/sounio-fleet-guardian.halted && now=$(date +%s) && last=$(cat /tmp/sounio-fleet-guardian.last-success 2>/dev/null || echo 0) && [ $((now - last)) -le 20 ]'
+                - 'now=$(date +%s) && last=$(cat /tmp/sounio-fleet-guardian.last-success 2>/dev/null || echo 0) && [ $((now - last)) -le 20 ]'
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 2

@@ -71,7 +71,7 @@ spec:
                   POD=sounio-workspace-control-0
                   NS=beagle
                   B=/workspace/.home/openvscode-server
-                  MIGRATED_LANES="fable-1"
+                  MIGRATED_LANES="fable-1 cursor-1 grok-cli2"
 
                   exec_ws() {
                     kubectl -n "$NS" exec "$POD" -c workspace-ssh -- \
