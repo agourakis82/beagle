@@ -1,0 +1,195 @@
+# Pod-external desired-state guardian for the incrementally migrated Sounio fleet.
+#
+# The guardian consumes only bounded start-recovery authority. The fleet runtime
+# holds newly planned stop actions in this mode, so legacy lanes can remain in
+# the catalog while Fable-1 is recovered independently of tmux and of the
+# workspace Pod lifecycle. The old additive herd CronJob remains installed until
+# every lane has an explicit persistent-catalog migration receipt; it explicitly
+# excludes each slot listed in TARGET_SLOTS while this guardian owns recovery.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sounio-fleet-guardian
+  namespace: beagle
+  labels:
+    app.kubernetes.io/name: sounio-fleet-guardian
+    app.kubernetes.io/part-of: loom
+    app.kubernetes.io/component: control-plane
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sounio-fleet-guardian
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sounio-fleet-guardian
+        app.kubernetes.io/part-of: loom
+        app.kubernetes.io/component: control-plane
+    spec:
+      serviceAccountName: sounio-workspace-governance
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+        appArmorProfile:
+          type: Unconfined
+      containers:
+        - name: guardian
+          image: 192.168.3.207:5003/project-cockpit:lanekey-ea9ade01
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TARGET_NAMESPACE
+              value: beagle
+            - name: TARGET_POD
+              value: sounio-workspace-control-0
+            - name: TARGET_CONTAINER
+              value: workspace-ssh
+            - name: GUARD_INTERVAL_SECONDS
+              value: "5"
+            - name: NTFY_URL
+              value: http://ntfy.beagle.svc.cluster.local
+            - name: NTFY_TOPIC
+              valueFrom:
+                secretKeyRef:
+                  name: ntfy-auth
+                  key: topic
+                  optional: true
+            - name: NTFY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ntfy-auth
+                  key: user
+                  optional: true
+            - name: NTFY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ntfy-auth
+                  key: password
+                  optional: true
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+
+              BASE_HOME=/workspace/.home/openvscode-server
+              WORKTREE=/workspace/sounio
+              RUNTIME=/workspace/sounio/.git/sounio-coord-runtime/current/bin/sounio-fleet-runtime
+              MANIFEST=/workspace/sounio/.git/sounio-coord-runtime/current/manifest
+              FLEET_CONFIG=/workspace/.home/openvscode-server/.config/sounio-dev/fleet.toml
+              RECOVERY_ROOT=/workspace/.home/openvscode-server/.config/sounio-dev/fleet-live/recovery-guardian-v3
+              RECOVERY_BUDGET_DIR=$RECOVERY_ROOT/budgets
+              RECOVERY_LATCH_DIR=$RECOVERY_ROOT/latches
+              TARGET_SLOTS="fable-1 cursor-1 grok-cli2"
+              LAST_STATE=/tmp/sounio-fleet-guardian.state
+              LAST_SUCCESS=/tmp/sounio-fleet-guardian.last-success
+
+              exec_ws() {
+                kubectl -n "$TARGET_NAMESPACE" exec "$TARGET_POD" \
+                  -c "$TARGET_CONTAINER" -- \
+                  su -s /bin/bash openvscode-server -c \
+                  "export HOME=$BASE_HOME; export PATH=$BASE_HOME/.npm-global/bin:$BASE_HOME/bin:/usr/local/bin:/usr/bin:/bin; $1" 2>&1
+              }
+
+              notify() {
+                title=$1
+                priority=$2
+                tags=$3
+                body=$4
+                [ -n "${NTFY_TOPIC:-}" ] || return 0
+                if [ -n "${NTFY_USER:-}" ]; then
+                  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+                    -u "$NTFY_USER:${NTFY_PASSWORD:-}" \
+                    -H "Title: $title" -H "Priority: $priority" -H "Tags: $tags" \
+                    -d "$body" "$NTFY_URL/$NTFY_TOPIC")
+                else
+                  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+                    -H "Title: $title" -H "Priority: $priority" -H "Tags: $tags" \
+                    -d "$body" "$NTFY_URL/$NTFY_TOPIC")
+                fi
+                case "$code" in
+                  2*) echo "notification delivered: HTTP $code" ;;
+                  *) echo "notification failed: HTTP $code" >&2 ;;
+                esac
+              }
+
+              record_state() {
+                current=$1
+                if [ "$current" != "$previous" ]; then
+                  if [ "$current" = down ]; then
+                    notify "Sounio fleet guardian unavailable" high warning \
+                      "The guardian could not verify every migrated slot ($TARGET_SLOTS) in $TARGET_POD."
+                  fi
+                  printf '%s\n' "$current" > "$LAST_STATE.tmp"
+                  mv "$LAST_STATE.tmp" "$LAST_STATE"
+                  previous=$current
+                fi
+              }
+
+              previous=booting
+              printf '%s\n' "$previous" > "$LAST_STATE"
+              while :; do
+                observe_command="cd $WORKTREE && exec $RUNTIME --cwd $WORKTREE watch --config $FLEET_CONFIG --cycles 1 --interval 0.01"
+                if ! observed=$(exec_ws "$observe_command"); then
+                  echo "fleet preflight observation failed: $observed" >&2
+                  record_state down
+                  sleep "$GUARD_INTERVAL_SECONDS"
+                  continue
+                fi
+                command="cd $WORKTREE && grep -qx capability=fleet-recovery-directory-v1 $MANIFEST && grep -qx capability=fleet-recovery-latch-trace-v1 $MANIFEST && test -r $FLEET_CONFIG && test -d $RECOVERY_BUDGET_DIR && test -d $RECOVERY_LATCH_DIR && exec $RUNTIME --cwd $WORKTREE watch --config $FLEET_CONFIG --cycles 1 --interval 0.01 --apply-recovery --recovery-budget-dir $RECOVERY_BUDGET_DIR --recovery-latch-dir $RECOVERY_LATCH_DIR"
+                if reconciled=$(exec_ws "$command"); then
+                  status_command="cd $WORKTREE && for slot in $TARGET_SLOTS; do $RUNTIME --cwd $WORKTREE status --slot \$slot || exit; done"
+                  all_active=1
+                  if status=$(exec_ws "$status_command"); then
+                    for slot in $TARGET_SLOTS; do
+                      echo "$status" | grep -q "slot=$slot observed=active .*decision=noop" || all_active=0
+                    done
+                  else
+                    all_active=0
+                  fi
+                  if [ "$all_active" -eq 1 ]; then
+                    now=$(date +%s)
+                    printf '%s\n' "$now" > "$LAST_SUCCESS.tmp"
+                    mv "$LAST_SUCCESS.tmp" "$LAST_SUCCESS"
+                    current=live
+                    echo "$reconciled"
+                    echo "$status"
+                    recovered_slots=$(echo "$reconciled" | sed -n 's/^FLEET_ACTION slot=\([^ ]*\) action=start status=committed.*/\1/p' | tr '\n' ' ')
+                    if [ -n "$recovered_slots" ]; then
+                      notify "Sounio lane recovered" default arrows_counterclockwise \
+                        "The Pod-external fleet guardian restored:$recovered_slots with independent bounded start authority."
+                    fi
+                  else
+                    current=down
+                    echo "fleet status verification failed: ${status:-unavailable}" >&2
+                  fi
+                else
+                  current=down
+                  echo "fleet reconciliation failed: $reconciled" >&2
+                  latches=$(exec_ws "find $RECOVERY_LATCH_DIR -maxdepth 1 -type f -name '*.halted.json' -printf '%f '" || echo unavailable)
+                  echo "persistent per-slot recovery latches: $latches" >&2
+                fi
+
+                record_state "$current"
+                sleep "$GUARD_INTERVAL_SECONDS"
+              done
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - 'now=$(date +%s) && last=$(cat /tmp/sounio-fleet-guardian.last-success 2>/dev/null || echo 0) && [ $((now - last)) -le 20 ]'
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
