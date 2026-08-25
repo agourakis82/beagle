@@ -60,8 +60,19 @@ and the existing Fable-1 recovery budget. The runtime may restore an enabled
 missing Fable generation, but recovery mode holds all newly planned stop actions
 and all unbudgeted starts. This is intentional during migration: legacy active
 lanes remain visible without giving the unattended Deployment authority to stop
-them. The additive `sounio-lanes-ensure` CronJob remains the wider fleet fallback
-until those lanes have individual persistent-catalog receipts.
+them. A deterministic Fable start failure latches the guardian after the first
+attempt, makes readiness fail, and persists the latch in the workspace PVC so a
+Pod restart cannot consume another budget unit. Recovery requires an operator to
+remove `fleet-live/fable-1/recovery-guardian-v2.halted` and roll out the guardian.
+Each recovery cycle first runs a no-authority planning pass, ensuring the live
+generation is recorded as `noop` before any bounded start authority is available.
+
+The additive `sounio-lanes-ensure` CronJob remains the wider fleet fallback until
+those lanes have individual persistent-catalog receipts. It passes
+`SOUNIO_HERD_EXCLUDE_LANES=fable-1` to the live herd script, so the legacy tmux
+path cannot respawn or start the externally managed Fable lane while repairing a
+different legacy lane. The versioned habitat script mirrors the live one-session,
+one-window-per-lane fleet layout; do not reinstall an older per-session variant.
 
 Validate and apply only after the referenced Sounio runtime capability is live:
 

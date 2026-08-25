@@ -4,7 +4,8 @@
 # holds newly planned stop actions in this mode, so legacy lanes can remain in
 # the catalog while Fable-1 is recovered independently of tmux and of the
 # workspace Pod lifecycle. The old additive herd CronJob remains installed until
-# every lane has an explicit persistent-catalog migration receipt.
+# every lane has an explicit persistent-catalog migration receipt; it explicitly
+# excludes Fable-1 while this guardian owns that lane's recovery.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -74,18 +75,22 @@ spec:
             - |
               set -u
 
+              BASE_HOME=/workspace/.home/openvscode-server
               WORKTREE=/workspace/sounio
               RUNTIME=/workspace/sounio/.git/sounio-coord-runtime/current/bin/sounio-fleet-runtime
               MANIFEST=/workspace/sounio/.git/sounio-coord-runtime/current/manifest
               FLEET_CONFIG=/workspace/.home/openvscode-server/.config/sounio-dev/fleet.toml
-              RECOVERY_BUDGET=/workspace/.home/openvscode-server/.config/sounio-dev/fleet-live/fable-1/recovery-budget.json
+              RECOVERY_BUDGET=/workspace/.home/openvscode-server/.config/sounio-dev/fleet-live/fable-1/recovery-budget-guardian-v2.json
+              REMOTE_HALT_FILE=/workspace/.home/openvscode-server/.config/sounio-dev/fleet-live/fable-1/recovery-guardian-v2.halted
+              LOCAL_HALT_FILE=/tmp/sounio-fleet-guardian.halted
               LAST_STATE=/tmp/sounio-fleet-guardian.state
               LAST_SUCCESS=/tmp/sounio-fleet-guardian.last-success
 
               exec_ws() {
                 kubectl -n "$TARGET_NAMESPACE" exec "$TARGET_POD" \
                   -c "$TARGET_CONTAINER" -- \
-                  su -s /bin/bash openvscode-server -c "$1" 2>&1
+                  su -s /bin/bash openvscode-server -c \
+                  "export HOME=$BASE_HOME; export PATH=$BASE_HOME/.npm-global/bin:$BASE_HOME/bin:/usr/local/bin:/usr/bin:/bin; $1" 2>&1
               }
 
               notify() {
@@ -110,9 +115,57 @@ spec:
                 esac
               }
 
+              record_state() {
+                current=$1
+                if [ "$current" != "$previous" ]; then
+                  if [ "$current" = down ]; then
+                    notify "Sounio fleet guardian unavailable" high warning \
+                      "The guardian could not verify Fable-1 in $TARGET_POD."
+                  fi
+                  printf '%s\n' "$current" > "$LAST_STATE.tmp"
+                  mv "$LAST_STATE.tmp" "$LAST_STATE"
+                  previous=$current
+                fi
+              }
+
+              latch_guardian() {
+                reason=$1
+                if ! exec_ws "umask 077 && printf '%s\\n' '$reason' > $REMOTE_HALT_FILE" >/dev/null; then
+                  echo "failed to persist guardian latch in the workspace PVC" >&2
+                fi
+                printf '%s\n' "$reason" > "$LOCAL_HALT_FILE"
+              }
+
               previous=booting
               printf '%s\n' "$previous" > "$LAST_STATE"
               while :; do
+                if [ -f "$LOCAL_HALT_FILE" ]; then
+                  record_state down
+                  sleep "$GUARD_INTERVAL_SECONDS"
+                  continue
+                fi
+
+                latch_query="if test -f $REMOTE_HALT_FILE; then printf '%s\\n' halted; else printf '%s\\n' clear; fi"
+                if ! latch_state=$(exec_ws "$latch_query"); then
+                  echo "guardian latch state is unavailable; recovery fails closed" >&2
+                  record_state down
+                  sleep "$GUARD_INTERVAL_SECONDS"
+                  continue
+                fi
+                if [ "$latch_state" = halted ]; then
+                  printf '%s\n' remote-latch-present > "$LOCAL_HALT_FILE"
+                  record_state down
+                  sleep "$GUARD_INTERVAL_SECONDS"
+                  continue
+                fi
+
+                observe_command="cd $WORKTREE && exec $RUNTIME --cwd $WORKTREE watch --config $FLEET_CONFIG --cycles 1 --interval 0.01"
+                if ! observed=$(exec_ws "$observe_command"); then
+                  echo "fleet preflight observation failed: $observed" >&2
+                  record_state down
+                  sleep "$GUARD_INTERVAL_SECONDS"
+                  continue
+                fi
                 command="cd $WORKTREE && grep -qx capability=fleet-recovery-start-only-v1 $MANIFEST && test -r $FLEET_CONFIG && test -r $RECOVERY_BUDGET && exec $RUNTIME --cwd $WORKTREE watch --config $FLEET_CONFIG --cycles 1 --interval 0.01 --apply-recovery --recovery-budget $RECOVERY_BUDGET"
                 if reconciled=$(exec_ws "$command"); then
                   status_command="cd $WORKTREE && exec $RUNTIME --cwd $WORKTREE status --slot fable-1"
@@ -137,17 +190,16 @@ spec:
                 else
                   current=down
                   echo "fleet reconciliation failed: $reconciled" >&2
+                  case "$reconciled" in
+                    *"slot=fable-1 action=start status=failed"*|\
+                    *"slot=fable-1 action=start status=refused"*|\
+                    *"reason=recovery-budget-exhausted"*)
+                      latch_guardian fable-start-authority-failed
+                      ;;
+                  esac
                 fi
 
-                if [ "$current" != "$previous" ]; then
-                  if [ "$current" = down ]; then
-                    notify "Sounio fleet guardian unavailable" high warning \
-                      "The guardian could not verify Fable-1 in $TARGET_POD."
-                  fi
-                  printf '%s\n' "$current" > "$LAST_STATE.tmp"
-                  mv "$LAST_STATE.tmp" "$LAST_STATE"
-                  previous=$current
-                fi
+                record_state "$current"
                 sleep "$GUARD_INTERVAL_SECONDS"
               done
           readinessProbe:
@@ -155,7 +207,7 @@ spec:
               command:
                 - /bin/sh
                 - -c
-                - 'now=$(date +%s); last=$(cat /tmp/sounio-fleet-guardian.last-success 2>/dev/null || echo 0); [ $((now - last)) -le 20 ]'
+                - 'test ! -f /tmp/sounio-fleet-guardian.halted && now=$(date +%s) && last=$(cat /tmp/sounio-fleet-guardian.last-success 2>/dev/null || echo 0) && [ $((now - last)) -le 20 ]'
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 2

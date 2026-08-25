@@ -1,14 +1,13 @@
-# sounio-lanes-ensure — as 11 lanes de trabalho voltam sozinhas, e a volta AVISA.
+# sounio-lanes-ensure — as lanes legacy voltam sozinhas, e a volta AVISA.
 #
 # POR QUE EXISTE, e a assimetria que ficou visível ao vivo em 09-ago-2026: o pod do workspace foi
 # recriado às 19:48 UTC e as 11 lanes morreram junto. O `loomd` voltou sozinho — a CronJob irmã o
 # religou — e **nada levantou as lanes**. O supervisor tinha rede de segurança; o trabalho dele
 # não tinha. Ficaram mortas até alguém rodar o herd à mão.
 #
-# SEGURANÇA MEDIDA, não suposta: `sounio-herd-split` sem argumento é ADITIVO. Rodado com as 12
-# sessões de pé, os PIDs de TODOS os panes ficaram idênticos antes e depois — ele cria só o que
-# falta e não encosta em lane viva. Sem essa medição isto seria um cron que reinicia o trabalho
-# dele a cada 5 minutos.
+# SEGURANÇA MEDIDA, não suposta: `sounio-herd-split` sem argumento é ADITIVO. Rodado com a
+# sessão `fleet` de pé, os PIDs dos panes ficaram idênticos antes e depois. Lanes migradas são
+# excluídas antes da comparação e também dentro do herd, então o Cron não pode revivê-las.
 #
 # ESCAPE HATCH: se ele quiser deliberadamente ficar sem lanes (manutenção, depuração), basta
 # `touch /workspace/.home/openvscode-server/.sem-autoherd`. Um cron que ressuscita o que o
@@ -72,6 +71,7 @@ spec:
                   POD=sounio-workspace-control-0
                   NS=beagle
                   B=/workspace/.home/openvscode-server
+                  MIGRATED_LANES="fable-1"
 
                   exec_ws() {
                     kubectl -n "$NS" exec "$POD" -c workspace-ssh -- \
@@ -93,6 +93,7 @@ spec:
 
                   faltando=""
                   for l in $esperadas; do
+                    case " $MIGRATED_LANES " in *" $l "*) continue;; esac
                     case " $antes " in *" $l "*) ;; *) faltando="$faltando $l";; esac
                   done
 
@@ -104,7 +105,7 @@ spec:
 
                   # O herd é ADITIVO (medido: com tudo de pé, nenhum PID muda). Ele cria o que
                   # falta e não encosta em lane viva.
-                  exec_ws '~/bin/sounio-herd-split' | tail -3
+                  exec_ws "SOUNIO_HERD_EXCLUDE_LANES='$MIGRATED_LANES' ~/bin/sounio-herd-split" | tail -3
                   sleep 8
                   depois=$(exec_ws 'tmux ls -F "#{session_name}" 2>/dev/null | sort | tr "\n" " "')
                   echo "depois:    $depois"

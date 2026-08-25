@@ -29,39 +29,31 @@ corrompem o arquivo silenciosamente.
 | script | o quê |
 |---|---|
 | `sounio-herd-tmux` | as 11 lanes em **uma** sessão tmux (`sounio-dev`) → 1 workspace, N abas no cmux |
-| `sounio-herd-split` | as 11 lanes em **uma sessão por lane** → N workspaces no cmux (1 por agente) |
+| `sounio-herd-split` | compatibilidade da sessão `fleet`: uma janela por lane, com exclusão de autoridade externa |
 | `sounio-herd` | as mesmas lanes em **herdr**, com estado semântico dos agentes |
 | `sounio-loomd` | mantém o **loomd** de pé (sessão tmux dedicada `loomd`) — o supervisor que publica estado vindo do protocolo (`exact`), não de tela raspada (`inferred`) |
 
 Todos idempotentes: criam só as lanes que faltam e (nos de tmux) revivem no lugar
 as que morreram.
 
-### tmux vs split — os dois mapeamentos para o cmux
+### Compatibilidade tmux
 
 O cmux (`cmux ssh-tmux <host>`) lê o **servidor tmux inteiro**: cada *sessão* vira
-um workspace na sidebar, cada *janela* vira uma aba vertical. Daí os dois modos:
+um workspace na sidebar, cada *janela* vira uma aba vertical.
 
 - **`sounio-herd-tmux`** — 1 sessão `sounio-dev` com 11 janelas → **1 workspace,
   11 abas**. As lanes ficam agrupadas como "o projeto Sounio".
-- **`sounio-herd-split`** — 11 sessões de 1 janela → **11 workspaces de topo**,
-  cada agente com nome, branch/PR e **notificação independente**. Melhor para ver
-  de relance quem travou esperando aprovação.
+- **`sounio-herd-split`** — converge para a sessão `fleet`, uma janela por lane.
+  `SOUNIO_HERD_EXCLUDE_LANES` impede que o fallback legacy crie, reviva ou inicie
+  uma lane que já tenha autoridade de recuperação externa.
 
-O split é **não-destrutivo**: não toca na `sounio-dev`. Dá para rodar os dois e
-comparar no cmux; se preferir o split, aposente a `sounio-dev` depois.
+O nome `split` ficou por compatibilidade; desde 14-ago-2026 ele opera a sessão
+`fleet` consolidada. O `sounio-herd-tmux` é o caminho histórico. Ambos preservam
+o lançador canônico `sounio-lane-shell`, que:
 
-### Por que dois
-
-O `sounio-herd-tmux` é o caminho principal, por duas razões concretas:
-
-1. Ele lança cada lane pelo `~/bin/sounio-lane-shell`, o lançador canônico do
-   habitat, que aplica os **limites de memória por agente** (`ulimit -Sv`,
-   `NODE_OPTIONS=--max-old-space-size`) e força **IPv4 no DNS** — o egress IPv6
-   do workspace está quebrado. Sem isso, uma lane de claude pode consumir o
-   cgroup inteiro do sidecar SSH.
-2. O **cmux**, a GUI de macOS, anexa a sessões *tmux* remotas via `tmux -CC`
-   (control mode) e espelha janelas como abas nativas. Ele não enxerga zellij
-   nem herdr.
+1. aplica os limites de memória por agente;
+2. força IPv4 no DNS do workspace;
+3. preserva o HOME e o PATH próprios de cada lane.
 
 O `sounio-herd` existe porque o herdr reconhece o agente em cada painel e expõe
 `idle | working | blocked | done` por uma API de socket — coisa que o tmux não
