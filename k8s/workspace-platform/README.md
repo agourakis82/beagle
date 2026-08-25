@@ -35,6 +35,31 @@ projects. We need one good habitat template and a small renderer.
   - renders a concrete manifest from environment variables
 - `examples/project.env.example`
   - minimal input contract for a new project workspace
+- `sounio-obligation-guardian.yaml`
+  - Pod-external guardian for Sounio's durable-obligation control service
+
+## Sounio control-plane continuity
+
+`sounio-obligation-guardian.yaml` is deliberately separate from the legacy
+`sounio-loomd` ensure CronJob. The legacy daemon publishes exact lane state for
+the cockpit and still owns supervised Codex processes. The obligation guardian
+owns only the durable-work control service introduced by the shared Sounio
+runtime.
+
+The guardian runs outside the workspace Pod and calls
+`obligation-supervisor-ensure` through `pods/exec` every five seconds. The inner
+Sounio command owns locking, PID/start-tick validation, executable custody,
+bundle upgrade, and duplicate suppression. The outer Deployment owns Pod-loss
+recovery and readiness. Neither layer creates or inspects a tmux session.
+
+Validate and apply only after the referenced Sounio runtime capability is live:
+
+```bash
+kubectl apply --dry-run=server \
+  -f k8s/workspace-platform/sounio-obligation-guardian.yaml
+kubectl apply -f k8s/workspace-platform/sounio-obligation-guardian.yaml
+kubectl -n beagle rollout status deployment/sounio-obligation-guardian
+```
 
 ## Quick start
 
