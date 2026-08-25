@@ -87,7 +87,7 @@ spec:
                   # UMA fonte de verdade para o roster: a lista que o próprio herd usa. Manter
                   # uma segunda cópia aqui garantiria divergência na primeira lane nova.
                   esperadas=$(exec_ws "grep -m1 '^LANES=' ~/bin/sounio-herd-split | cut -d'\"' -f2")
-                  antes=$(exec_ws 'tmux ls -F "#{session_name}" 2>/dev/null | sort | tr "\n" " "')
+                  antes=$(exec_ws 'tmux list-windows -t =fleet -F "#{window_name}" 2>/dev/null | sort | tr "\n" " "')
                   echo "esperadas: $esperadas"
                   echo "antes:     $antes"
 
@@ -107,7 +107,7 @@ spec:
                   # falta e não encosta em lane viva.
                   exec_ws "SOUNIO_HERD_EXCLUDE_LANES='$MIGRATED_LANES' ~/bin/sounio-herd-split" | tail -3
                   sleep 8
-                  depois=$(exec_ws 'tmux ls -F "#{session_name}" 2>/dev/null | sort | tr "\n" " "')
+                  depois=$(exec_ws 'tmux list-windows -t =fleet -F "#{window_name}" 2>/dev/null | sort | tr "\n" " "')
                   echo "depois:    $depois"
 
                   ainda=""
