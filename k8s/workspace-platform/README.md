@@ -37,6 +37,8 @@ projects. We need one good habitat template and a small renderer.
   - minimal input contract for a new project workspace
 - `sounio-obligation-guardian.yaml`
   - Pod-external guardian for Sounio's durable-obligation control service
+- `sounio-fleet-guardian.yaml`
+  - start-only desired-lane recovery using bounded fleet authority
 
 ## Sounio control-plane continuity
 
@@ -52,6 +54,15 @@ Sounio command owns locking, PID/start-tick validation, executable custody,
 bundle upgrade, and duplicate suppression. The outer Deployment owns Pod-loss
 recovery and readiness. Neither layer creates or inspects a tmux session.
 
+`sounio-fleet-guardian.yaml` extends that boundary to the lane catalog. It runs
+one recovery cycle every five seconds against the persistent four-slot catalog
+and the existing Fable-1 recovery budget. The runtime may restore an enabled
+missing Fable generation, but recovery mode holds all newly planned stop actions
+and all unbudgeted starts. This is intentional during migration: legacy active
+lanes remain visible without giving the unattended Deployment authority to stop
+them. The additive `sounio-lanes-ensure` CronJob remains the wider fleet fallback
+until those lanes have individual persistent-catalog receipts.
+
 Validate and apply only after the referenced Sounio runtime capability is live:
 
 ```bash
@@ -59,6 +70,11 @@ kubectl apply --dry-run=server \
   -f k8s/workspace-platform/sounio-obligation-guardian.yaml
 kubectl apply -f k8s/workspace-platform/sounio-obligation-guardian.yaml
 kubectl -n beagle rollout status deployment/sounio-obligation-guardian
+
+kubectl apply --dry-run=server \
+  -f k8s/workspace-platform/sounio-fleet-guardian.yaml
+kubectl apply -f k8s/workspace-platform/sounio-fleet-guardian.yaml
+kubectl -n beagle rollout status deployment/sounio-fleet-guardian
 ```
 
 ## Quick start
