@@ -67,6 +67,29 @@ function cleanString(value) {
   return "";
 }
 
+// Runs an array of no-arg async thunks with at most `limit` in flight at once,
+// preserving result order. Used to throttle the personal-chat grounding fan-out
+// (see the call site below) — memory-pg-serve is a single replica that appears
+// to serialize concurrent /query work rather than parallelizing it, so firing
+// every grounding fetch at once made all of them collide and hit their own
+// timeout. This has no dependency beyond native Promises, matching this file's
+// existing style (no concurrency-limiting helper existed elsewhere in the repo
+// as of 2026-08-26).
+async function runWithConcurrencyLimit(thunks, limit) {
+  const results = new Array(thunks.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= thunks.length) return;
+      results[i] = await thunks[i]();
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, thunks.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 function mapStatusCodeToErrorCode(statusCode) {
   if (statusCode === 400) return ErrorCode.BAD_REQUEST;
   if (statusCode === 401) return ErrorCode.UNAUTHORIZED;
@@ -957,20 +980,41 @@ async function completeChatRequest(req, deps, options = {}) {
       // Grounding context is the dominant cost of the companion turn — bounded
       // and cached at the cockpit (bio+physio 5min TTL) AND at the model (xAI
       // prompt cache, automatic on identical prefixes).
-      const [bioResult, physioResult, sounioNowResult, sounioStateResult, sounioRelResult, memoryResults, recentConvo, broadRecall, skyResult] = await Promise.all([
-        fetchBiographyDigest(),
-        fetchPhysiomeDigest(),
-        fetchSounioNow({ limit: 6 }),
-        fetchSounioState({ limit: 1 }),
-        fetchSounioRelationship({ k: 4 }),
+      //
+      // CONCURRENCY: memory-pg-serve runs as a single replica and appears to
+      // serialize concurrent POST /query work rather than parallelizing it.
+      // Firing all five /query-backed fetches (bio, physio, sounioRel,
+      // recentMemories, exocortex) at once made every one of them collide and
+      // abort at their own timeout, even though each takes only ~4-7s in
+      // isolation — this was the actual cause of the companion-health
+      // grounding check's intermittent failures. Cap that group at 2 in-flight
+      // requests. fetchSounioNow/fetchSounioState/fetchRecentConversation hit
+      // memory-pg's GET /recent (a different, cheaper path) and
+      // fetchSpaceWeatherNow hits a different service entirely, so those four
+      // are not part of the contention and stay fully concurrent.
+      const queryGroupTasks = [
+        () => fetchBiographyDigest(),
+        () => fetchPhysiomeDigest(),
+        () => fetchSounioRelationship({ k: 4 }),
         // Authoritative "what he told me" grounding: trusted-only recall so it fills
         // directly from his own claimed/corroborated words (not the noisy full pool
         // filtered down to scraps). Background framing stays unfiltered below.
-        fetchRecentMemories(userText, { k: 16, trustedOnly: true }),
+        () => fetchRecentMemories(userText, { k: 16, trustedOnly: true }),
+        // Wide semantic recall over his whole recorded self — background framing,
+        // unfiltered. Returns a ready section string ("" on miss).
+        () => fetchExocortexContext(userText, { limit: 8, personal: true })
+      ];
+      const [
+        [bioResult, physioResult, sounioRelResult, memoryResults, broadRecall],
+        sounioNowResult,
+        sounioStateResult,
+        recentConvo,
+        skyResult
+      ] = await Promise.all([
+        runWithConcurrencyLimit(queryGroupTasks, 2),
+        fetchSounioNow({ limit: 6 }),
+        fetchSounioState({ limit: 1 }),
         fetchRecentConversation({ limit: 8 }),
-        // Wide semantic recall over his whole recorded self — background framing, unfiltered,
-        // concurrent so it adds no wall-clock. Returns a ready section string ("" on miss).
-        fetchExocortexContext(userText, { limit: 8, personal: true }),
         fetchSpaceWeatherNow()
       ]);
       skyNow = skyResult;
@@ -1066,8 +1110,13 @@ async function completeChatRequest(req, deps, options = {}) {
       if (typeof broadRecall === "string" && broadRecall.trim()) {
         dynamicSections.push(broadRecall);
       }
-    } catch {
-      // ignore — proceed ungrounded rather than break the chat
+    } catch (err) {
+      // Fail-soft is intentional: proceed ungrounded rather than break the chat.
+      // But log it — this used to be silently swallowed, which is why the
+      // memory-pg-serve grounding-fetch collision went unnoticed for weeks. The
+      // individual fetch functions above already log their own failure reason;
+      // this catches anything unexpected in the surrounding shaping logic itself.
+      console.error(`[grounding] personal-chat fan-out threw: ${err?.message || err}`);
     }
     // `## Agora` — the live instant he opened the app: tempo + corpo (HRV/sono) + céu
     // (Kp/Dst). Built from what the app sends (the same values it's showing), with the

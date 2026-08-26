@@ -709,7 +709,7 @@ const BIO_DIGEST_TTL_MS = 5 * 60 * 1000;
 // Used by the Personal space to ground the companion in who the user actually is.
 // Best-effort: returns { digest: "" } on any failure so chat is never blocked.
 // Caches a successful digest for BIO_DIGEST_TTL_MS to keep personal chat snappy.
-export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
+export async function fetchBiographyDigest({ timeoutMs = 12000 } = {}) {
   if (_bioDigestCache.digest && Date.now() - _bioDigestCache.at < BIO_DIGEST_TTL_MS) {
     return { digest: _bioDigestCache.digest, cached: true };
   }
@@ -750,6 +750,10 @@ export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
     if (digest) _bioDigestCache = { digest, at: Date.now() };
     return { digest };
   } catch (err) {
+    // Visibility: this used to be a silent fail-soft, which is why the memory-pg-serve
+    // concurrency collision (5 simultaneous /query calls colliding on a single replica,
+    // each individually 4-7s but all timing out together) went unnoticed for weeks.
+    console.error(`[grounding] fetchBiographyDigest failed: ${err?.name === "AbortError" ? `timeout after ${timeoutMs}ms` : err.message}`);
     return { digest: "", error: err.message };
   } finally {
     clearTimeout(timer);
@@ -856,7 +860,7 @@ export async function fetchSounioRelationship({
   baseUrl = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
   token = process.env.MEMORY_PG_QUERY_TOKEN || "",
   k = 4,
-  timeoutMs = 6000,
+  timeoutMs = 12000,
   fetchImpl = fetch,
   cache = true,
 } = {}) {
@@ -879,7 +883,8 @@ export async function fetchSounioRelationship({
     const trusted = filterTrustedMemories(Array.isArray(j?.results) ? j.results : []);
     if (trusted.length && cache) _sounioRelCache = { results: trusted, at: Date.now() };
     return trusted;
-  } catch {
+  } catch (err) {
+    console.error(`[grounding] fetchSounioRelationship failed: ${err?.name === "AbortError" ? `timeout after ${timeoutMs}ms` : err.message}`);
     return [];
   } finally {
     clearTimeout(timer);
@@ -892,7 +897,7 @@ export async function fetchSounioRelationship({
 // for no benefit. 5-minute TTL keeps it fresh without that cost per message.
 let _physioDigestCache = { digest: "", at: 0 };
 const PHYSIO_DIGEST_TTL_MS = 5 * 60 * 1000;
-export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
+export async function fetchPhysiomeDigest({ timeoutMs = 12000 } = {}) {
   if (_physioDigestCache.digest && Date.now() - _physioDigestCache.at < PHYSIO_DIGEST_TTL_MS) {
     return { digest: _physioDigestCache.digest, cached: true };
   }
@@ -929,6 +934,7 @@ export async function fetchPhysiomeDigest({ timeoutMs = 8000 } = {}) {
     if (digest) _physioDigestCache = { digest, at: Date.now() };
     return { digest };
   } catch (err) {
+    console.error(`[grounding] fetchPhysiomeDigest failed: ${err?.name === "AbortError" ? `timeout after ${timeoutMs}ms` : err.message}`);
     return { digest: "", error: err.message };
   } finally {
     clearTimeout(timer);
@@ -1081,7 +1087,7 @@ export async function fetchRecentMemories(query, {
   baseUrl = process.env.MEMORY_PG_QUERY_URL || "http://memory-pg-serve.beagle.svc.cluster.local",
   token = process.env.MEMORY_PG_QUERY_TOKEN || "",
   k = 6,
-  timeoutMs = 6000,
+  timeoutMs = 12000,
   fetchImpl = fetch,
   // Restrict recall to his own trusted (non-unverified) records. Used for the
   // authoritative "what he told me" grounding so it fills from his real words
@@ -1104,7 +1110,8 @@ export async function fetchRecentMemories(query, {
     if (!res.ok) return [];
     const j = await res.json();
     return Array.isArray(j?.results) ? j.results : [];
-  } catch {
+  } catch (err) {
+    console.error(`[grounding] fetchRecentMemories failed: ${err?.name === "AbortError" ? `timeout after ${timeoutMs}ms` : err.message}`);
     return [];
   } finally {
     clearTimeout(timer);
@@ -2281,7 +2288,7 @@ export function registerAuthBridgeRoutes(app) {
 // the personal header therefore does NOT assert "his own words / treat as known" — it frames the
 // block as reference/continuity so nothing here is attributed to him as testimony. His verified
 // words stay in the separate trust-filtered section. Preserves the anti-fabrication safeguard.
-export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000, personal = false } = {}) {
+export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 12000, personal = false } = {}) {
   const q = cleanString(query);
   if (!q) return "";
   try {
@@ -2327,7 +2334,8 @@ export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000
         : "Ground your answer in the facts below. Do NOT ask the user for information that is already present here; treat it as known. Cite or build on it where relevant.",
       ...lines
     ].join("\n");
-  } catch {
+  } catch (err) {
+    console.error(`[grounding] fetchExocortexContext failed: ${err?.name === "AbortError" ? `timeout after ${timeoutMs}ms` : err.message}`);
     return "";
   }
 }
