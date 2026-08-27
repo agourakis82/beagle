@@ -1,8 +1,9 @@
 import { Tool } from './types.js'
 import { getCurrentTimeTool } from './get-current-time.js'
 import { calculateTool } from './calculate.js'
+import { searchTool } from './search.js'
 
-export const tools: Tool[] = [getCurrentTimeTool, calculateTool]
+export const tools: Tool[] = [getCurrentTimeTool, calculateTool, searchTool]
 
 export function toolDefinitions() {
   return tools.map((t) => ({
