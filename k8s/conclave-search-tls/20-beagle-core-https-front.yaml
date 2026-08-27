@@ -1,0 +1,90 @@
+# k8s/conclave-search-tls/20-beagle-core-https-front.yaml
+#
+# A wholly separate HTTPS front for the EXISTING, LIVE beagle-core
+# Service -- proxies to it over the cluster network, never modifies it.
+# beagle-core keeps serving plain HTTP to its existing consumers exactly
+# as before; this is just another client of it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beagle-core-https-front-nginx-conf
+  namespace: beagle
+data:
+  default.conf: |
+    server {
+      listen 8443 ssl;
+      ssl_certificate     /etc/nginx-tls/tls.crt;
+      ssl_certificate_key /etc/nginx-tls/tls.key;
+      location / {
+        proxy_pass http://beagle-core.beagle.svc.cluster.local:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Beagle-Consumer $http_x_beagle_consumer;
+      }
+    }
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: beagle-core-https-tls
+  namespace: beagle
+spec:
+  secretName: beagle-core-https-tls
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  ipAddresses:
+    - 10.96.250.20
+  issuerRef:
+    name: internal-ip-ca-issuer
+    kind: ClusterIssuer
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beagle-core-https-front
+  namespace: beagle
+  labels:
+    app: beagle-core-https-front
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: beagle-core-https-front
+  template:
+    metadata:
+      labels:
+        app: beagle-core-https-front
+    spec:
+      containers:
+        - name: nginx
+          image: docker.io/library/nginx:stable
+          ports:
+            - containerPort: 8443
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/nginx-tls
+              readOnly: true
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: beagle-core-https-tls
+        - name: conf
+          configMap:
+            name: beagle-core-https-front-nginx-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beagle-core-https
+  namespace: beagle
+spec:
+  clusterIP: 10.96.250.20
+  selector:
+    app: beagle-core-https-front
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
