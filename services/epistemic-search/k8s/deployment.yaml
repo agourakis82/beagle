@@ -47,7 +47,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: epistemic-search
-          image: 192.168.3.207:5003/epistemic-search:v1
+          image: 192.168.3.207:5003/epistemic-search:v6
           imagePullPolicy: Always
           ports:
             - containerPort: 8800
@@ -56,6 +56,17 @@ spec:
               value: "10.96.250.10"
             - name: BEAGLE_CORE_HOST
               value: "10.96.250.20"
+            # beagle-core's auth impersonates the beagle-operator identity
+            # (see search/memory_context.sio's AUTH comment in the sibling
+            # conclave-search repo -- its ConsumerId enum has no path to
+            # register conclave-search as its own consumer). Sourced from
+            # the existing, live beagle-core-tokens Secret -- never
+            # hardcode this value in a manifest.
+            - name: BEAGLE_OPERATOR_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: beagle-core-tokens
+                  key: operator-token
           securityContext:
             allowPrivilegeEscalation: false
             appArmorProfile:
@@ -79,10 +90,20 @@ spec:
           resources:
             requests:
               cpu: 250m
-              memory: 256Mi
+              memory: 1Gi
             limits:
-              cpu: "1"
-              memory: 512Mi
+              cpu: "2"
+              memory: 10Gi
+          # Memory raised from sounio-inference's mirrored defaults
+          # (256Mi/512Mi): a real conclave-search run OOMKilled (exit 137)
+          # at 512Mi during live testing. Raised to 4Gi next, which
+          # instead produced "madaros: arena full" (exit 181) -- Madaros's
+          # TLS runtime reserves an 8GiB mmap arena per process (raised
+          # from 2GiB earlier this project specifically to survive
+          # multiple real TLS handshakes per process), and a 4Gi cgroup
+          # memory.max appears to block that reservation outright rather
+          # than letting it stay uncommitted virtual memory. 10Gi gives
+          # headroom above the full 8GiB reservation.
 ---
 apiVersion: v1
 kind: Service

@@ -8,6 +8,13 @@ BINARY = os.environ.get("CONCLAVE_SEARCH_BIN", "/opt/conclave-search/bin/conclav
 SEARXNG_HOST = os.environ.get("SEARXNG_HOST", "10.96.250.10")
 BEAGLE_CORE_HOST = os.environ.get("BEAGLE_CORE_HOST", "10.96.250.20")
 SEARCH_TIMEOUT = int(os.environ.get("SEARCH_TIMEOUT_SECONDS", "60"))
+# conclave-search's own Sounio stdlib has no working env-var read (env_get
+# is a no-op, D13 in the sibling sounio repo), so the beagle-core bearer
+# token is read here (a normal Python env var, unaffected by that bug)
+# and passed as a CLI argument instead. Sourced from the live
+# beagle-core-tokens k8s Secret's operator-token key via
+# BEAGLE_OPERATOR_API_TOKEN -- never hardcoded, never logged.
+BEAGLE_OPERATOR_API_TOKEN = os.environ.get("BEAGLE_OPERATOR_API_TOKEN", "")
 
 app = FastAPI(title="Epistemic Search Service", version="0.1.0")
 
@@ -27,7 +34,11 @@ def _extract_json_line(stdout: str) -> str:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "binary_exists": os.path.exists(BINARY)}
+    return {
+        "status": "ok",
+        "binary_exists": os.path.exists(BINARY),
+        "beagle_core_token_configured": bool(BEAGLE_OPERATOR_API_TOKEN),
+    }
 
 @app.post("/v1/search")
 def search(req: SearchRequest):
@@ -35,7 +46,7 @@ def search(req: SearchRequest):
         raise HTTPException(422, "query must not be empty")
     try:
         result = subprocess.run(
-            [BINARY, req.query, SEARXNG_HOST, BEAGLE_CORE_HOST],
+            [BINARY, req.query, SEARXNG_HOST, BEAGLE_CORE_HOST, BEAGLE_OPERATOR_API_TOKEN],
             capture_output=True, text=True, timeout=SEARCH_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
