@@ -29,7 +29,7 @@ spec:
           image: alpine/git:latest
           env:
             - name: BEAGLE_GIT_REF
-              value: "e13ff7cc"
+              value: "e73ef11a"
           command:
             - /bin/sh
             - -lc
@@ -45,7 +45,7 @@ spec:
           image: gcr.io/kaniko-project/executor:latest
           env:
             - name: BEAGLE_IMAGE_TAG
-              value: "e13ff7cc"
+              value: "e73ef11a"
           args:
             - "--dockerfile=/workspace/apps/gpu-chat/Dockerfile"
             - "--context=dir:///workspace/apps/gpu-chat"
