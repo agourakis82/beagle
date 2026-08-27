@@ -1,0 +1,101 @@
+# services/epistemic-search/k8s/deployment.yaml
+#
+# Mirrors services/sounio-inference/k8s/deployment.yaml's node-pool,
+# toleration, and security-context conventions -- both services run
+# Sounio-compiled native binaries and need the same seccomp/AppArmor
+# exemption on this cluster.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: epistemic-search
+  namespace: beagle
+  labels:
+    app: epistemic-search
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: epistemic-search
+  template:
+    metadata:
+      labels:
+        app: epistemic-search
+    spec:
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      nodeSelector:
+        sounio.dev/runtime-role: cluster-core
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - r770-proxmox
+      tolerations:
+        - key: sounio.dev/compute
+          operator: Equal
+          value: heavy
+          effect: NoSchedule
+        - key: sounio.dev/pool
+          operator: Equal
+          value: gpu-batch
+          effect: NoSchedule
+      containers:
+        - name: epistemic-search
+          image: 192.168.3.207:5003/epistemic-search:v1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8800
+          env:
+            - name: SEARXNG_HOST
+              value: "10.96.250.10"
+            - name: BEAGLE_CORE_HOST
+              value: "10.96.250.20"
+          securityContext:
+            allowPrivilegeEscalation: false
+            appArmorProfile:
+              type: Unconfined
+            seccompProfile:
+              type: Unconfined
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8800
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8800
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: epistemic-search
+  namespace: beagle
+  labels:
+    app: epistemic-search
+spec:
+  type: ClusterIP
+  selector:
+    app: epistemic-search
+  ports:
+    - port: 80
+      targetPort: 8800
+      protocol: TCP
