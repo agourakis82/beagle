@@ -14,6 +14,17 @@ app = FastAPI(title="Epistemic Search Service", version="0.1.0")
 class SearchRequest(BaseModel):
     query: str
 
+def _extract_json_line(stdout: str) -> str:
+    """conclave-search has no stderr primitive: every status line
+    ("conclave-search: ...") is printed to stdout, before AND sometimes
+    after the final JSON answer, even on a successful (exit 0) run. Its
+    own convention is that the JSON answer is the last non-empty line
+    printed before a successful exit, so pull just that line out rather
+    than handing the whole interleaved blob to a JSON parser downstream.
+    """
+    lines = [l for l in stdout.splitlines() if l.strip()]
+    return lines[-1] if lines else ""
+
 @app.get("/health")
 def health():
     return {"status": "ok", "binary_exists": os.path.exists(BINARY)}
@@ -30,5 +41,9 @@ def search(req: SearchRequest):
     except subprocess.TimeoutExpired:
         raise HTTPException(504, f"search timed out after {SEARCH_TIMEOUT}s")
     if result.returncode != 0:
-        raise HTTPException(502, f"search failed (exit {result.returncode}): {result.stdout[-500:]}")
-    return {"raw_stdout": result.stdout}
+        raise HTTPException(
+            502,
+            f"search failed (exit {result.returncode}): "
+            f"stdout: {result.stdout[-500:]} | stderr: {result.stderr[-500:]}",
+        )
+    return {"raw_stdout": _extract_json_line(result.stdout)}
