@@ -101,7 +101,7 @@ export function registerChatRoutes(app: FastifyInstance, db: Database.Database, 
           } else {
             try {
               const args = JSON.parse(call.function.arguments || '{}')
-              toolResultText = tool.execute(args)
+              toolResultText = await tool.execute(args)
             } catch (err) {
               toolResultText = `Error: ${(err as Error).message}`
             }
