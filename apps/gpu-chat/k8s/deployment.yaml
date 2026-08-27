@@ -31,6 +31,8 @@ spec:
           env:
             - name: LITELLM_BASE_URL
               value: http://router.llm-router.svc.cluster.local:4000
+            - name: EPISTEMIC_SEARCH_URL
+              value: http://epistemic-search.beagle.svc.cluster.local
           volumeMounts:
             - name: data
               mountPath: /app/data
