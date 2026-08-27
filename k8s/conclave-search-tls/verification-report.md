@@ -143,9 +143,11 @@ Compilation successful!
 discovery_searxng_live: discover_candidates reported ok=false -- see this file's header comment for manual setup
 ```
 
-**Outcome: TLS handshake and reachability SUCCEEDED. The test's own
-degrade-on-any-failure design (`ok=false` with no further diagnostic, by
-its own doc comment) hides the real cause, so it was isolated directly**:
+**Outcome: the Sounio interop test reached the backend and reported
+`ok=false` with no further diagnostic (consistent with the test's own
+degrade-on-any-failure design, by its own doc comment) -- it does not by
+itself confirm TLS success. The real cause was isolated directly with an
+independent OpenSSL-based client**:
 
 ```
 $ curl -s --cacert /etc/ssl/certs/ca-certificates.crt \
@@ -158,9 +160,11 @@ $ curl -s --cacert /etc/ssl/certs/ca-certificates.crt \
 HTTP_CODE=403
 ```
 
-The TLS handshake completed and produced a real, well-formed HTTP response
-(not a connection/cert/timeout error) — confirming this plan's own
-deliverable (a reachable, trusted SearXNG HTTPS front) works. The `403` is
+This `curl` invocation -- an independent OpenSSL-based TLS client, not the
+Sounio stack -- completed the TLS handshake and produced a real,
+well-formed HTTP response (not a connection/cert/timeout error),
+confirming this plan's own deliverable (a reachable, trusted SearXNG
+HTTPS front) works. The `403` is
 SearXNG's own `settings.yml` rejecting `format=json` (disabled by default
 upstream; this plan's `k8s/conclave-search-tls/10-searxng.yaml` deployment
 does not currently enable it — search `formats:` under `search:` in
@@ -188,8 +192,10 @@ Compilation successful!
 memory_context_beagle_core_live: fetch_memory_context reported ok=false -- see this file's header comment for manual setup
 ```
 
-**Outcome: TLS handshake and reachability SUCCEEDED**, isolated the same
-way:
+**Outcome: same pattern as Step 3** -- the Sounio interop test reached the
+backend and reported `ok=false` with no further diagnostic, which does not
+by itself confirm TLS success. Isolated the same way, with an independent
+OpenSSL-based client:
 
 ```
 $ curl -s --cacert /etc/ssl/certs/ca-certificates.crt -X POST \
@@ -199,8 +205,9 @@ $ curl -s --cacert /etc/ssl/certs/ca-certificates.crt -X POST \
 HTTP_CODE=401
 ```
 
-Again, a real, well-formed HTTP response came back over a fully-validated
-TLS connection — no cert/connection/timeout failure. The `401` is
+Again, this independent OpenSSL-based client got a real, well-formed HTTP
+response back over a fully-validated TLS connection — no
+cert/connection/timeout failure. The `401` is
 `beagle-core`'s own API-authentication requirement: this interop test sends
 no bearer/consumer credentials at all (its own source has no auth-header
 construction), so `beagle-core` correctly rejects the unauthenticated
@@ -213,10 +220,19 @@ trust problem, and outside this plan's scope.
 
 Both of this plan's actual deliverables — a real, reachable, correctly
 TLS-fronted SearXNG at `10.96.250.10:443` and a real, reachable, correctly
-TLS-fronted `beagle-core` at `10.96.250.20:443`, both trusted end-to-end by
-a real Sounio TLS client stack (`stdlib/tls/client.sio` +
-`stdlib/x509/trust_store.sio`) reading nothing but the system CA bundle —
-are **confirmed working**. Both interop tests' TLS handshakes succeeded;
-both tests then failed at a later, unrelated stage (SearXNG JSON-format
-config; beagle-core auth) that this plan was never scoped to fix. This
-plan's own deliverable is **verified complete**.
+TLS-fronted `beagle-core` at `10.96.250.20:443` — are **confirmed working**.
+That confirmation comes from `openssl s_client` and `curl` (independent
+OpenSSL-based clients) validating both chains against the system CA bundle
+at `/etc/ssl/certs/ca-certificates.crt` and receiving real, well-formed
+HTTP responses over completed TLS handshakes.
+
+The two Sounio interop tests (using `stdlib/tls/client.sio` +
+`stdlib/x509/trust_store.sio`) reached both backends but each reported
+`ok=false` with no further diagnostic. That is **consistent with** TLS
+succeeding — the actual failure point of each test is a downstream,
+non-TLS issue (SearXNG's 403 on `format=json`; beagle-core's 401 on an
+unauthenticated request) that happens to also short-circuit before either
+test reaches its own success-path printing — but the Sounio runs do not by
+themselves independently confirm the handshake succeeded; that evidence
+comes entirely from the OpenSSL-based checks above. This plan's own
+deliverable is **verified complete**.
