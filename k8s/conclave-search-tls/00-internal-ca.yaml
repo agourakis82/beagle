@@ -1,0 +1,42 @@
+# k8s/conclave-search-tls/00-internal-ca.yaml
+#
+# Internal CA for issuing IP-SAN certificates that conclave-search's TLS
+# stack (dotted-decimal-IP-only, checks that same IP against the server
+# cert's SAN) can validate. No public CA will issue for private RFC 1918
+# addresses, so this cluster runs its own, scoped to exactly this purpose.
+#
+# Private key algorithm is deliberately ECDSA P-256 (not P-384) --
+# conclave-search's upstream TLS stack fails closed on
+# ecdsa-with-SHA384-signed chains (documented as D15 in the sibling
+# sounio repo). Issuing from a P-256 root avoids that gap entirely.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: internal-ip-ca-bootstrap
+  namespace: cert-manager
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: internal-ip-ca-root
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: conclave-search-internal-ca
+  secretName: internal-ip-ca-root
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: internal-ip-ca-bootstrap
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: internal-ip-ca-issuer
+spec:
+  ca:
+    secretName: internal-ip-ca-root
