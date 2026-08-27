@@ -1,0 +1,134 @@
+# k8s/conclave-search-tls/10-searxng.yaml
+#
+# SearXNG, for conclave-search's URL-discovery stage. Two Services: one
+# plain-HTTP internal-only ClusterIP that only the front pod talks to, and
+# one pinned-ClusterIP HTTPS front that conclave-search's tls_connect
+# actually reaches.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: beagle
+  labels:
+    app: searxng
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng
+  template:
+    metadata:
+      labels:
+        app: searxng
+    spec:
+      containers:
+        - name: searxng
+          image: docker.io/searxng/searxng:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SEARXNG_BASE_URL
+              value: "http://searxng.beagle.svc.cluster.local/"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng
+  namespace: beagle
+spec:
+  selector:
+    app: searxng
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: searxng-https-tls
+  namespace: beagle
+spec:
+  secretName: searxng-https-tls
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  ipAddresses:
+    - 10.96.250.10
+  issuerRef:
+    name: internal-ip-ca-issuer
+    kind: ClusterIssuer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-https-front-nginx-conf
+  namespace: beagle
+data:
+  default.conf: |
+    server {
+      listen 8443 ssl;
+      ssl_certificate     /etc/nginx-tls/tls.crt;
+      ssl_certificate_key /etc/nginx-tls/tls.key;
+      location / {
+        proxy_pass http://searxng.beagle.svc.cluster.local:80;
+        proxy_set_header Host $host;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng-https-front
+  namespace: beagle
+  labels:
+    app: searxng-https-front
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: searxng-https-front
+  template:
+    metadata:
+      labels:
+        app: searxng-https-front
+    spec:
+      containers:
+        - name: nginx
+          image: docker.io/library/nginx:stable
+          ports:
+            - containerPort: 8443
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/nginx-tls
+              readOnly: true
+            - name: conf
+              mountPath: /etc/nginx/conf.d
+              readOnly: true
+      volumes:
+        - name: tls
+          secret:
+            secretName: searxng-https-tls
+        - name: conf
+          configMap:
+            name: searxng-https-front-nginx-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: searxng-https
+  namespace: beagle
+spec:
+  clusterIP: 10.96.250.10
+  selector:
+    app: searxng-https-front
+  ports:
+    - name: https
+      port: 443
+      targetPort: 8443
