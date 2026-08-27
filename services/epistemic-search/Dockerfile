@@ -18,6 +18,16 @@ RUN /opt/sounio/bin/souc compile /opt/conclave-search-src/src/main.sio \
 # Stage 2: minimal runtime -- just the compiled binary, no toolchain.
 FROM python:3.12-slim
 COPY --from=build /opt/conclave-search-src/bin/conclave-search /opt/conclave-search/bin/conclave-search
+# Trust the internal IP-SAN CA (see k8s/conclave-search-tls/) so
+# conclave-search's trust_store_load() -- which reads the fixed system
+# path /etc/ssl/certs/ca-certificates.crt with no runtime override --
+# validates SearXNG's and beagle-core's HTTPS fronts. `update-ca-certificates`
+# on this base image links the cert into /etc/ssl/certs/ (hash symlink) but
+# does not reliably regenerate the combined bundle file trust_store_load()
+# actually reads -- append directly instead, which is all a PEM bundle is.
+COPY internal-ip-ca-root.crt /usr/local/share/ca-certificates/
+RUN update-ca-certificates && \
+    cat /usr/local/share/ca-certificates/internal-ip-ca-root.crt >> /etc/ssl/certs/ca-certificates.crt
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

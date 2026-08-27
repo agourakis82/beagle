@@ -34,6 +34,9 @@ mkdir -p "$CTX/conclave-search-src"
 cp -r "$CONCLAVE_SEARCH_DIR/src"    "$CTX/conclave-search-src/src"
 cp -r "$CONCLAVE_SEARCH_DIR/search" "$CTX/conclave-search-src/search"
 
+echo "==> staging internal CA root"
+bash "$HERE/../../k8s/conclave-search-tls/extract-ca-root.sh" > "$CTX/internal-ip-ca-root.crt"
+
 cp "$HERE/app.py" "$HERE/requirements.txt" "$HERE/Dockerfile" "$CTX/"
 
 echo "==> building $IMAGE with $ENGINE"
