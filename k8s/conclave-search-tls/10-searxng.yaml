@@ -4,6 +4,25 @@
 # plain-HTTP internal-only ClusterIP that only the front pod talks to, and
 # one pinned-ClusterIP HTTPS front that conclave-search's tls_connect
 # actually reaches.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-settings
+  namespace: beagle
+data:
+  settings.yml: |
+    # Layers on top of SearXNG's own default settings.yml -- only the
+    # fields conclave-search's discover_candidates stage actually needs
+    # are overridden here. Without `formats: [html, json]`, SearXNG
+    # rejects `?format=json` requests with 403 (its default is HTML-only).
+    use_default_settings: true
+    server:
+      secret_key: "ebe5d8cd2b9e670f4f8cbbd10863cab9428b93714e0c0c46602d454457af9e95"
+    search:
+      formats:
+        - html
+        - json
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,12 +48,21 @@ spec:
           env:
             - name: SEARXNG_BASE_URL
               value: "http://searxng.beagle.svc.cluster.local/"
+          volumeMounts:
+            - name: settings
+              mountPath: /etc/searxng/settings.yml
+              subPath: settings.yml
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /healthz
               port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
+      volumes:
+        - name: settings
+          configMap:
+            name: searxng-settings
 ---
 apiVersion: v1
 kind: Service
