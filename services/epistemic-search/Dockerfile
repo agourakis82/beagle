@@ -9,6 +9,12 @@ COPY sounio-runtime/bin/souc-linux-x86_64 /opt/sounio/bin/souc-linux-x86_64
 # with "error: no main" on this source).
 COPY sounio-runtime/bin/madaros /opt/sounio/bin/madaros
 COPY sounio-runtime/bin/madaros-linux-x86_64 /opt/sounio/bin/madaros-linux-x86_64
+# bin/souc resolves the raw Madaros ELF as artifacts/self-hosted/madaros
+# FIRST, falling back to bin/madaros-linux-x86_64 only if that's absent
+# (see bin/souc's own _resolve_madaros). D19: a stale, pre-arena-fix
+# bin/madaros-linux-x86_64 was silently used because this file was never
+# staged -- always stage the freshly-built artifact so it takes priority.
+COPY sounio-runtime/artifacts/self-hosted/madaros /opt/sounio/artifacts/self-hosted/madaros
 COPY sounio-runtime/stdlib /opt/sounio/stdlib
 COPY conclave-search-src /opt/conclave-search-src
 ENV SOUNIO_STDLIB_PATH=/opt/sounio/stdlib

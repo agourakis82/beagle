@@ -29,6 +29,24 @@ cp -r "$SOUNIO_DIR/stdlib"              "$CTX/sounio-runtime/stdlib"
 cp "$SOUNIO_DIR/bin/madaros"             "$CTX/sounio-runtime/bin/"
 cp "$SOUNIO_DIR/bin/madaros-linux-x86_64" "$CTX/sounio-runtime/bin/"
 
+# bin/souc resolves the actual compiled-compiler ELF in this order:
+# artifacts/self-hosted/madaros, then bin/madaros-linux-x86_64 (see
+# bin/souc's own _resolve_madaros). bin/madaros-linux-x86_64 is a
+# checked-in artifact that can silently predate self-hosted/ fixes (e.g.
+# the arena size bump, eea3a449f) -- D19 found exactly this: a stale
+# 2 GiB-arena compiler shipped in this image despite the fix landing in
+# self-hosted/ long before. Stage the freshly-built artifact so a
+# `bash scripts/ci/build_modular_madaros.sh artifacts/self-hosted/madaros`
+# run in $SOUNIO_DIR before invoking this script is what actually gets
+# used, not whatever bin/madaros-linux-x86_64 happens to contain.
+mkdir -p "$CTX/sounio-runtime/artifacts/self-hosted"
+if [ -f "$SOUNIO_DIR/artifacts/self-hosted/madaros" ]; then
+  cp "$SOUNIO_DIR/artifacts/self-hosted/madaros" "$CTX/sounio-runtime/artifacts/self-hosted/madaros"
+else
+  echo "==> WARNING: $SOUNIO_DIR/artifacts/self-hosted/madaros not found -- falling back to bin/madaros-linux-x86_64, which may be stale. Run: bash scripts/ci/build_modular_madaros.sh artifacts/self-hosted/madaros (in \$SOUNIO_DIR) first." >&2
+  cp "$SOUNIO_DIR/bin/madaros-linux-x86_64" "$CTX/sounio-runtime/artifacts/self-hosted/madaros"
+fi
+
 echo "==> staging conclave-search source from $CONCLAVE_SEARCH_DIR"
 mkdir -p "$CTX/conclave-search-src"
 cp -r "$CONCLAVE_SEARCH_DIR/src"    "$CTX/conclave-search-src/src"
