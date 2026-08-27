@@ -26,9 +26,11 @@ spec:
   isCA: true
   commonName: conclave-search-internal-ca
   secretName: internal-ip-ca-root
+  duration: 87600h # 10 years -- this is a long-lived root, not a leaf
   privateKey:
     algorithm: ECDSA
     size: 256
+    rotationPolicy: Never # a root's key must persist for the cert's whole life
   issuerRef:
     name: internal-ip-ca-bootstrap
     kind: Issuer
