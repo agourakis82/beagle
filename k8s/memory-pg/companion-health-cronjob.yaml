@@ -111,12 +111,16 @@ spec:
                     console.log(`memoria OK: ${n} átomos`);
                   }
 
-                  async function checaVoz() {
+                  // `probe: true` (28-ago-2026): o servidor roteia, aterra e responde como num turno
+              // real — que é o que esta checagem precisa medir, sobretudo `grounded` — e pula a
+              // gravação no corpus. Sem isso a sonda escrevia auto-relatos que ele nunca fez.
+              // Ver docs/FASE2_DECISOES.md.
+              async function checaVoz() {
                     const tok = process.env.OPERATOR_TOKEN;
                     const r = await fetch(CHAT, {
                       method: "POST",
                       headers: { "content-type": "application/json", "x-cockpit-token": tok, authorization: "Bearer " + tok },
-                      body: JSON.stringify({ space: "personal", prompt: "Está me ouvindo?" }),
+                      body: JSON.stringify({ space: "personal", probe: true, prompt: "Está me ouvindo?" }),
                       signal: AbortSignal.timeout(200000),
                     });
                     if (!r.ok) return falhas.push(`VOZ MORTA: chat HTTP ${r.status}`);

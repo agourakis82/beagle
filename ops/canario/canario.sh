@@ -74,9 +74,16 @@ diagnosticar() {
   [ "$k" != "200" ] && camada_quebrada="CONTROL PLANE do k8s fora (livez=$k) — pods vivos, mas nada se recupera"
 }
 
+# `probe:true` faz o servidor rotear, aterrar e responder EXATAMENTE como um turno real — que
+# é o que esta sonda precisa medir — e pular a gravação no corpus.
+#
+# 🚨 Sem isso, esta sonda batia a cada 5 minutos com `space:personal` pelo caminho que captura, e
+# o destilador virava a resposta em auto-relato de PRIMEIRA PESSOA sobre o estado dele. Em 24h
+# eram 383 gerados + 319 destilados contra 2 coisas que ele realmente falou. Ver
+# docs/FASE2_DECISOES.md, 28-ago-2026.
 corpo=$(curl -s -m 180 -X POST "$URL" \
   -H "content-type: application/json" -H "x-cockpit-token: $TOKEN" \
-  --data '{"space":"personal","prompt":"Responda em uma frase: quem sou eu para você?"}' 2>/dev/null)
+  --data '{"space":"personal","probe":true,"prompt":"Responda em uma frase: quem sou eu para você?"}' 2>/dev/null)
 codigo=$?
 
 if [ $codigo -ne 0 ] || [ -z "$corpo" ]; then

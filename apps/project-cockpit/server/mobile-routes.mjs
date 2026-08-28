@@ -904,6 +904,27 @@ async function completeChatRequest(req, deps, options = {}) {
   // (The personal-space block below further grounds in biography + physiome +
   // temporal memory, and reassigns effectiveSystem — hence `let`.)
   const chatSpace = cleanString(req.body?.space || req.body?.chatSpace).toLowerCase();
+  // SONDA DE SAÚDE: faz TUDO, menos gravar.
+  //
+  // 🚨 Em 28-ago-2026 a superfície `companion-ios` tinha, em 24h, 383 `model_generated` +
+  // 319 `model_distilled` contra 2 `user_stated`. As duas coisas que ele de fato falou foram
+  // às 11h49 e 11h50; todo o resto vinha de duas sondas de saúde batendo aqui com
+  // `space: "personal"` — `beagle-canario.timer` (5 min) e o CronJob `companion-health`
+  // (15 min). E o destilador transformava a sonda em auto-relato de PRIMEIRA PESSOA sobre o
+  // estado dele: "Algo importante está me incomodando hoje", ancorado num registro de 02-ago.
+  //
+  // Desligar as sondas resolvia a poluição e custava o único alarme que chega no telefone dele
+  // quando o companion cai. Mudar as sondas para um `space` não-pessoal também não serve: a
+  // checagem mais importante é `grounded`, e o grounding só é montado para `personal` — a sonda
+  // passaria a reportar `grounded: false` sempre e o alarme perderia o sentido.
+  //
+  // Por isso o corte é aqui e só aqui: o turno é roteado, aterrado e respondido exatamente como
+  // um turno real — o que a sonda precisa medir — e nada dele entra no corpus.
+  //
+  // Sem checagem de token de propósito: o pior caso de alguém marcar `probe` indevidamente é um
+  // turno NÃO ser gravado. Num sistema cuja falha grave é gravar o que ele não disse, o modo de
+  // falha desta flag aponta para o lado seguro.
+  const ehSonda = req.body?.probe === true || req.body?.sonda === true;
   // LATENCY: the legacy beagle-core top-6 RAG here costs ~2.7s on the critical path (every
   // token waits on it) and is the noise source the chat audit flagged. Personal chat is already
   // grounded by the canonical memory-pg recall (fetchRecentMemories) in the block below, so skip
@@ -1265,7 +1286,7 @@ async function completeChatRequest(req, deps, options = {}) {
         source: deepThinkResult.source
       }
     };
-    if (chatSpace === "personal") {
+    if (chatSpace === "personal" && !ehSonda) {
       ingestPersonalTurn({
         sessionId: cleanString(req.body?.session_id || req.body?.sessionId),
         userText: prompt,
@@ -1292,7 +1313,10 @@ async function completeChatRequest(req, deps, options = {}) {
     });
     // Memory spine: capture this exchange into the exocortex. Fire-and-forget — the reply
     // is already on its way to the user; ingestion must never block or fail the chat.
-    ingestPersonalTurn({
+    //
+    // `ehSonda` corta aqui: uma sonda de saúde não é um turno dele. Ver o comentário longo
+    // na declaração de `ehSonda`.
+    if (!ehSonda) ingestPersonalTurn({
       sessionId: cleanString(req.body?.session_id || req.body?.sessionId),
       userText: prompt,
       assistantText: cleanString(result?.payload?.text || result?.payload?.answer || result?.payload?.response),
@@ -1406,7 +1430,7 @@ async function completeChatRequest(req, deps, options = {}) {
   // Fase 0 audit log: a structured per-turn record of what the model actually saw —
   // personal space only, since that's where the grounding sections above are assembled.
   // Fire-and-forget to memory-pg; auditing must never block or fail the chat.
-  if (chatSpace === "personal") {
+  if (chatSpace === "personal" && !ehSonda) {
     captureProvenanced(
       {
         source_type: "ChatContextLog",
