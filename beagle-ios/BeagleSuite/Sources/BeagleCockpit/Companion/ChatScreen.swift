@@ -283,7 +283,7 @@ public struct ChatScreen: View {
         .sheet(item: $activeSheet) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture, onOpenSleep: onOpenSleep, onOpenSynthesize: onOpenSynthesize, onOpenFrota: onOpenFrota, onOpenOficina: onOpenOficina)
+                ConversationDrawer(buscaInicial: argumentoDepois("-buscaDemo"), store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork, onOpenCapture: onOpenCapture, onOpenSleep: onOpenSleep, onOpenSynthesize: onOpenSynthesize, onOpenFrota: onOpenFrota, onOpenOficina: onOpenOficina)
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
             }
@@ -790,6 +790,18 @@ public struct ChatScreen: View {
 
     // MARK: - Send
 
+    /// Lê o valor que vem depois de uma chave nos argumentos de lançamento. Fora de DEBUG
+    /// nenhum chamador passa essas chaves, então devolve nil.
+    private func argumentoDepois(_ chave: String) -> String? {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: chave), i + 1 < args.count else { return nil }
+        return args[i + 1]
+        #else
+        return nil
+        #endif
+    }
+
     #if DEBUG
     /// Semeia a tela para INSPEÇÃO VISUAL no simulador. Só existe em DEBUG.
     ///
@@ -813,6 +825,10 @@ public struct ChatScreen: View {
         }
         // `-esperaDemo` congela a tela no instante em que ele mais reclama: depois de enviar,
         // antes do primeiro token. `-comPresenca` acrescenta a nota de presença.
+        if args.contains("-historicoDemo") {
+            store.semearHistoricoDeInspecao()
+            activeSheet = .history
+        }
         if args.contains("-esperaDemo"), store.messages.isEmpty {
             store.semearEsperaDeInspecao(comPresenca: args.contains("-comPresenca"))
         }
@@ -872,6 +888,13 @@ enum ChatSheet: Identifiable {
 /// The thread list — tap to switch, swipe to delete, + to start fresh. Best-in-class history
 /// (Claude/ChatGPT) so the chat is many conversations, not one.
 struct ConversationDrawer: View {
+    /// Termo de busca inicial, para capturar a busca FUNCIONANDO no simulador.
+    ///
+    /// Existe porque a alternativa — clicar por coordenada e digitar com AppleScript — errou o
+    /// alvo, caiu no compositor e ENVIOU UMA MENSAGEM REAL pelo caminho de produção. Não chegou
+    /// ao corpus, mas podia ter chegado. Argumento de lançamento é determinístico e não toca a
+    /// rede; clique cego num app ligado ao servidor real, não é.
+    var buscaInicial: String?
     let store: ConversationStore
     var onOpenSettings: (() -> Void)?
     var onOpenProject: (() -> Void)?
@@ -889,137 +912,59 @@ struct ConversationDrawer: View {
     /// Opens the Oficina (is it green / what broke / where am I).
     var onOpenOficina: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
-    @State private var reloadToken = 0
+
+    /// A lista lida da última recarga. Era `store.conversations()` chamado dentro do `body` mais
+    /// um `.id(reloadToken)` na `List`, que reconstrói a lista INTEIRA a cada fixar/apagar —
+    /// perdendo a posição de rolagem e, agora que existe busca, derrubando o teclado e o termo
+    /// digitado. Estado explícito com recarga explícita não tem esse efeito.
+    @State private var fios: [PersistedConversation] = []
+    @State private var busca = ""
+
+    @State private var renomeando: PersistedConversation?
+    @State private var nomeNovo = ""
 
     var body: some View {
         NavigationStack {
             List {
-                let threads = store.conversations()
-                if threads.isEmpty {
-                    Text("Nenhuma conversa ainda.")
+                // A NAVEGAÇÃO VEM ANTES DOS FIOS. Ela tem contagem fixa (onze destinos); os fios
+                // crescem sem limite. Embaixo, como estava, "Sono" e "Dados" afundavam um pouco
+                // mais a cada conversa — VISTO no simulador: com sete fios a seção já saía da
+                // tela, e ele conversa todo dia.
+                destinos
+
+                if visiveis.isEmpty {
+                    Text(busca.isEmpty ? "Nenhuma conversa ainda." : "Nada encontrado.")
                         .font(BeagleFont.footnote.font)
                         .foregroundStyle(BeagleTheme.textSecondary)
                 } else {
-                    ForEach(threads, id: \.id) { conv in
-                        Button {
-                            store.switchTo(conversationId: conv.id)
-                            dismiss()
-                        } label: {
-                            HStack(spacing: BeagleSpacing.sm) {
-                                if conv.pinned {
-                                    Image(systemName: "pin.fill")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(BeagleTheme.truthRemembered)
-                                }
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(conv.displayTitle)
-                                        .font(BeagleFont.body.font)
-                                        .foregroundStyle(BeagleTheme.companionInk)
-                                        .lineLimit(1)
-                                    Text(conv.updatedAt, format: .relative(presentation: .named))
-                                        .font(BeagleFont.caption2.font)
-                                        .foregroundStyle(BeagleTheme.textSecondary)
-                                }
-                                Spacer()
-                                if conv.id == store.currentConversationId {
-                                    Image(systemName: "checkmark")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(BeagleTheme.truthObserved)
-                                }
-                            }
+                    ForEach(grupos, id: \.titulo) { grupo in
+                        Section(grupo.titulo) {
+                            ForEach(grupo.fios, id: \.id) { conv in linha(conv) }
                         }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                store.deleteConversation(conv.id); reloadToken += 1
-                            } label: { Label("Apagar", systemImage: "trash") }
-                        }
-                        .swipeActions(edge: .leading) {
-                            Button {
-                                store.togglePinned(conv.id); reloadToken += 1
-                            } label: { Label("Fixar", systemImage: "pin") }
-                            .tint(BeagleTheme.truthRemembered)
-                        }
-                    }
-                }
-                // Footer: memory + data screen + settings + project live here now (off the chat top).
-                Section {
-                    if onOpenCapture != nil {
-                        Button { dismiss(); onOpenCapture?() } label: {
-                            Label("Capturar pensamento", systemImage: "mic.fill")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenSynthesize != nil {
-                        Button { dismiss(); onOpenSynthesize?() } label: {
-                            Label("Sintetizar", systemImage: "sparkles")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenSleep != nil {
-                        Button { dismiss(); onOpenSleep?() } label: {
-                            Label("Sono", systemImage: "bed.double.fill")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenMemory != nil {
-                        Button { dismiss(); onOpenMemory?() } label: {
-                            Label("O que eu lembro de ti", systemImage: "brain.head.profile")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenDreamInsights != nil {
-                        Button { dismiss(); onOpenDreamInsights?() } label: {
-                            HStack {
-                                Label("Insights da noite", systemImage: "moon.stars.fill")
-                                if unreadDreamInsightCount > 0 {
-                                    Spacer()
-                                    Text("\(unreadDreamInsightCount)")
-                                        .font(BeagleFont.caption2.font)
-                                        .foregroundStyle(Color(hue: 270/360, saturation: 0.5, brightness: 0.9))
-                                }
-                            }
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenData != nil {
-                        Button { dismiss(); onOpenData?() } label: {
-                            Label("Dados", systemImage: "chart.xyaxis.line")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenFrota != nil {
-                        Button { dismiss(); onOpenFrota?() } label: {
-                            Label("Frota", systemImage: "dot.radiowaves.left.and.right")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenOficina != nil {
-                        Button { dismiss(); onOpenOficina?() } label: {
-                            Label("Oficina", systemImage: "wrench.and.screwdriver")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenWork != nil {
-                        Button { dismiss(); onOpenWork?() } label: {
-                            Label("Trabalho", systemImage: "bolt.fill")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenProject != nil {
-                        Button { dismiss(); onOpenProject?() } label: {
-                            Label("Projeto", systemImage: "scope")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
-                    }
-                    if onOpenSettings != nil {
-                        Button { dismiss(); onOpenSettings?() } label: {
-                            Label("Configurações", systemImage: "gearshape")
-                        }
-                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
                     }
                 }
             }
-            .id(reloadToken)
+            .searchable(text: $busca, prompt: "Buscar nas conversas")
+            .onAppear {
+                recarregar()
+                if let s = buscaInicial, busca.isEmpty { busca = s }
+            }
+            .alert("Renomear conversa", isPresented: Binding(
+                get: { renomeando != nil },
+                set: { if !$0 { renomeando = nil } }
+            )) {
+                TextField("Título", text: $nomeNovo)
+                Button("Cancelar", role: .cancel) { renomeando = nil }
+                Button("Salvar") {
+                    // `renameConversation` existia no store e NÃO TINHA UM ÚNICO CHAMADOR —
+                    // mecanismo completo cobrindo nada, o mesmo padrão do `requeueFromDlq`.
+                    // Este botão é o chamador.
+                    let limpo = nomeNovo.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if let c = renomeando, !limpo.isEmpty { store.renameConversation(c.id, title: limpo) }
+                    renomeando = nil
+                    recarregar()
+                }
+            }
             .navigationTitle("Conversas")
             .navigationBarTitleDisplayMode(.inline)
             // Keep the native sheet material (the nice translucent glass) — just force dark so the
@@ -1038,6 +983,188 @@ struct ConversationDrawer: View {
                     } label: { Image(systemName: "square.and.pencil") }
                 }
             }
+        }
+    }
+
+    private func recarregar() { fios = store.conversations() }
+
+    /// Fios vazios não entram: cada toque no ＋ que não virou conversa deixava uma linha
+    /// "Nova conversa" no histórico para sempre. O fio CORRENTE é a exceção — ele pode estar
+    /// vazio porque ele acabou de abrir e ainda vai falar.
+    private var visiveis: [PersistedConversation] {
+        let vivos = fios.filter { !($0.title ?? "").isEmpty || $0.id == store.currentConversationId }
+        let termo = busca.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !termo.isEmpty else { return vivos }
+        // Busca pelo TÍTULO, que é a primeira linha dele (48 caracteres, gravada por
+        // `touchConversationRecord`). NÃO varre o corpo das mensagens: isso exigiria um fetch
+        // por fio e o store não expõe essa consulta. Limite conhecido, não descuido.
+        return vivos.filter { $0.displayTitle.localizedCaseInsensitiveContains(termo) }
+    }
+
+    private struct Grupo: Identifiable {
+        let titulo: String
+        let fios: [PersistedConversation]
+        var id: String { titulo }
+    }
+
+    /// Fixadas primeiro; o resto em faixas de tempo. Uma data relativa por linha não substitui
+    /// cabeçalho — é o cabeçalho que torna a rolagem orientável quando os fios passam de dezenas.
+    private var grupos: [Grupo] {
+        let cal = Calendar.current
+        let agora = Date()
+        var fixadas: [PersistedConversation] = []
+        var hoje: [PersistedConversation] = []
+        var ontem: [PersistedConversation] = []
+        var semana: [PersistedConversation] = []
+        var mes: [PersistedConversation] = []
+        var antes: [PersistedConversation] = []
+        for c in visiveis {
+            if c.pinned { fixadas.append(c); continue }
+            if cal.isDateInToday(c.updatedAt) { hoje.append(c) }
+            else if cal.isDateInYesterday(c.updatedAt) { ontem.append(c) }
+            else {
+                let dias = cal.dateComponents([.day], from: c.updatedAt, to: agora).day ?? 0
+                if dias < 7 { semana.append(c) }
+                else if dias < 30 { mes.append(c) }
+                else { antes.append(c) }
+            }
+        }
+        return [
+            Grupo(titulo: "Fixadas", fios: fixadas),
+            Grupo(titulo: "Hoje", fios: hoje),
+            Grupo(titulo: "Ontem", fios: ontem),
+            Grupo(titulo: "Últimos 7 dias", fios: semana),
+            Grupo(titulo: "Últimos 30 dias", fios: mes),
+            Grupo(titulo: "Antes", fios: antes)
+        ].filter { !$0.fios.isEmpty }
+    }
+
+    @ViewBuilder
+    private func linha(_ conv: PersistedConversation) -> some View {
+        Button {
+            store.switchTo(conversationId: conv.id)
+            dismiss()
+        } label: {
+            HStack(spacing: BeagleSpacing.sm) {
+                if conv.pinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(BeagleTheme.truthRemembered)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(conv.displayTitle)
+                        .font(BeagleFont.body.font)
+                        .foregroundStyle(BeagleTheme.companionInk)
+                        .lineLimit(1)
+                    Text(conv.updatedAt, format: .relative(presentation: .named))
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                }
+                Spacer()
+                if conv.id == store.currentConversationId {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                store.deleteConversation(conv.id); recarregar()
+            } label: { Label("Apagar", systemImage: "trash") }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                store.togglePinned(conv.id); recarregar()
+            } label: { Label(conv.pinned ? "Soltar" : "Fixar", systemImage: "pin") }
+            .tint(BeagleTheme.truthRemembered)
+            Button {
+                nomeNovo = conv.displayTitle
+                renomeando = conv
+            } label: { Label("Renomear", systemImage: "pencil") }
+            .tint(BeagleTheme.companionInk.opacity(0.55))
+        }
+    }
+
+    private struct Destino: Identifiable {
+        let rotulo: String
+        let icone: String
+        let selo: Int
+        let acao: () -> Void
+        var id: String { rotulo }
+    }
+
+    private var listaDeDestinos: [Destino] {
+        var d: [Destino] = []
+        func mais(_ rotulo: String, _ icone: String, _ selo: Int = 0, _ f: (() -> Void)?) {
+            guard let f else { return }
+            d.append(Destino(rotulo: rotulo, icone: icone, selo: selo, acao: { dismiss(); f() }))
+        }
+        mais("Capturar", "mic.fill", 0, onOpenCapture)
+        mais("Sintetizar", "sparkles", 0, onOpenSynthesize)
+        mais("Sono", "bed.double.fill", 0, onOpenSleep)
+        mais("Memória", "brain.head.profile", 0, onOpenMemory)
+        mais("Noite", "moon.stars.fill", unreadDreamInsightCount, onOpenDreamInsights)
+        mais("Dados", "chart.xyaxis.line", 0, onOpenData)
+        mais("Frota", "dot.radiowaves.left.and.right", 0, onOpenFrota)
+        mais("Oficina", "wrench.and.screwdriver", 0, onOpenOficina)
+        mais("Trabalho", "bolt.fill", 0, onOpenWork)
+        mais("Projeto", "scope", 0, onOpenProject)
+        mais("Ajustes", "gearshape", 0, onOpenSettings)
+        return d
+    }
+
+    /// Os onze destinos do app, em UMA LINHA rolável.
+    ///
+    /// Eram onze linhas de `List`. Embaixo dos fios, afundavam um pouco mais a cada conversa
+    /// ("Sono" e "Dados" já saíam da tela com sete fios). Movidos para cima, VISTO no simulador,
+    /// fizeram o contrário e pior: ocupavam a tela inteira e empurravam TODAS as conversas para
+    /// fora da dobra — a gaveta de conversas deixava de mostrar conversas.
+    ///
+    /// O erro nos dois casos era tratar contagem fixa como custo fixo. Onze destinos empilhados
+    /// custam onze alturas de linha; em faixa horizontal custam uma. Assim os fios — que são o
+    /// motivo da tela existir — começam logo abaixo do topo, e nenhum destino fica inalcançável.
+    @ViewBuilder
+    private var destinos: some View {
+        Section {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: BeagleSpacing.md) {
+                    ForEach(listaDeDestinos) { d in
+                        Button(action: d.acao) {
+                            VStack(spacing: 5) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: d.icone)
+                                        .font(.system(size: 17, weight: .regular))
+                                        .frame(width: 44, height: 44)
+                                        .background(
+                                            Circle().fill(BeagleTheme.companionInk.opacity(0.10)))
+                                    if d.selo > 0 {
+                                        Text("\(d.selo)")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(.black)
+                                            .padding(4)
+                                            .background(Circle().fill(
+                                                Color(hue: 270/360, saturation: 0.5, brightness: 0.9)))
+                                            .offset(x: 3, y: -3)
+                                    }
+                                }
+                                Text(d.rotulo)
+                                    .font(BeagleFont.caption2.font)
+                                    .lineLimit(1)
+                            }
+                            .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                            // Sem isto a área de toque é só o glifo — o defeito que já deixou um
+                            // botão morto na tela de chat.
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, BeagleSpacing.md)
+                .padding(.vertical, BeagleSpacing.xs)
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
         }
     }
 }

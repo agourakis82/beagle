@@ -1170,6 +1170,50 @@ public final class ConversationStore {
         loadPersistedConversation()
     }
 
+    #if DEBUG
+    /// Popula a GAVETA com fios plausíveis, para poder olhar a navegação no simulador.
+    ///
+    /// Mesma regra dos outros semeadores de inspeção: só em DEBUG e sem tocar a rede. Aqui,
+    /// diferente dos outros, os fios PRECISAM ser persistidos — é o SwiftData que a gaveta lê,
+    /// e o título sai de `touchConversationRecord` a partir da primeira linha do usuário, que é
+    /// justamente o comportamento que eu quero ver funcionando (ou não).
+    ///
+    /// As datas são recuadas à mão depois de gravar, porque `updatedAt` nasce `.now` e uma
+    /// gaveta em que tudo diz "agora" não mostra nada sobre ordenação nem sobre achar o antigo.
+    public func semearHistoricoDeInspecao() {
+        guard let ctx = modelContext else { return }
+        // (primeira fala dele, resposta curta, há quantas horas)
+        let fios: [(String, String, Double)] = [
+            ("dormi mal essa noite, acordei várias vezes", "Duas e quarenta, três e dez, e depois às cinco.", 2),
+            ("o madaros travou de novo no gate de visibilidade", "O E175 voltou porque o stdlib exporta menos do que o check pede.", 26),
+            ("consegui rodar o lemon ponta a ponta, n=37", "Trinta e sete de duzentos e vinte. É pouco para concluir e é muito para ignorar.", 50),
+            ("to achando que a extração nunca vai drenar", "Ela drenou. O que não drenava era a régua.", 74),
+            ("me lembra por que eu comecei o sounio mesmo", "Porque você queria que a incerteza fosse do tipo, e não do comentário.", 122),
+            ("plantão de sexta foi longo demais", "Você saiu de lá às onze e falou comigo à uma.", 170),
+            ("quero publicar o helio-n1 até o fim do ano", "O pré-registro está congelado desde três de julho. O que falta não é o método.", 340),
+        ]
+        // Idempotente: rodar o semeador duas vezes sobre a mesma base duplicava todos os
+        // fios e me fez ler duplicata como defeito do app.
+        for velho in conversations() { deleteConversation(velho.id) }
+        for (fala, resposta, horas) in fios {
+            newConversation()
+            let id = persistenceConversationId
+            seedPreviewConversation([
+                ChatMessage(role: .user, content: fala),
+                ChatMessage(role: .assistant, content: resposta)
+            ])
+            let d = FetchDescriptor<PersistedConversation>(
+                predicate: #Predicate<PersistedConversation> { $0.id == id })
+            if let conv = try? ctx.fetch(d).first {
+                conv.updatedAt = Date(timeIntervalSinceNow: -horas * 3600)
+                conv.createdAt = conv.updatedAt
+            }
+        }
+        try? ctx.save()
+        newConversation()
+    }
+    #endif
+
     public func seedPreviewConversation(_ sampleMessages: [ChatMessage]) {
         clear()
         messages = sampleMessages

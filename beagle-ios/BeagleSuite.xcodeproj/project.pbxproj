@@ -876,11 +876,12 @@ CC5892B667084C3091937246 /* FalarView.swift */ = {isa = PBXFileReference; lastKn
 				};
 			};
 			buildConfigurationList = 814EEFD125CED6230A012DEF /* Build configuration list for PBXProject "BeagleSuite" */;
-			developmentRegion = en;
+			developmentRegion = "pt-BR";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
 				en,
+				"pt-BR",
 			);
 			mainGroup = 7C39DE72712D22F710D2FD2E;
 			minimizedProjectReferenceProxies = 1;
