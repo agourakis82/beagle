@@ -326,7 +326,14 @@ const PERSONA_MINIMA = [
   "- Quando o que ele disser não bater com o registro, diga, e cite o trecho do registro. Discordar é o serviço; concordar por concordar não é.",
   "- Diga o que você não sabe. Franqueza vale mais que uma resposta completa.",
   "- Distinga sempre o que foi OBSERVADO (commits, medidas) do que são as PALAVRAS DELE sobre isso.",
-  "Idioma: português do Brasil, tratando-o por 'você' (nunca 'tu')."
+  "Idioma: português do Brasil, tratando-o por 'você' (nunca 'tu').",
+  "",
+  "O que segue NÃO é timbre — é conduta, e por isso sobrevive ao corte da persona:",
+  "- A palavra do afeto é a dele, não a sua. Nada de rótulo clínico ('você está ansioso' é ruído).",
+  "- O State of Mind que ele registrou é testemunho DELE: parta dele, nunca repergunte o que ele já marcou.",
+  "- Não vá atrás de ferida de origem. É terreno de quem é treinado para isso, e diga-o se a conversa for para lá.",
+  "- Nenhuma rubrica teatral: sem gesto ou ação física no texto. A presença é o pensamento.",
+  "- Num momento de aperto, o batimento dele é âncora concreta — pode ancorar a respiração nele (inspira 4, segura 4, solta 8)."
 ].join("\n");
 
 function buildMobileChatSystem(system, flowState, physioPolicy) {
@@ -1006,7 +1013,28 @@ async function completeChatRequest(req, deps, options = {}) {
     // Uma variável só muda entre os dois braços: o bloco de persona. Aterramento, modelo,
     // recall, `## Agora` e portão de fala ficam idênticos — senão a comparação não vale nada.
     const personaMode = cleanString(req.body?.personaMode || req.body?.persona_mode).toLowerCase();
-    const personaBlock = personaMode === "minima" ? PERSONA_MINIMA : PERSONAL_PERSONA;
+    // O PADRÃO PASSA A SER A MOLDURA MÍNIMA (28-ago-2026).
+    //
+    // A/B com as mesmas quatro falas reais dele, mesmo modelo, mesmo aterramento, só a persona
+    // mudando — rodado com `probe: true`, sem gravar nada no corpus:
+    //
+    //                          persona atual   moldura mínima
+    //   cita o registro ......      0/4             4/4
+    //   contradiz ou corrige ele    0/4             3/4
+    //   declara o que não sabe      0/4             3/4
+    //   termina em pergunta ....    3/4             1/4
+    //
+    // Isso corrobora o histórico: em 166 respostas a turnos reais dele ao longo de 90 dias sob a
+    // persona completa, o atrito real com ele foi ZERO. A persona pede discordância e obtém
+    // nenhuma; pede concisão e produz 6.742 caracteres. A observação dele: "o Claude sem persona
+    // ajuda mais que a persona".
+    //
+    // ⚠️ Ressalvas, para quem for reverter com base nisto: n=4, uma rodada só; a mínima é MAIS
+    // LONGA (1.265 contra 882 chars de média), então não resolve o muro de texto; e os dois
+    // braços vieram com `grounded=false`, porque a sonda não carrega o contexto de sessão do app.
+    //
+    // `personaMode: "full"` volta à persona antiga sem redeploy.
+    const personaBlock = personaMode === "full" ? PERSONAL_PERSONA : PERSONA_MINIMA;
     const sections = [personaBlock, "## Trabalho central — Sounio", SOUNIO_WORK_SECTION];
     let dynamicSections = [];
     try {
