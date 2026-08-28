@@ -38,6 +38,10 @@ struct MessageBubble: View {
 
     private var displayedText: String { isUser ? message.content : parsed.message }
 
+    /// Só para a respiração da barra durante a espera. Ver o comentário no `overlay`.
+    @State private var barraViva = false
+    @Environment(\.accessibilityReduceMotion) private var reduzirMovimento
+
     var body: some View {
         HStack(spacing: 0) {
             // Text-first (2026-06-28): tighter side margin (md, was xxl) so long
@@ -204,9 +208,12 @@ struct MessageBubble: View {
     private var bubble: some View {
         Group {
             if isThinking {
+                // Mesmo recuo do texto da resposta (`.leading, BeagleSpacing.md`), para que as
+                // bolinhas ocupem a linha onde a primeira palavra vai aparecer.
                 TypingIndicator()
                     .padding(.vertical, 14)
-                    .padding(.horizontal, BeagleSpacing.md)
+                    .padding(.leading, BeagleSpacing.md)
+                    .padding(.trailing, BeagleSpacing.sm)
             } else if isUser {
                 // A FALA DELE TEM PESO IGUAL. Era itálico a 0.58 de opacidade e sem fundo, com a
                 // justificativa "você sabe o que escreveu" — mas VISTO no simulador, com a
@@ -257,13 +264,29 @@ struct MessageBubble: View {
         // Bolhas simétricas tratavam as duas falas como a mesma coisa. Não são:
         // a sua é telegráfica, a dele é parágrafo. Moldura de altura inteira
         // vira caixa; uma marca curta no início do turno é assinatura.
+        //
+        // 🚨 A barra era suprimida durante a espera (`&& !isThinking`) — VISTO no simulador:
+        // as três bolinhas ficavam soltas na margem, sem nada marcando o lugar onde a resposta
+        // ia nascer, e quando o primeiro token chegava a barra aparecia do nada e o texto
+        // saltava. É justamente na espera que a âncora importa mais.
+        //
+        // Agora a barra aparece com a espera e NÃO se move quando o texto chega: o mesmo
+        // lugar, do primeiro instante ao último token. Durante a espera ela respira — é a
+        // pulsação que diz "vivo", e não um giro de spinner.
         .overlay(alignment: .topLeading) {
-            if !isUser && !isThinking {
+            if !isUser {
                 Capsule()
                     .fill(Self.marcaAmbar)
                     .frame(width: 2.5, height: 20)
+                    .opacity(isThinking && barraViva && !reduzirMovimento ? 0.35 : 1)
+                    .animation(
+                        isThinking && !reduzirMovimento
+                            ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
+                            : .easeOut(duration: 0.3),
+                        value: barraViva)
                     .padding(.top, BeagleSpacing.sm + 3)
                     .padding(.leading, 3)
+                    .onAppear { barraViva = true }
             }
         }
         .frame(maxWidth: 620, alignment: isUser ? .trailing : .leading)

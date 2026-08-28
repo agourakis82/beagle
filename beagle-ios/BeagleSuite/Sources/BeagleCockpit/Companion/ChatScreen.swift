@@ -603,11 +603,18 @@ public struct ChatScreen: View {
                     // Lives outside the message list so server-authored text never renders
                     // in serif as his voice (desenho 2026-08-02, item 5).
                     if store.isStreaming, let note = store.presenceNote, !note.isEmpty {
+                        // VISTO no simulador: a nota flutuava lá embaixo, colada no
+                        // compositor e a um `lg` inteiro de distância das bolinhas — duas
+                        // coisas sem relação aparente, quando são a MESMA coisa (ele está
+                        // aqui, e isto é o que está fazendo). O recuo passa a ser o mesmo do
+                        // texto da resposta, e o topo negativo cancela o `spacing: lg` da
+                        // pilha só para este item, encostando a nota na espera.
                         Text(note)
                             .font(BeagleFont.footnote.font.italic())
                             .foregroundStyle(BeagleTheme.textTertiary)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, BeagleSpacing.xs)
+                            .padding(.leading, BeagleSpacing.md + 3)
+                            .padding(.top, -(BeagleSpacing.lg - BeagleSpacing.xxs))
                             .transition(.opacity)
                     }
                     // clearance so the floating composer never covers the last line
@@ -803,6 +810,11 @@ public struct ChatScreen: View {
         }
         if args.contains("-conversaDemo"), store.messages.isEmpty {
             store.semearConversaDeInspecao()
+        }
+        // `-esperaDemo` congela a tela no instante em que ele mais reclama: depois de enviar,
+        // antes do primeiro token. `-comPresenca` acrescenta a nota de presença.
+        if args.contains("-esperaDemo"), store.messages.isEmpty {
+            store.semearEsperaDeInspecao(comPresenca: args.contains("-comPresenca"))
         }
     }
     #endif

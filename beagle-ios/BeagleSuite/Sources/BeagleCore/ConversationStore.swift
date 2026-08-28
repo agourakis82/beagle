@@ -89,6 +89,18 @@ public final class ConversationStore {
     ///
     /// NÃO passa pela rede e NÃO grava em lugar nenhum. Uma frase de teste enviada pelo caminho
     /// real viraria, no corpus dele, um "auto-relato" que ele nunca fez.
+    /// Congela a tela no estado de ESPERA, para inspeção visual. Só em DEBUG, sem rede.
+    ///
+    /// A espera é o momento que o usuário chamou de morto, e é o mais difícil de olhar: dura
+    /// segundos e depende do servidor. Congelá-la é a única forma de ver o que ele vê enquanto
+    /// espera — sem isso, "melhorar a espera" seria opinar sobre algo que nunca observei.
+    public func semearEsperaDeInspecao(comPresenca: Bool) {
+        semearConversaDeInspecao()
+        messages.append(ChatMessage(role: .assistant, content: "", isStreaming: true))
+        isStreaming = true
+        presenceNote = comPresenca ? "estou com você…" : nil
+    }
+
     public func semearConversaDeInspecao() {
         let agora = Date()
         messages = [
