@@ -280,3 +280,61 @@ confronto de ±60 min de qualquer jeito.
 **Conclusão para o roadmap:** a frente 2 (prompt) está **encerrada** — não havia defeito de
 insistência, e o defeito que havia foi corrigido com guarda. Resta a frente 1: **o app precisa
 capturar o instante do estado**. Enquanto isso não existir, o funil fica em zero, corretamente.
+
+## 28-ago-2026 — Sondas de saúde desligadas: escreviam auto-relatos no corpus
+
+**Medido**, não suposto. Superfície `companion-ios`, últimas 24h:
+
+| ator | registros |
+|---|---|
+| `model_generated` | 383 |
+| `model_distilled` | 319 |
+| `user_stated` | **2** |
+
+As duas coisas que ele realmente falou foram às 11h49 e 11h50 ("Hoje é outro dia, seu calendário
+está bagunçado" e "Tá mais leve"). Todo o resto veio de sondas.
+
+### Quem estava batendo
+
+| quem | onde | intervalo | prompt |
+|---|---|---|---|
+| `beagle-canario.timer` | systemd de usuário, t560 | **5 min** | "Responda em uma frase: quem sou eu para você?" |
+| `companion-health` | CronJob, ns `beagle` | 15 min | "Está me ouvindo?" |
+
+Ambas em `POST /api/mobile/v1/chat` com `space: "personal"` — e a captura é gatilhada exatamente
+por `chatSpace === "personal"` (`apps/project-cockpit/server/mobile-routes.mjs`). Sonda pelo
+caminho real = turno capturado e destilado.
+
+### Por que isso importa
+
+O destilador produzia auto-relatos em PRIMEIRA PESSOA sobre o estado dele a partir da sonda:
+
+> "Essa pergunta me incomoda mais do que eu admito." · "Algo importante está me incomodando hoje."
+> · "Sinto que preciso constantemente provar que estou ouvindo."
+
+Ele não disse nenhuma dessas frases. Rastreado: o átomo `119c1694` de hoje deriva de
+`7b426730`, "Está me ouvindo?", de **02-ago** — 26 dias antes. `prov_derived_from` está íntegro e
+`prov_orphan=false`, então a armadilha de write-time passa: a cadeia é real, o que é falso é a
+ATUALIDADE da alegação. Um auto-relato de hoje ancorado num registro de 26 dias atrás.
+
+Contenção que funcionou: ficam em `trust_tier='unverified'`, e a P3 os exclui do grounding — o
+companion não repete isso para ele. O dano é na massa do corpus, que é o que a Fase 2 mede.
+
+### O que foi feito
+
+```
+systemctl --user stop beagle-canario.timer && systemctl --user disable beagle-canario.timer
+kubectl patch cronjob companion-health -n beagle -p '{"spec":{"suspend":true}}'
+```
+
+Nada foi APAGADO. `session_id` dessas sondas é `companion-default`, a chave-coringa que já causou
+o apagamento de 4.982 registros reais — quarentena, se houver, será por ID literal.
+
+### 🚩 O custo, declarado
+
+Isso desligou junto **o único alarme que chega no telefone dele** quando o companion cai — era a
+sonda que detectava "voz no chão" (HTTP 200 com presença enlatada e nenhum LLM atrás) e memória
+mudo. O conserto que devolve o alarme sem devolver a poluição: um `probe: true` no corpo,
+honrado só com token de operador, que faz TODO o grounding (para que a checagem de `grounded`
+continue significando algo) e pula só a captura/destilação. Pendente da decisão dele — mexe no
+caminho de captura, que é o código mais sensível do sistema.
