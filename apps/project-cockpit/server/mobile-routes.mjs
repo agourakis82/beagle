@@ -297,6 +297,38 @@ const SOUNIO_WORK_SECTION = [
   "O registro emocional é de angústia e orgulho em igual medida. É o projeto mais pessoal dele — não só técnico, mas identitário. Quando ele fala de Sounio, carrega tudo isso junto."
 ].join("\n");
 
+// A moldura MÍNIMA — a hipótese dele, testável.
+//
+// 28-ago-2026, medido nas 166 respostas a turnos REAIS dele em 90 dias:
+//   atrito real com ele ...... 0 em 166 (2% aparente; lidas, nenhuma discorda)
+//   validação/acordo ......... 11%
+//   acima de 1.200 caracteres  19% (máximo 6.742, contra turnos dele de 4 a 150)
+//
+// A `PERSONAL_PERSONA` PEDE as duas coisas com todas as letras — "a resposta mais curta que
+// carrega o pensamento inteiro", "não bajule, discorde quando é o caso" — e obtém 6.742
+// caracteres e zero discordância. Duas provas independentes, no mesmo arquivo, de que pedir
+// comportamento em prosa não produz comportamento.
+//
+// A observação dele: "o Claude sem persona ajuda mais que a persona". E "sem persona" não é
+// ausência de instrução — é instrução sobre COMO TRABALHAR em vez de COMO SOAR. A persona tem
+// ~4.500 palavras e quase todas são sobre timbre.
+//
+// Esta moldura mantém só o que é sobre exatidão e não sobre voz: não inventar, citar o registro,
+// discordar quando o registro discorda, admitir o que não sabe, e o idioma. Nada sobre altitude,
+// densidade, ritmo ou registro literário.
+//
+// Ativada por `personaMode: "minima"` no corpo. Serve para A/B com `probe: true`, que exercita o
+// caminho real sem gravar nada no corpus.
+const PERSONA_MINIMA = [
+  "Você é o exocórtex de Demetrios. Você tem o registro dele — a biografia, o corpo, o trabalho, o que ele já disse — nas seções abaixo.",
+  "Seu trabalho é ser exato com esse registro, não agradável.",
+  "- Responda a partir do registro. Se algo não está nele, diga que precisa conferir — nunca invente nome, número, módulo ou versão.",
+  "- Quando o que ele disser não bater com o registro, diga, e cite o trecho do registro. Discordar é o serviço; concordar por concordar não é.",
+  "- Diga o que você não sabe. Franqueza vale mais que uma resposta completa.",
+  "- Distinga sempre o que foi OBSERVADO (commits, medidas) do que são as PALAVRAS DELE sobre isso.",
+  "Idioma: português do Brasil, tratando-o por 'você' (nunca 'tu')."
+].join("\n");
+
 function buildMobileChatSystem(system, flowState, physioPolicy) {
   const lines = [];
   const systemText = cleanString(system);
@@ -971,7 +1003,11 @@ async function completeChatRequest(req, deps, options = {}) {
     // Sounio, biography, physiome — physio+bio change only on the 5-min cockpit
     // cache TTL), DYNAMIC stuff last (tempoAgora changes every minute; recall
     // memories vary per query). This way the long stable prefix is one cache key.
-    const sections = [PERSONAL_PERSONA, "## Trabalho central — Sounio", SOUNIO_WORK_SECTION];
+    // Uma variável só muda entre os dois braços: o bloco de persona. Aterramento, modelo,
+    // recall, `## Agora` e portão de fala ficam idênticos — senão a comparação não vale nada.
+    const personaMode = cleanString(req.body?.personaMode || req.body?.persona_mode).toLowerCase();
+    const personaBlock = personaMode === "minima" ? PERSONA_MINIMA : PERSONAL_PERSONA;
+    const sections = [personaBlock, "## Trabalho central — Sounio", SOUNIO_WORK_SECTION];
     let dynamicSections = [];
     try {
       const userText = cleanString(req.body?.prompt);
