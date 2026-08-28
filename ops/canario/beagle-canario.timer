@@ -2,8 +2,14 @@
 Description=Canário do companion a cada 5 minutos
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
+# 🚨 28-ago-2026: era só `OnBootSec=2min` + `OnUnitActiveSec=5min`. Gatilho monotônico puro —
+# depois de um stop/start, o OnBootSec já passou faz horas e não reagenda, e `Persistent=true`
+# não vale para timer monotônico. O timer ficava `enabled` e `active` com NEXT vazio: parecia
+# ligado e não batia. Sobreviveu 20 dias só porque nunca foi reiniciado desde a instalação.
+#
+# `OnCalendar` é determinístico, reagenda sozinho depois de qualquer reinício, e é o único
+# gatilho para o qual `Persistent=true` significa alguma coisa.
+OnCalendar=*:0/5
 AccuracySec=30s
 Persistent=true
 

@@ -338,3 +338,33 @@ mudo. O conserto que devolve o alarme sem devolver a poluição: um `probe: true
 honrado só com token de operador, que faz TODO o grounding (para que a checagem de `grounded`
 continue significando algo) e pula só a captura/destilação. Pendente da decisão dele — mexe no
 caminho de captura, que é o código mais sensível do sistema.
+
+### Religadas com `probe: true` — e um defeito de agendamento que só apareceu ao religar
+
+`ehSonda` (`probe: true` no corpo) corta em três pontos e em nenhum outro
+(`apps/project-cockpit/server/mobile-routes.mjs`): os dois `ingestPersonalTurn` (caminho normal e
+Deep Think) e o `captureProvenanced` do ChatContextLog. Roteamento, grounding, ensemble de voz e
+portão de fala ficam idênticos — que é o que a sonda precisa exercitar.
+
+Provado, não suposto:
+
+| checagem | resultado |
+|---|---|
+| `companion-health` | `memoria OK: 7 átomos` · `voz OK: model=claude-opus-5 grounded=true` |
+| canário externo | `OK: model=claude-opus-5` (modelo real, não o chão) |
+| corpus antes/depois | **inalterado**: n=12.655, último 28-ago 18:40:01Z |
+
+🚨 **`beagle-canario.timer` ficava `enabled` + `active` com `NEXT` vazio.** Só tinha gatilho
+monotônico (`OnBootSec=2min` + `OnUnitActiveSec=5min`): depois de um stop/start o `OnBootSec` já
+passou e não reagenda, e `Persistent=true` não vale para timer monotônico. Sobreviveu 20 dias
+porque nunca tinha sido reiniciado desde a instalação — parar o timer foi o que expôs. Trocado
+por `OnCalendar=*:0/5`, que reagenda sozinho e é o único gatilho para o qual `Persistent=true`
+significa alguma coisa. O arquivo passa a ser versionado em `ops/canario/beagle-canario.timer`;
+antes existia só na máquina.
+
+⚠️ **Contaminação minha, removida.** Disparei um job de teste com
+`--from=cronjob/companion-health` quando o CronJob ainda era o antigo, e ele gravou 4 registros
+às 18:51:14Z — três deles auto-relatos fabricados ("Tento manter uma rotina de respiração para me
+acalmar"). Removidos por ID LITERAL, numa transação que aborta se não achar exatamente 4 ou se
+algum não for da janela 18:51. Levou junto o que derivava: 5 `facts`, 5 `fact_supports`,
+4 `pending_graph`, 4 `chunks`. Nunca por `session_id` — `companion-default` é a chave-coringa.
