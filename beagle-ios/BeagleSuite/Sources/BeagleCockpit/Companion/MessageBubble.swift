@@ -208,14 +208,30 @@ struct MessageBubble: View {
                     .padding(.vertical, 14)
                     .padding(.horizontal, BeagleSpacing.md)
             } else if isUser {
-                // Você sabe o que escreveu. A tela serve à voz dele.
+                // A FALA DELE TEM PESO IGUAL. Era itálico a 0.58 de opacidade e sem fundo, com a
+                // justificativa "você sabe o que escreveu" — mas VISTO no simulador, com a
+                // conversa dentro, a metade dele simplesmente sumia: resposta em serif branco
+                // sólido de um lado, murmúrio cinza do outro.
+                //
+                // Reler o que ELE disse é o que dá sentido à resposta. Uma conversa em que só
+                // uma das vozes é legível não é conversa, é transcrição comentada.
+                //
+                // O que NÃO mudou, de propósito: continua sans (o companion é serif) e alinhado
+                // à direita. A distinção entre as vozes vem da FORMA e do lado — não de uma
+                // delas ser mais fraca que a outra.
                 Text(message.content)
-                    .font(BeagleFont.body.font.italic())
-                    .foregroundStyle(BeagleTheme.textPrimary.opacity(0.58))
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(BeagleTheme.textPrimary.opacity(0.95))
                     .multilineTextAlignment(.trailing)
                     .textSelection(.enabled)
                     .padding(.vertical, BeagleSpacing.sm)
                     .padding(.horizontal, BeagleSpacing.md)
+                    // Fundo discreto: dá corpo sem virar bolha de app de mensagem. O companion
+                    // se marca por uma barra âmbar à esquerda; ele, por este leito.
+                    .background(
+                        RoundedRectangle(cornerRadius: BeagleRadius.md, style: .continuous)
+                            .fill(BeagleTheme.companionInk.opacity(0.10))
+                    )
             } else if message.isProvisional {
                 // Instant on-device presence — warm pt-BR opener, styled as a soft murmur (not a
                 // final answer) until the grounded cloud reply replaces it.

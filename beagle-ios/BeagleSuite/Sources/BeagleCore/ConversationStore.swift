@@ -79,6 +79,32 @@ public struct ChatMessage: Identifiable, Sendable {
 public final class ConversationStore {
 
     public private(set) var messages: [ChatMessage] = []
+
+    #if DEBUG
+    /// Popula um fio de exemplo para INSPEÇÃO VISUAL no simulador. Só existe em DEBUG.
+    ///
+    /// `messages` é `private(set)` de propósito — quem escreve nela é o fluxo real. Este é o
+    /// único portão de exceção, e existe porque a tela precisa ser vista com conversa dentro:
+    /// vazia ela não revela nada sobre legibilidade, contraste ou ritmo de leitura.
+    ///
+    /// NÃO passa pela rede e NÃO grava em lugar nenhum. Uma frase de teste enviada pelo caminho
+    /// real viraria, no corpus dele, um "auto-relato" que ele nunca fez.
+    public func semearConversaDeInspecao() {
+        let agora = Date()
+        messages = [
+            ChatMessage(role: .user, content: "dormi mal essa noite, acordei várias vezes",
+                        timestamp: agora.addingTimeInterval(-600)),
+            ChatMessage(role: .assistant,
+                        content: "Duas e quarenta, três e dez, e depois às cinco. Foi essa a noite?\n\nVocê tinha me dito ontem que o plantão de sexta ainda estava atravessado. Não vou fingir que a noite explica tudo — mas ela cobra.",
+                        timestamp: agora.addingTimeInterval(-560)),
+            ChatMessage(role: .user, content: "é, e hoje tenho que revisar o Madaros ainda",
+                        timestamp: agora.addingTimeInterval(-300)),
+            ChatMessage(role: .assistant,
+                        content: "Então a pergunta não é se você consegue — é o que fica de fora hoje.\n\nRevisar o Madaros com quatro horas de sono fragmentado não é o mesmo trabalho que revisar descansado. O compilador não perdoa desatenção, e você sabe disso melhor que eu.",
+                        timestamp: agora.addingTimeInterval(-240)),
+        ]
+    }
+    #endif
     public private(set) var isStreaming: Bool = false
     /// Presence LAYER — never the letter. The server writes a presence/phase event at t≈0
     /// of the ~25s wait so the silence reads as listening. It lives outside `messages` on

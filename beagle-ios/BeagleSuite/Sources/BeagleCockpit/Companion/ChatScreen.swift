@@ -269,6 +269,9 @@ public struct ChatScreen: View {
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.55)) { appeared = true }
+            #if DEBUG
+            semearParaInspecao()
+            #endif
         }
         // SOTA-chat #5: subtle haptics via iOS 17 .sensoryFeedback (state-triggered, no
         // generators to manage). Light impact on send; a discrete success at the moment the
@@ -384,7 +387,7 @@ public struct ChatScreen: View {
             // é a brasa que o bicho espalha, ancorada onde fica o coração dele.
             // Sem ela o bicho flutua sobre um retângulo chapado — foi exatamente o
             // que fez a primeira versão do desenho parecer pobre.
-            EmberField(breath: breath, intensity: empty ? 1.0 : 0.62)
+            EmberField(breath: breath, intensity: empty ? 1.0 : 0.22)
                 .animation(.easeOut(duration: 0.6), value: empty)
 
             // Atrás: a aurora continua (foi construída de propósito e ele gosta dela),
@@ -395,7 +398,7 @@ public struct ChatScreen: View {
                 isStreaming: store.isStreaming,
                 size: empty ? .greeter : .header
             )
-            .opacity(empty ? 0.55 : 0.16)
+            .opacity(empty ? 0.55 : 0.08)
             .animation(.easeOut(duration: 0.35), value: empty)
 
             // Na frente: o bicho. Máscara radial e curva própria de opacidade vivem
@@ -405,8 +408,30 @@ public struct ChatScreen: View {
                 breath: breath,
                 sky: weather?.band ?? .calm
             )
-            .opacity(empty ? 0.95 : 0.55)
+            .opacity(empty ? 0.95 : 0.13)
             .animation(.easeOut(duration: 0.35), value: empty)
+        }
+        // VISTO no simulador, com a conversa dentro: o texto ficava escrito por cima da CARA do
+        // cão — pelagem clara sob texto claro, sem nada separando. As opacidades de antes
+        // (bicho 0.55, brasas 0.62) foram pensadas como "recuo", mas 0.55 de uma imagem com
+        // esse contraste ainda é uma imagem no meio da leitura.
+        //
+        // Decisão dele: o cão FICA durante a conversa, mas como presença, não como concorrente.
+        // Por isso três coisas juntas, e nenhuma sozinha bastaria:
+        //   - opacidade muito menor (0.13 / 0.22 / 0.08);
+        //   - desfoque, que mata a competição de DETALHE — é a borda nítida do olho e do focinho
+        //     que puxa o olhar, não o brilho;
+        //   - um véu escuro por cima, que garante contraste mínimo onde a pelagem é clara.
+        //
+        // Na tela VAZIA nada disso se aplica: ali ele aparece inteiro e nítido, que é onde ele
+        // é bonito e não atrapalha ninguém.
+        .blur(radius: store.messages.isEmpty ? 0 : 9)
+        .animation(.easeOut(duration: 0.4), value: store.messages.isEmpty)
+        .overlay {
+            Color.black
+                .opacity(store.messages.isEmpty ? 0 : 0.34)
+                .animation(.easeOut(duration: 0.4), value: store.messages.isEmpty)
+                .allowsHitTesting(false)
         }
         .allowsHitTesting(false)
     }
@@ -757,6 +782,30 @@ public struct ChatScreen: View {
     }
 
     // MARK: - Send
+
+    #if DEBUG
+    /// Semeia a tela para INSPEÇÃO VISUAL no simulador. Só existe em DEBUG.
+    ///
+    /// Existe porque entreguei três builds sem nunca ter visto a interface — e cada defeito
+    /// custou um ciclo dele: instalar, testar, relatar. O `simctl` não digita e clicar por
+    /// coordenada é frágil; sem este gancho não há como capturar a tela num estado realista.
+    ///
+    /// Não toca a rede: as mensagens são montadas em memória. Isso é deliberado — mandar uma
+    /// frase de teste pelo caminho real gravaria no corpus dele um "auto-relato" que ele nunca
+    /// fez, e a Fase 2 mede exatamente isso.
+    ///
+    ///   -rascunhoInicial "dormi mal essa noite"   → põe o texto no campo
+    ///   -conversaDemo                             → popula um fio de exemplo
+    private func semearParaInspecao() {
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-rascunhoInicial"), i + 1 < args.count {
+            draft = args[i + 1]
+        }
+        if args.contains("-conversaDemo"), store.messages.isEmpty {
+            store.semearConversaDeInspecao()
+        }
+    }
+    #endif
 
     private func send() { sendText(draft) }
 
