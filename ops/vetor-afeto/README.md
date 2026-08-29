@@ -1,4 +1,30 @@
-# O vetor de emoção dirige a fala, ou só está no prompt?
+# ⚠️ ESTA BANCADA TESTOU O CIRCUMPLEXO, NÃO A HIPÓTESE SEDENIÔNICA
+
+**Leia isto antes de citar qualquer número daqui.**
+
+O que está medido abaixo é o **circumplexo de Russell** — valência × ativação como par de
+escalares em ℝ². Não é o conceito do pesquisador, e é literalmente a arte prévia que ele não
+pode reivindicar. Eu construí e rodei esta bancada supondo que "vetor de emoção" significasse o
+par de escalares padrão. Não significa.
+
+O conceito é: **afeto e acoplamento vivendo num espaço de estados sedeniônico**, onde a composição
+é o PRODUTO de 𝕊 e `a·b = 0` com a,b ≠ 0 é aniquilação — o acoplamento que não ocorre. Em ℝ² não
+há produto, logo o fenômeno de interesse não é sequer representável, e por isso esta bancada nunca
+poderia achá-lo. Ver `docs/PREREG_PSI_SEDENIONICO_v1.md` (SHA-256
+`005df7bd2b3362c1e62ab7d3728cadb6cec31196f1c3d0f30b1ad93cad795f19`).
+
+**O que os números abaixo VALEM:** são uma refutação do circumplexo *neste sistema* — a valência,
+como entregue hoje, não desloca a fala. Isso é um fato sobre o produto em produção e continua
+verdadeiro.
+
+**O que eles NÃO valem:** não dizem nada sobre a hipótese sedeniônica. Nem a favor, nem contra.
+
+A varredura 2D (`varre-vetor.sh`, braços descritivo/diretivo) foi **abandonada em curso**, com 3
+de 36 respostas, pelo mesmo motivo: estava medindo a versão errada do objeto.
+
+---
+
+# O circumplexo dirige a fala, ou só está no prompt?
 
 Bancada montada em 28-ago-2026, a pedido dele: *"o desafio aqui é a minha fronteira de novelty…
 conseguir expressar os vetores de emoção"*.
