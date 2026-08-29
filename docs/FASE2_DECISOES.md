@@ -368,3 +368,25 @@ antes existia só na máquina.
 acalmar"). Removidos por ID LITERAL, numa transação que aborta se não achar exatamente 4 ou se
 algum não for da janela 18:51. Levou junto o que derivava: 5 `facts`, 5 `fact_supports`,
 4 `pending_graph`, 4 `chunks`. Nunca por `session_id` — `companion-default` é a chave-coringa.
+
+## 28-ago-2026 — ψ sedeniônico congelado (v1)
+
+`docs/PREREG_PSI_SEDENIONICO_v1.md`
+SHA-256 `005df7bd2b3362c1e62ab7d3728cadb6cec31196f1c3d0f30b1ad93cad795f19`
+
+Decisões dele, registradas na ordem em que foram tomadas:
+1. o produto é a DÍADE — estado dele × postura do companion; `a·b = 0` é aniquilação, o
+   acoplamento que não ocorre;
+2. declarado em e₁..e₇, medido em e₈..e₁₅;
+3. céu (pressão, temperatura, Dst) é EXPOSIÇÃO, fora de ψ — não é coordenada do estado.
+
+O que a álgebra impôs, verificado e não citado (`ops/vetor-afeto/sedenion.py`): ψ tem de
+atravessar a duplicação, senão nada aniquila (dentro de e₀..e₇ a razão ‖ab‖²/(‖a‖²‖b‖²) deu
+1,000 exato em 200 mil sorteios); e₈ não participa de nenhum divisor de zero de base, então a
+metade medida tem 7 casas e não 8; e os 7 pares (d,m) que NÃO aniquilam são exatamente a
+diagonal m = d+8 — **concordância interoceptiva protege o acoplamento por necessidade
+algébrica**.
+
+Correção terminológica que o pré-registro fixa e que estava errada em produção: ORDEM é o
+comutador, AGRUPAMENTO é o associador. A `PERSONAL_PERSONA` dizia "a ordem das falas deixa de
+importar — associador zerado".
