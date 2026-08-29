@@ -234,8 +234,19 @@ export function formatAgora({ ctx, body = {}, sky = {}, episodeMinutes = null } 
 
   // AFETO: his OWN logged State of Mind (Apple Health, iOS 18+). His testimony about how he
   // feels — honor it, never re-ask what he already recorded. Felt, not recited (block header).
-  const affect = stateOfMindPtBR(body.stateOfMind, body.stateOfMindLabel);
-  if (affect) lines.push(`AFETO: você mesmo registrou-se ${affect} — é seu, parta disso, não repergunte.`);
+  // Com ativação presente (ou modo diretivo pedido), passa pelo vetor; sem nada disso, o
+  // caminho antigo continua idêntico — nenhum turno real dele muda de comportamento por isto.
+  const temVetor = num(body.arousal) !== null || body.afetoModo === "diretivo";
+  if (temVetor) {
+    const linha = afetoVetorial({
+      valence: body.stateOfMind, arousal: body.arousal,
+      label: body.stateOfMindLabel, modo: body.afetoModo
+    });
+    if (linha) lines.push(linha);
+  } else {
+    const affect = stateOfMindPtBR(body.stateOfMind, body.stateOfMindLabel);
+    if (affect) lines.push(`AFETO: você mesmo registrou-se ${affect} — é seu, parta disso, não repergunte.`);
+  }
 
   // CÉU: lead with the worst-of-Kp/Dst band as the felt descriptor; the raw values ride in
   // the parenthetical. Omit the whole line only when neither Kp nor Dst is known.
@@ -288,6 +299,79 @@ export function stateOfMindPtBR(valence, label) {
   }
   if (lab && band) return `${lab} (${band})`;
   return lab || band || "";
+}
+
+/**
+ * O VETOR DE AFETO — valência × ativação — em duas entregas, para poder comparar.
+ *
+ * 🚨 Medido em 28-ago-2026, antes de existir esta função: a valência sozinha NÃO deslocava a
+ * fala. Dezoito respostas, tudo congelado menos o número: divergência entre valências 0,732
+ * contra 0,736 entre repetições da MESMA valência (efeito −0,004, abaixo do ruído do próprio
+ * modelo); correlação entre |Δvalência| e divergência +0,027; e um juiz cego recuperou 4 de 15
+ * (acaso 5, p=0,352). Cinco baldes rotulados, não um eixo. Ver `ops/vetor-afeto/`.
+ *
+ * E não havia ativação: `stateOfMindPtBR` colapsa a valência em cinco faixas e devolve um
+ * adjetivo, com o rótulo tendo preferência sobre o número. Metade do vetor não existia.
+ *
+ * Os dois modos existem para separar REPRESENTAÇÃO de VEICULAÇÃO — a mesma informação entregue
+ * de duas formas:
+ *
+ *   "descritivo" — o vetor DESCREVE o estado ("você se registrou desagradável e muito ativado").
+ *     É a forma atual, agora com o segundo eixo. Hipótese nula: descrever estado não muda fala,
+ *     pelo mesmo motivo que a persona pedia discordância e obtinha zero.
+ *
+ *   "diretivo" — o vetor PRESCREVE a forma da resposta, derivada dos números. Ativação alta pede
+ *     frases curtas e a coisa na primeira linha; ativação baixa abre espaço. Valência baixa
+ *     proíbe consolo e manda nomear primeiro o que pesa. Não descreve o sujeito: restringe o
+ *     texto. Se isto deslocar a fala e o descritivo não, o problema nunca foi o vetor — foi a
+ *     entrega.
+ *
+ * ⚠️ Nenhum dos dois é o vetor "de verdade": os dois continuam sendo texto num prompt. O que
+ * este par permite é MEDIR a diferença, que é o que faltava.
+ */
+export function afetoVetorial({ valence, arousal, label, modo } = {}) {
+  const v = num(valence);
+  const a = num(arousal);
+  if (v === null && a === null) return "";
+  const lab = typeof label === "string" ? label.trim() : "";
+
+  if (modo === "diretivo") {
+    const regras = [];
+    if (a !== null) {
+      if (a >= 0.5) regras.push(
+        "ele está muito ativado: a coisa vem na PRIMEIRA linha, frases curtas, sem preâmbulo e sem elaborar antes de acertar");
+      else if (a >= 0.15) regras.push(
+        "ele está ativado: seja direto, corte o rodeio, elabore só depois de dizer o essencial");
+      else if (a <= -0.5) regras.push(
+        "ele está muito desativado: uma coisa só, curta; não empilhe opções nem peça decisão");
+      else if (a <= -0.15) regras.push(
+        "ele está pouco ativado: ritmo lento, poucas frentes, nada de lista longa");
+      else regras.push("ativação média: sem restrição especial de ritmo");
+    }
+    if (v !== null) {
+      if (v <= -0.5) regras.push(
+        "valência baixa: nomeie primeiro o que pesa, nas palavras dele; NADA de consolo, de lado bom nem de reenquadramento antes disso");
+      else if (v <= -0.15) regras.push(
+        "valência negativa: reconheça o peso antes de mover; não apresse a saída");
+      else if (v >= 0.5) regras.push(
+        "valência alta: pode construir para a frente, sem virar comemoração");
+      else if (v >= 0.15) regras.push("valência positiva: pode avançar sem cerimônia");
+    }
+    return "FORMA (derivada do vetor de afeto que ELE registrou — restringe o SEU texto, "
+      + "não é diagnóstico dele, e não deve ser mencionada): " + regras.join("; ") + ".";
+  }
+
+  // descritivo (a forma histórica, agora com os dois eixos)
+  const faixaV = v === null ? "" :
+    v <= -0.6 ? "muito desagradável" : v <= -0.2 ? "desagradável" :
+    v < 0.2 ? "neutro" : v < 0.6 ? "agradável" : "muito agradável";
+  const faixaA = a === null ? "" :
+    a <= -0.6 ? "muito desativado" : a <= -0.2 ? "desativado" :
+    a < 0.2 ? "ativação média" : a < 0.6 ? "ativado" : "muito ativado";
+  const partes = [lab, faixaV, faixaA].filter(Boolean);
+  return partes.length
+    ? `AFETO: você mesmo registrou-se ${partes.join(", ")} — é seu, parta disso, não repergunte.`
+    : "";
 }
 
 // Cap each recalled snippet so a few large memory-pg rows can't bloat the system

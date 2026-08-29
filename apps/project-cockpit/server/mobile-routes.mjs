@@ -1175,6 +1175,12 @@ async function completeChatRequest(req, deps, options = {}) {
         flowState: requestedFlowState,
         stateOfMind: num(req.body?.state_of_mind),
         stateOfMindLabel: cleanString(req.body?.state_of_mind_label),
+        // O SEGUNDO EIXO. Até 28-ago-2026 o caminho tinha só valência — metade do vetor não
+        // existia. `afetoModo` escolhe a entrega: "descritivo" (descreve o estado, a forma
+        // histórica) ou "diretivo" (o vetor restringe a FORMA do texto). Ver a função
+        // `afetoVetorial` em temporal-context.mjs e a bancada em ops/vetor-afeto/.
+        arousal: num(req.body?.arousal),
+        afetoModo: cleanString(req.body?.afeto_modo || req.body?.afetoModo),
         // Sinal de tom derivado NO APARELHO quando ele falou em vez de digitar.
         // Números, nunca áudio — o buffer é descartado no iPhone.
         voiceSpeechRateWpm: num(req.body?.voice_speech_rate_wpm),
