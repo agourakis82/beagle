@@ -691,7 +691,7 @@ fn retrieval_via_memory_pg() -> bool {
         .unwrap_or(false)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct MemoryPgResult {
     #[serde(default)]
     text: String,
@@ -3944,11 +3944,35 @@ pub(crate) fn normalize_text(value: &str) -> String {
         .join(" ")
 }
 
+// Common English function words that must never drive a lexical-overlap
+// match: at length 3-4 they pass the bare `len() > 2` filter below and
+// appear in virtually every English sentence, so leaving them in makes
+// `atom_score`/`hypermemory_atom_score` (both consume this function's
+// output) count a spurious "hit" against nearly any memory atom regardless
+// of actual topical relevance -- measured directly: the query "what is the
+// speed of light" scored 0.89 against a stored atom about Sounio compiler
+// type-checking, purely because "what" and "the" both survived tokenize()
+// and matched that atom's text, with zero real semantic connection to the
+// query. Filtering them here fixes every downstream caller uniformly (this
+// function has 5 call sites across mod.rs/repository.rs).
+const STOPWORDS: &[&str] = &[
+    "the", "and", "for", "are", "was", "were", "has", "had", "have", "not",
+    "but", "you", "your", "his", "her", "its", "our", "their", "this",
+    "that", "these", "those", "what", "which", "who", "whom", "when",
+    "where", "why", "how", "all", "any", "both", "each", "few", "more",
+    "most", "other", "some", "such", "nor", "only", "own", "same", "than",
+    "too", "very", "can", "will", "just", "should", "now", "with", "from",
+    "into", "onto", "upon", "about", "above", "below", "over", "under",
+    "again", "further", "then", "once", "here", "there", "does", "did",
+    "doing", "been", "being", "would", "could", "shall", "must", "let",
+    "yes", "not", "off", "out", "per", "via",
+];
+
 pub(crate) fn tokenize(value: &str) -> Vec<String> {
     value
         .to_lowercase()
         .split(|ch: char| !ch.is_alphanumeric())
-        .filter(|token| token.len() > 2)
+        .filter(|token| token.len() > 2 && !STOPWORDS.contains(token))
         .map(ToOwned::to_owned)
         .collect()
 }
@@ -6365,5 +6389,60 @@ mod tests {
             .public_trace_digest
             .iter()
             .any(|entry| entry.to_string().contains("restricted")));
+    }
+
+    #[test]
+    fn tokenize_drops_stopwords_that_pass_the_bare_length_filter() {
+        // "is"/"of" are already dropped by len() > 2; "what"/"the" are the
+        // ones that were silently surviving and driving spurious matches.
+        assert_eq!(
+            tokenize("what is the speed of light"),
+            vec!["speed".to_string(), "light".to_string()]
+        );
+    }
+
+    fn unrelated_atom(text: &str) -> MemoryAtom {
+        MemoryAtom {
+            id: "atom:test".to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            episode_id: "episode:test".to_string(),
+            atom_type: "hypothesis".to_string(),
+            text: text.to_string(),
+            normalized_text: text.to_lowercase(),
+            source_refs: vec!["omnimemory:test".to_string()],
+            relations: Vec::new(),
+            tags: Vec::new(),
+            confidence: 0.7,
+            privacy_class: "sensitive".to_string(),
+            occurred_at: None,
+        }
+    }
+
+    #[test]
+    fn atom_score_does_not_match_on_stopwords_alone() {
+        // Regression for the real incident this fixes: querying
+        // "what is the speed of light" against a stored atom about
+        // compiler type-checking (zero topical overlap) previously scored
+        // 0.89 via hypermemory_atom_score, purely from "what"/"the"
+        // surviving tokenize() and matching this atom's own "what"/"the".
+        // With those filtered, an atom with no real query-relevant word
+        // must score exactly 0.0 from both scoring functions.
+        let query_tokens = tokenize("what is the speed of light");
+        let atom = unrelated_atom(
+            "Let me re-examine the task from a different angle. The task says \
+             it currently fails type-check, but what I see does not confirm that.",
+        );
+        assert_eq!(atom_score(&atom, &query_tokens), 0.0);
+        assert_eq!(hypermemory_atom_score(&atom, &query_tokens), 0.0);
+    }
+
+    #[test]
+    fn atom_score_still_matches_on_real_topical_overlap() {
+        // The fix must not make every match score 0.0 -- a genuine content
+        // word overlap ("light") still needs to score above zero.
+        let query_tokens = tokenize("what is the speed of light");
+        let atom = unrelated_atom("The speed of light in vacuum is a physical constant.");
+        assert!(atom_score(&atom, &query_tokens) > 0.0);
+        assert!(hypermemory_atom_score(&atom, &query_tokens) > 0.0);
     }
 }
