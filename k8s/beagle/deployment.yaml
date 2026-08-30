@@ -25,7 +25,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: core-server
-          image: 192.168.3.207:5003/beagle-core-exocortex:reconcile-e752c9b4
+          image: 192.168.3.207:5003/beagle-core-exocortex:reconcile-81190b48
           imagePullPolicy: Always
           ports:
             - name: http
