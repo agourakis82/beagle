@@ -79,11 +79,24 @@ final class SidebarNativeView: NSView {
         if h != hovered { hovered = h; needsDisplay = true }
     }
 
+    override func mouseExited(with event: NSEvent) {
+        if hovered != nil {
+            hovered = nil
+            needsDisplay = true
+        }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
-                                        owner: self, userInfo: nil))
+        addTrackingArea(
+            NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+        )
     }
 
     // MARK: - Acessibilidade
@@ -92,7 +105,10 @@ final class SidebarNativeView: NSView {
     // outras telas (ver os `.accessibilityLabel` explícitos na Frota).
     override func accessibilityChildren() -> [Any]? {
         rowFrames.map { s, frame in
-            let el = NSAccessibilityElement()
+            let el = SidebarRowAccessibilityElement(section: s) { [weak self] chosen in
+                self?.selected = chosen
+                self?.onSelect?(chosen)
+            }
             el.setAccessibilityRole(.button)
             el.setAccessibilityLabel("\(s.title), \(s.question)")
             el.setAccessibilityFrameInParentSpace(frame)
@@ -102,6 +118,22 @@ final class SidebarNativeView: NSView {
         }
     }
     override func isAccessibilityElement() -> Bool { false }
+}
+
+private final class SidebarRowAccessibilityElement: NSAccessibilityElement {
+    private let section: Section
+    private let onPress: (Section) -> Void
+
+    init(section: Section, onPress: @escaping (Section) -> Void) {
+        self.section = section
+        self.onPress = onPress
+        super.init()
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        onPress(section)
+        return true
+    }
 }
 
 /// A ponte SwiftUI — fina de propósito. Toda a lógica de clique/desenho mora na `NSView` acima;

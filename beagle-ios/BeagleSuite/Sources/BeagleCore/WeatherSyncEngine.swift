@@ -130,13 +130,13 @@ public actor WeatherSyncEngine: NSObject {
         currentUploader = uploader
         // Spin up the location provider on the main actor (where Core Location works) and
         // feed fixes back into this actor.
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
             let provider = WeatherLocationProvider()
             provider.onLocation = { [weak self] loc in
                 Task { await self?.handleNewLocation(loc) }
             }
             provider.start()
-            await self.attach(provider)
+            await self?.attach(provider)
         }
 
         // Kick off periodic timer.
@@ -227,7 +227,7 @@ public actor WeatherSyncEngine: NSObject {
                 pressureHpa: nil,  // not available at daily resolution
                 humidityPct: (day.precipitationChance * 100), // proxy: use precip chance
                 uvIndex: Double(day.uvIndex.value),
-                precipMm: day.precipitationAmount.converted(to: .millimeters).value,
+                precipMm: day.precipitationAmountByType.precipitation.converted(to: .millimeters).value,
                 condition: day.condition.description,
                 windKph: nil,
                 dewPointC: nil,
@@ -309,18 +309,24 @@ final class WeatherLocationProvider: NSObject, CLLocationManagerDelegate {
             manager.requestWhenInUseAuthorization()
             #endif
         }
+        #if os(iOS) || os(macOS)
         if CLLocationManager.significantLocationChangeMonitoringAvailable() {
             manager.startMonitoringSignificantLocationChanges()
         } else {
             manager.startUpdatingLocation()
         }
+        #else
+        manager.startUpdatingLocation()
+        #endif
         manager.requestLocation()
     }
 
     func requestOneShot() { manager.requestLocation() }
 
     func stop() {
+        #if os(iOS) || os(macOS)
         manager.stopMonitoringSignificantLocationChanges()
+        #endif
         manager.stopUpdatingLocation()
     }
 
@@ -340,6 +346,8 @@ final class WeatherLocationProvider: NSObject, CLLocationManagerDelegate {
             let s = self.manager.authorizationStatus
             #if os(macOS)
             let granted = (s == .authorizedAlways)
+            #elseif os(visionOS)
+            let granted = (s == .authorizedWhenInUse)
             #else
             let granted = (s == .authorizedAlways || s == .authorizedWhenInUse)
             #endif

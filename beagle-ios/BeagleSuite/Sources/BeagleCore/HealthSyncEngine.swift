@@ -667,7 +667,7 @@ public actor HealthSyncEngine {
                         type: label,
                         activityType: w.workoutActivityType.rawValue,
                         durationSeconds: w.duration,
-                        totalEnergyKcal: w.totalEnergyBurned?.doubleValue(for: .kilocalorie()),
+                        totalEnergyKcal: w.statistics(for: HKQuantityType(.activeEnergyBurned))?.sumQuantity()?.doubleValue(for: .kilocalorie()),
                         totalDistanceMeters: w.totalDistance?.doubleValue(for: .meter()),
                         source: w.sourceRevision.source.bundleIdentifier,
                         device: w.device?.name

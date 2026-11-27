@@ -25,6 +25,8 @@ import BeagleCore
 
 struct SpatialTriadView: View {
     @Environment(CognitiveStore.self) private var cognitive
+    @Environment(SpatialSpaceCoordinator.self) private var spaceCoordinator
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var draftText = ""
     @State private var result: TriadResult?
     @State private var revealedAgents: Set<String> = []
@@ -120,18 +122,31 @@ struct SpatialTriadView: View {
                     }
                 }
 
-                if result != nil {
+                HStack(spacing: 12) {
+                    if result != nil {
+                        Button {
+                            resetState()
+                        } label: {
+                            Label("New Review", systemImage: "arrow.counterclockwise")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
                     Button {
-                        resetState()
+                        Task { await spaceCoordinator.dismissActive(using: dismissImmersiveSpace) }
                     } label: {
-                        Label("New Review", systemImage: "arrow.counterclockwise")
+                        Label("Exit Space", systemImage: "xmark.circle.fill")
                     }
                     .buttonStyle(.bordered)
+                    .disabled(spaceCoordinator.isTransitioning)
                 }
             }
             .padding(24)
             .frame(width: 500)
             .glassBackgroundEffect()
+        }
+        .onDisappear {
+            spaceCoordinator.noteDismissed(id: "triad-debate")
         }
 
         // TODO: Add SpatialAudioExperience per agent position
@@ -334,5 +349,6 @@ private struct AgentThinkingLabel: View {
 #Preview(windowStyle: .automatic) {
     SpatialTriadView()
         .environment(CognitiveStore())
+        .environment(SpatialSpaceCoordinator())
 }
 #endif

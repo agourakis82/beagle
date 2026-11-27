@@ -279,9 +279,19 @@ struct HyperbolicGraphView: View {
             .animation(.easeInOut(duration: 0.3), value: selectedNodeId)
         }
         .onAppear {
-            let (n, e) = PoincaréLayoutEngine.build(from: thoughts)
-            nodes = n
-            edges = e
+            rebuildLayout()
+        }
+        .onChange(of: thoughts.map(\.id)) { _, _ in
+            rebuildLayout()
+        }
+    }
+
+    private func rebuildLayout() {
+        let (n, e) = PoincaréLayoutEngine.build(from: thoughts)
+        nodes = n
+        edges = e
+        if let selectedNodeId, !n.contains(where: { $0.id == selectedNodeId }) {
+            self.selectedNodeId = nil
         }
     }
 
@@ -323,6 +333,22 @@ struct HyperbolicGraphView: View {
     }
 
     private func updateScene(content: RealityViewContent) {
+        let expectedNodeNames = Set(nodes.map { $0.id.uuidString })
+        let existingNodeNames = Set(
+            content.entities.compactMap { entity -> String? in
+                let name = entity.name
+                if name.isEmpty || name == "disk-floor" || name.hasPrefix("edge-") {
+                    return nil
+                }
+                return name
+            }
+        )
+
+        if expectedNodeNames != existingNodeNames {
+            content.entities.removeAll()
+            buildScene(content: content)
+        }
+
         // Highlight selected node, dim others
         for entity in content.entities {
             guard let model = entity as? ModelEntity else { continue }

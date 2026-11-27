@@ -117,6 +117,11 @@ struct SounioMissionControlApp: App {
                     .keyboardShortcut("3", modifiers: .command)
                 Button("Terminais") { NotificationCenter.default.post(name: .missionControlGo, object: Section.terminals) }
                     .keyboardShortcut("4", modifiers: .command)
+                Divider()
+                Button("Reconectar frota") {
+                    NotificationCenter.default.post(name: .missionControlReconnect, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
             }
         }
     }
@@ -124,11 +129,13 @@ struct SounioMissionControlApp: App {
 
 extension Notification.Name {
     static let missionControlGo = Notification.Name("missionControlGo")
+    static let missionControlReconnect = Notification.Name("missionControlReconnect")
 }
 
 /// A package executable is not a bundled app, so it starts as a background process with no menu
 /// bar and no focus. Claiming `.regular` makes it behave like a real Mac app while this lives
 /// outside an .app bundle.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setbuf(stdout, nil)   // a GUI process redirected to a file would buffer away its own logs
@@ -161,7 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard usaveis.isEmpty else { return }
         // O caminho suportado é o mesmo comando do menu File — dispará-lo evita duplicar a
         // construção da cena, que só o SwiftUI sabe fazer.
-        NSApplication.shared.sendAction(Selector(("newWindowForTab:")), to: nil, from: nil)
+        NSApplication.shared.sendAction(#selector(NSResponder.newWindowForTab(_:)), to: nil, from: nil)
         if NSApplication.shared.windows.filter({ $0.canBecomeMain }).isEmpty {
             NSLog("[mission-control] subi sem janela e não consegui abrir uma — File ▸ New Window")
         }
@@ -292,8 +299,17 @@ struct MissionControlWindow: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Self.canvas)
         }
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                fleetStatusToolbarPill
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .missionControlGo)) { note in
             if let s = note.object as? Section { section = s }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .missionControlReconnect)) { _ in
+            fleet.connect()
+            fleet.refresh()
         }
         .task {
             // `-beagleOpen <seção>` abre direto numa tela: é como um screenshot ou um smoke test
@@ -321,6 +337,65 @@ struct MissionControlWindow: View {
         // fundo: o cliente agora NUNCA para de tentar sozinho, então este gesto é reforço, não a
         // única rede de segurança.
         .onChange(of: section) { _, _ in fleet.connect() }
+    }
+
+    private var fleetStatusToolbarPill: some View {
+        Button {
+            fleet.connect()
+            fleet.refresh()
+        } label: {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(fleetLinkColor)
+                    .frame(width: 7, height: 7)
+                Text(fleetLinkLabel)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                if !fleet.shelf.isEmpty {
+                    Text("· \(fleet.shelf.count) aguardando")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(SwiftUI.Color(red: 1.0, green: 0.76, blue: 0.27))
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+        }
+        .buttonStyle(.plain)
+        .help("Estado do link Loom (\(fleetLinkDetail)). Clique ou pressione ⇧⌘R para reconectar/atualizar.")
+        .accessibilityLabel("Estado da frota: \(fleetLinkLabel)")
+    }
+
+    private var fleetLinkColor: SwiftUI.Color {
+        switch fleet.link {
+        case .live:
+            return SwiftUI.Color(red: 0.20, green: 0.85, blue: 0.45)
+        case .connecting, .reconnecting, .retrying:
+            return SwiftUI.Color(red: 1.0, green: 0.76, blue: 0.27)
+        case .failed:
+            return SwiftUI.Color(red: 0.95, green: 0.36, blue: 0.36)
+        case .idle:
+            return .secondary
+        }
+    }
+
+    private var fleetLinkLabel: String {
+        switch fleet.link {
+        case .live:
+            return "LOOM AO VIVO (\(fleet.lanes.count))"
+        case .connecting:
+            return "CONECTANDO…"
+        case .reconnecting:
+            return "RECONECTANDO…"
+        case .retrying(_, let attempts):
+            return "RETENTANDO (\(attempts))"
+        case .failed:
+            return "LINK OFFLINE"
+        case .idle:
+            return "AGUARDANDO"
+        }
+    }
+
+    private var fleetLinkDetail: String {
+        fleet.link.failureMessage ?? (fleet.link.isConnected ? "conectado" : "em espera")
     }
 }
 #endif

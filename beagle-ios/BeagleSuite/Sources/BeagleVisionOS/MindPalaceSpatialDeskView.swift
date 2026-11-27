@@ -9,10 +9,11 @@
 import SwiftUI
 import RealityKit
 import BeagleCore
-import BeagleWorkbenchKit
 
 struct MindPalaceSpatialDeskView: View {
+    @Environment(SpatialSpaceCoordinator.self) private var spaceCoordinator
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var exocortex = ExocortexStore()
 
     private var snapshot: MindPalaceSnapshot? { exocortex.mindPalace?.value }
@@ -43,13 +44,24 @@ struct MindPalaceSpatialDeskView: View {
         .task { await exocortex.refreshMindPalace() }
         .refreshable { await exocortex.refreshMindPalace() }
         .ornament(attachmentAnchor: .scene(.bottom)) {
+            let deskOpen = spaceCoordinator.isOpen("beagle-mind-palace")
             Button {
-                Task { await openImmersiveSpace(id: "beagle-mind-palace") }
+                Task {
+                    await spaceCoordinator.toggle(
+                        id: "beagle-mind-palace",
+                        open: openImmersiveSpace,
+                        dismiss: dismissImmersiveSpace
+                    )
+                }
             } label: {
-                Label("Enter Spatial Desk", systemImage: "rectangle.3.group.bubble.left")
+                Label(
+                    deskOpen ? "Exit Spatial Desk" : "Enter Spatial Desk",
+                    systemImage: deskOpen ? "xmark.circle.fill" : "rectangle.3.group.bubble.left"
+                )
             }
             .buttonStyle(.borderedProminent)
-            .tint(BeagleTheme.truthObserved)
+            .tint(deskOpen ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
+            .disabled(spaceCoordinator.isTransitioning)
             .padding(14)
             .glassBackgroundEffect()
         }
@@ -227,6 +239,8 @@ struct MindPalaceSpatialDeskView: View {
 }
 
 struct MindPalaceImmersiveView: View {
+    @Environment(SpatialSpaceCoordinator.self) private var spaceCoordinator
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var exocortex = ExocortexStore()
 
     var body: some View {
@@ -237,13 +251,26 @@ struct MindPalaceImmersiveView: View {
             content.add(MindPalaceSpatialRenderer.makeScene(snapshot: exocortex.mindPalace?.value))
         }
         .task { await exocortex.refreshMindPalace() }
+        .onDisappear {
+            spaceCoordinator.noteDismissed(id: "beagle-mind-palace")
+        }
         .ornament(attachmentAnchor: .scene(.bottom)) {
-            VStack(spacing: 5) {
-                Text("Beagle Mind Palace")
-                    .font(BeagleTheme.uiFont(size: 15, weight: .semibold))
-                Text(exocortex.mindPalace?.value?.nextBestPlace.title ?? "Memory-derived Spatial Desk")
-                    .font(BeagleTheme.dataFont(size: 12))
-                    .foregroundStyle(BeagleTheme.textTertiary)
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Beagle Mind Palace")
+                        .font(BeagleTheme.uiFont(size: 15, weight: .semibold))
+                    Text(exocortex.mindPalace?.value?.nextBestPlace.title ?? "Memory-derived Spatial Desk")
+                        .font(BeagleTheme.dataFont(size: 12))
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+
+                Button {
+                    Task { await spaceCoordinator.dismissActive(using: dismissImmersiveSpace) }
+                } label: {
+                    Label("Exit Spatial Desk", systemImage: "xmark.circle.fill")
+                }
+                .buttonStyle(.bordered)
+                .disabled(spaceCoordinator.isTransitioning)
             }
             .padding(14)
             .glassBackgroundEffect()
@@ -251,6 +278,7 @@ struct MindPalaceImmersiveView: View {
     }
 }
 
+@MainActor
 enum MindPalaceSpatialRenderer {
     static func makeScene(snapshot: MindPalaceSnapshot?) -> Entity {
         let root = Entity()

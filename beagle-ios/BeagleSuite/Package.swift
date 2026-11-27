@@ -43,7 +43,11 @@ let package = Package(
         .executableTarget(
             name: "SounioMissionControl",
             dependencies: ["BeagleCore", "BeagleWorkbenchKit"],
-            path: "Sources/SounioMissionControl"
+            path: "Sources/SounioMissionControl",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v6)
+            ]
         ),
         // Shared core: API client, truth system, models, Tailnet resolver,
         // Observation-framework data stores, on-device LLM engine.

@@ -17,11 +17,11 @@ import BeagleCore
 /// independente da aba — fechar uma não deve soltar o socket da outra.
 public struct LaneWindowView: View {
     let lane: String
-    let client: PTYClient
+    @State private var client: PTYClient
 
     public init(lane: String, endpoint: FleetEndpoint = FleetEndpoint()) {
         self.lane = lane
-        self.client = PTYClient(agent: lane, endpoint: endpoint)
+        self._client = State(initialValue: PTYClient(agent: lane, endpoint: endpoint))
     }
 
     private static let canvas = Color(red: 0.106, green: 0.078, blue: 0.149)   // #1b1426, mesmo tom da aba Terminais
@@ -35,6 +35,7 @@ public struct LaneWindowView: View {
         .background(Self.canvas)
         .navigationTitle(lane)
         .onAppear { client.connect() }
+        .onDisappear { client.disconnect() }
     }
 
     /// Mesma info que o chip da aba Terminais mostra — estado da conexão e o título que a lane
@@ -50,6 +51,15 @@ public struct LaneWindowView: View {
                     .lineLimit(1)
             }
             Spacer()
+            if !client.state.isConnected && client.state != .connecting {
+                Button("Reconectar") { client.connect() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.1), in: Capsule())
+            }
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
     }

@@ -11,10 +11,11 @@
 import SwiftUI
 import RealityKit
 import BeagleCore
-import BeagleWorkbenchKit
 
 struct SpatialControlRoomView: View {
+    @Environment(SpatialSpaceCoordinator.self) private var spaceCoordinator
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var exocortex = ExocortexStore()
     @State private var projectSlug = "sounio"
 
@@ -45,13 +46,24 @@ struct SpatialControlRoomView: View {
                 }
                 .buttonStyle(.bordered)
 
+                let roomOpen = spaceCoordinator.isOpen("beagle-control-room")
                 Button {
-                    Task { await openImmersiveSpace(id: "beagle-control-room") }
+                    Task {
+                        await spaceCoordinator.toggle(
+                            id: "beagle-control-room",
+                            open: openImmersiveSpace,
+                            dismiss: dismissImmersiveSpace
+                        )
+                    }
                 } label: {
-                    Label("Enter Room", systemImage: "visionpro")
+                    Label(
+                        roomOpen ? "Exit Room" : "Enter Room",
+                        systemImage: roomOpen ? "xmark.circle.fill" : "visionpro"
+                    )
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(BeagleTheme.truthObserved)
+                .tint(roomOpen ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
+                .disabled(spaceCoordinator.isTransitioning)
             }
             .padding(16)
             .glassBackgroundEffect()
@@ -217,24 +229,41 @@ struct SpatialControlRoomView: View {
 }
 
 struct SpatialControlRoomImmersiveView: View {
+    @Environment(SpatialSpaceCoordinator.self) private var spaceCoordinator
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var exocortex = ExocortexStore()
 
     var body: some View {
         RealityView { content in
             let root = MarbleSplatRenderer.makeScene(snapshot: exocortex.spatialControlRoom?.value)
             content.add(root)
+        } update: { content in
+            content.entities.removeAll()
+            content.add(MarbleSplatRenderer.makeScene(snapshot: exocortex.spatialControlRoom?.value))
         }
-        .id(exocortex.spatialControlRoom?.value?.id ?? "beagle-control-room-pending")
         .task {
             await exocortex.refreshSpatialControlRoom(projectSlug: "sounio")
         }
+        .onDisappear {
+            spaceCoordinator.noteDismissed(id: "beagle-control-room")
+        }
         .ornament(attachmentAnchor: .scene(.bottom)) {
-            VStack(spacing: 6) {
-                Text("Beagle Spatial Control Room")
-                    .font(BeagleTheme.uiFont(size: 15, weight: .semibold))
-                Text(exocortex.spatialControlRoom?.value?.spatialWorld?.displayName ?? "Native Beagle topology fallback")
-                    .font(BeagleTheme.dataFont(size: 12))
-                    .foregroundStyle(BeagleTheme.textTertiary)
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Beagle Spatial Control Room")
+                        .font(BeagleTheme.uiFont(size: 15, weight: .semibold))
+                    Text(exocortex.spatialControlRoom?.value?.spatialWorld?.displayName ?? "Native Beagle topology fallback")
+                        .font(BeagleTheme.dataFont(size: 12))
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+
+                Button {
+                    Task { await spaceCoordinator.dismissActive(using: dismissImmersiveSpace) }
+                } label: {
+                    Label("Exit Room", systemImage: "xmark.circle.fill")
+                }
+                .buttonStyle(.bordered)
+                .disabled(spaceCoordinator.isTransitioning)
             }
             .padding(14)
             .glassBackgroundEffect()
@@ -242,6 +271,7 @@ struct SpatialControlRoomImmersiveView: View {
     }
 }
 
+@MainActor
 enum MarbleSplatRenderer {
     static func makeScene(snapshot: ControlRoomSnapshot?) -> Entity {
         let root = Entity()

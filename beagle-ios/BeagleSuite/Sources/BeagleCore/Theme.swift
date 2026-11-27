@@ -25,7 +25,7 @@ import AppKit
 public extension Color {
     /// Resolve to `light` in light appearance, `dark` in dark appearance.
     init(light: Color, dark: Color) {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !os(watchOS)
         self.init(uiColor: UIColor { trait in
             trait.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
         })

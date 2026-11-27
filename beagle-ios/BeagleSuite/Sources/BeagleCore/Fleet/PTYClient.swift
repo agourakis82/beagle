@@ -60,26 +60,11 @@ public final class PTYClient {
     /// Terminal title announced by the remote process (OSC 0/2).
     public var title: String?
 
-    @available(*, deprecated, renamed: "title")
-    public var titulo: String? {
-        get { title }
-        set { title = newValue }
-    }
-
     /// Number of terminal bell events since the last acknowledgement.
     public private(set) var bellCount: Int = 0
 
-    @available(*, deprecated, renamed: "bellCount")
-    public var sinos: Int { bellCount }
-
     public func recordBell() { bellCount += 1 }
     public func clearBells() { bellCount = 0 }
-
-    @available(*, deprecated, renamed: "recordBell()")
-    public func tocouSino() { recordBell() }
-
-    @available(*, deprecated, renamed: "clearBells()")
-    public func limparSinos() { clearBells() }
     /// Set by the view: receives raw lane output bytes (already on the main actor).
     public var onBytes: (([UInt8]) -> Void)?
 
@@ -88,6 +73,8 @@ public final class PTYClient {
     private let session: URLSession
     private var task: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
+    private var retryTask: Task<Void, Never>?
+    private var closedByCaller = false
     private var retries = 0
     private let maxRetries = 8
     /// Last viewport we told the lane — replayed after each (re)subscribe so tmux repaints.
@@ -122,6 +109,9 @@ public final class PTYClient {
         guard let request = endpoint.loomRequest() else {
             state = .failed("bad endpoint"); return
         }
+        retryTask?.cancel(); retryTask = nil
+        task?.cancel(with: .goingAway, reason: nil)
+        closedByCaller = false
         dropInFlight = false
         state = (retries == 0) ? .connecting : .reconnecting
         let t = session.webSocketTask(with: request)
@@ -154,6 +144,10 @@ public final class PTYClient {
                     @unknown default: break
                     }
                 } catch {
+                    guard self.task === t else {
+                        self.trace("erro em socket já substituído/fechado — ignorado")
+                        break
+                    }
                     self.handleDrop(error)
                     break
                 }
@@ -234,11 +228,12 @@ public final class PTYClient {
     }
 
     private func handleDrop(_ error: Error) {
-        guard !dropInFlight else { return }
+        guard !closedByCaller, !dropInFlight else { return }
         dropInFlight = true
         task = nil
         receiveLoop?.cancel(); receiveLoop = nil
         pingLoop?.cancel(); pingLoop = nil
+        retryTask?.cancel(); retryTask = nil
         retries += 1
         // The lane NEVER gives up for good — `.failed` is shown past `maxRetries` purely so the
         // UI can tell the operator something's wrong, but the retry loop below keeps running
@@ -246,10 +241,11 @@ public final class PTYClient {
         // without the operator reopening the app.
         state = retries >= maxRetries ? .failed(error.localizedDescription) : .reconnecting
         let delayMs = PTYClient.proximoAtrasoMs(retries: retries)
-        Task { [weak self] in
+        retryTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(delayMs))
-            self?.dropInFlight = false
-            self?.connect()
+            guard !Task.isCancelled, let self, !self.closedByCaller else { return }
+            self.dropInFlight = false
+            self.connect()
         }
     }
 
@@ -295,6 +291,9 @@ public final class PTYClient {
     }
 
     public func disconnect() {
+        closedByCaller = true
+        dropInFlight = false
+        retryTask?.cancel(); retryTask = nil
         receiveLoop?.cancel(); receiveLoop = nil
         pingLoop?.cancel(); pingLoop = nil
         sendRaw(FleetEndpoint.unsubscribeFrame(sid: agent))   // detach without killing the lane
