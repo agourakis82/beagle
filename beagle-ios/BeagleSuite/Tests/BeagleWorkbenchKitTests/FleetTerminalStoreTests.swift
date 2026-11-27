@@ -8,7 +8,7 @@ import Foundation
 /// aparecia ali e oferecia um terminal que só podia dar erro.
 @Test @MainActor func oRosterDeTerminaisNaoOfereceALaneDoLoomd() {
     let store = FleetTerminalStore()
-    #expect(store.agents.count == 11)
+    #expect(store.agents == FleetEndpoint.terminalAgents)
     #expect(!store.agents.contains("loom-1"))
     #expect(store.agents.contains("claude-1"))
 }

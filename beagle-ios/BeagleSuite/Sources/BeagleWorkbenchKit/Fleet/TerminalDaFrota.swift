@@ -96,14 +96,28 @@ public final class TerminalDaFrota: TerminalView, NSMenuItemValidation {
 
     // MARK: - Foco
 
-    /// Clicar no corpo do terminal reivindica o foco.
+    /// Clicar no corpo do terminal reivindica o foco sem sobrescrever `mouseDown(with:)`,
+    /// que é `public` (não `open`) no `SwiftTerm.TerminalView`.
     ///
-    /// `acceptsFirstResponder` já era `true` no SwiftTerm, mas o foco vinha sendo devolvido à
-    /// sidebar (`NSOutlineView`) a cada redesenho. Pedir aqui, no clique, é o gesto explícito do
-    /// operador — e vence qualquer disputa automática.
-    public override func mouseDown(with event: NSEvent) {
-        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
-        super.mouseDown(with: event)
+    /// Um `NSClickGestureRecognizer` com `delaysPrimaryMouseButtonEvents = false` deixa todos os
+    /// eventos de mouse chegarem normalmente ao `TerminalView` (seleção, drag, mouse reporting)
+    /// enquanto garante que o clique reivindique `firstResponder` contra a sidebar (`NSOutlineView`).
+    private var focoInstalado = false
+
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard !focoInstalado else { return }
+        focoInstalado = true
+        let click = NSClickGestureRecognizer(target: self, action: #selector(reivindicarFoco(_:)))
+        click.delaysPrimaryMouseButtonEvents = false
+        click.buttonMask = 0x1
+        addGestureRecognizer(click)
+    }
+
+    @objc private func reivindicarFoco(_ sender: NSClickGestureRecognizer) {
+        if window?.firstResponder !== self {
+            window?.makeFirstResponder(self)
+        }
     }
 }
 #endif

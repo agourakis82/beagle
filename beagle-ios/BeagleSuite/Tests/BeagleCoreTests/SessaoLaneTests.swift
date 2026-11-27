@@ -30,7 +30,7 @@ struct SessaoLaneTests {
     @Test func testRosterQueChegaDepoisNaoSobrescreveAEscolha() {
         // Antes do servidor falar: a semente.
         let antes = SessaoLane.exibida(roster: FleetEndpoint.loomdLanes, escolha: nil)
-        #expect(antes == "loom-1")
+        #expect(antes == FleetEndpoint.loomdLanes.first)
 
         // Ele escolhe.
         let escolha = "codex-4"

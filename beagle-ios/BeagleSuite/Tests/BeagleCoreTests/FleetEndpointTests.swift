@@ -15,7 +15,7 @@ struct FleetEndpointTests {
         // Duas perguntas diferentes, duas listas. Enquanto foram uma só, `loom-1` — que não é
         // sessão tmux — entrou no roster que `FleetTerminalStore.agents` publica, e o app passou
         // a oferecer um terminal que só podia dar erro.
-        #expect(FleetEndpoint.terminalAgents.count == 11)
+        #expect(FleetEndpoint.terminalAgents.count == 22)
         #expect(FleetEndpoint.terminalAgents.first == "claude-1")
         #expect(FleetEndpoint.terminalAgents.last == "repo")
         #expect(!FleetEndpoint.terminalAgents.contains("loom-1"),
@@ -31,11 +31,16 @@ struct FleetEndpointTests {
         for t in FleetEndpoint.terminalAgents {
             #expect(FleetEndpoint.isKnownAgent(t), "quem tem terminal também é acionável: \(t)")
         }
+        let terminalSet = Set(FleetEndpoint.terminalAgents)
         for l in FleetEndpoint.loomdLanes {
             #expect(FleetEndpoint.isKnownAgent(l),
                     "sem allowlist a lane do loomd é descartada em silêncio nas ações: \(l)")
-            #expect(!FleetEndpoint.hasTerminal(l), "lane de protocolo não tem pty: \(l)")
+            if !terminalSet.contains(l) {
+                #expect(!FleetEndpoint.hasTerminal(l), "lane de protocolo puro não tem pty: \(l)")
+            }
         }
+        #expect(!FleetEndpoint.hasTerminal("loom-1"))
+        #expect(!FleetEndpoint.hasTerminal("codex-4"))
         #expect(FleetEndpoint.hasTerminal("claude-1"))
 
         // Um POST de tecla para a lane do loomd continua sendo MONTADO (o allowlist a conhece)…
