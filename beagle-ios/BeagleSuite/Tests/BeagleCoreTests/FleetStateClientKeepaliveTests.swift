@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 @testable import BeagleCore
 
 /// Achado de review pós-Task-4 (Sessão): `FleetStateClient` desistia de vez depois de
@@ -8,32 +9,33 @@ import XCTest
 /// ninguém revive sozinho. Mesmo defeito que `PTYClient` já teve e já consertou — ver
 /// `PTYClientKeepaliveTests` — e o mesmo remédio: extrair o backoff numa função PURA e provar que
 /// ela nunca "sinaliza desistência", nem depois de centenas de falhas.
-final class FleetStateClientKeepaliveTests: XCTestCase {
+@Suite
+struct FleetStateClientKeepaliveTests {
 
     // MARK: - proximoAtrasoMs(retries:)
 
-    func testAtrasoCrescePorRetentativa() {
+    @Test func testAtrasoCrescePorRetentativa() {
         let a1 = FleetStateClient.proximoAtrasoMs(retries: 1)
         let a2 = FleetStateClient.proximoAtrasoMs(retries: 2)
         let a3 = FleetStateClient.proximoAtrasoMs(retries: 3)
-        XCTAssertLessThan(a1, a2)
-        XCTAssertLessThan(a2, a3)
+        #expect(a1 < a2)
+        #expect(a2 < a3)
     }
 
-    func testAtrasoTemTeto() {
+    @Test func testAtrasoTemTeto() {
         // O teto é 10s — sem ele, uma tempestade de retentativa é o tipo de coisa que bota o
         // app em quarentena de log por volume.
         let tetoMs = 10_000
         for r in 1...50 {
-            XCTAssertLessThanOrEqual(FleetStateClient.proximoAtrasoMs(retries: r), tetoMs,
-                                      "retries=\(r) deve respeitar o teto de 10s")
+            #expect(FleetStateClient.proximoAtrasoMs(retries: r) <= tetoMs,
+                    "retries=\(r) deve respeitar o teto de 10s")
         }
     }
 
-    func testAtrasoNuncaZero() {
+    @Test func testAtrasoNuncaZero() {
         // Um atraso zero vira laço apertado — a mesma tempestade, só que mais rápida.
         for r in 1...50 {
-            XCTAssertGreaterThan(FleetStateClient.proximoAtrasoMs(retries: r), 0)
+            #expect(FleetStateClient.proximoAtrasoMs(retries: r) > 0)
         }
     }
 
@@ -42,13 +44,13 @@ final class FleetStateClientKeepaliveTests: XCTestCase {
     /// `proximoAtrasoMs` alguma hora ganhar um ramo de desistência (por exemplo, devolvendo um
     /// valor não-positivo depois de N falhas), este teste tem de acusar — é exatamente a
     /// regressão que esta rodada existe para impedir.
-    func testAtrasoContinuaNoTetoParaRetriesGrandesENuncaSinalizaDesistencia() {
+    @Test func testAtrasoContinuaNoTetoParaRetriesGrandesENuncaSinalizaDesistencia() {
         let a100 = FleetStateClient.proximoAtrasoMs(retries: 100)
         let a1000 = FleetStateClient.proximoAtrasoMs(retries: 1000)
-        XCTAssertEqual(a100, 10_000)
-        XCTAssertEqual(a1000, 10_000)
-        XCTAssertGreaterThan(a100, 0, "um valor <= 0 seria o cliente dizendo 'desista'")
-        XCTAssertGreaterThan(a1000, 0, "um valor <= 0 seria o cliente dizendo 'desista'")
+        #expect(a100 == 10_000)
+        #expect(a1000 == 10_000)
+        #expect(a100 > 0, "um valor <= 0 seria o cliente dizendo 'desista'")
+        #expect(a1000 > 0, "um valor <= 0 seria o cliente dizendo 'desista'")
     }
 
     // MARK: - explicacaoDoLink(_:) — o texto não pode mentir sobre o motor ter parado
@@ -57,18 +59,18 @@ final class FleetStateClientKeepaliveTests: XCTestCase {
     /// é verdade) virada contra ela mesma. `.insistindo` significa "caiu, mas eu mesmo estou
     /// tentando de novo, sozinho, em segundo plano" — e o texto NÃO pode ler como ".failed"
     /// ("parei, aja você"), porque o motor nunca parou.
-    func testInsistindoNuncaAfirmaParada() {
+    @Test func testInsistindoNuncaAfirmaParada() {
         let texto = FleetStateClient.explicacaoDoLink(.insistindo(motivo: "timeout", tentativas: 12))
-        XCTAssertTrue(texto.contains("reconectando") || texto.contains("sozinho") || texto.contains("caiu"),
-                      "o texto tem de dizer que o cliente está tentando por conta própria: \"\(texto)\"")
-        XCTAssertNotEqual(texto, FleetStateClient.explicacaoDoLink(.failed("timeout")),
-                           "insistindo não pode reaproveitar o texto de parada — motores diferentes, textos diferentes")
+        #expect(texto.contains("reconectando") || texto.contains("sozinho") || texto.contains("caiu"),
+                "o texto tem de dizer que o cliente está tentando por conta própria: \"\(texto)\"")
+        #expect(texto != FleetStateClient.explicacaoDoLink(.failed("timeout")),
+                "insistindo não pode reaproveitar o texto de parada — motores diferentes, textos diferentes")
     }
 
     /// `.failed` continua existindo para o caso que É de verdade permanente (endpoint mal
     /// configurado) — este teste prende que ELE não regride para o texto de "insistindo".
-    func testFailedContinuaSendoParadaDeVerdade() {
+    @Test func testFailedContinuaSendoParadaDeVerdade() {
         let texto = FleetStateClient.explicacaoDoLink(.failed("bad endpoint"))
-        XCTAssertFalse(texto.contains("sozinho"), "endpoint mal configurado não se resolve retentando")
+        #expect(!texto.contains("sozinho"), "endpoint mal configurado não se resolve retentando")
     }
 }

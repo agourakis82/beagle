@@ -20,12 +20,7 @@ public actor WebSocketClient {
     /// Same URL resolution as CockpitClient — http→ws scheme transform.
     /// Public websocket routes are now available on the Cloudflare edge, with
     /// the older private paths retained as fallback during transition.
-    private var baseURLs: [URL] = [
-        URL(string: "https://beagle.chiuratto.ai")!,
-        URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-        URL(string: "http://100.107.208.198")!,
-        URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-    ]
+    private var baseURLs: [URL] = BeagleEndpoints.cockpitURLs
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
@@ -393,7 +388,7 @@ public actor WebSocketClient {
     /// sites must build the request explicitly instead.
     private static func makeWebSocketRequest(url: URL) -> URLRequest {
         var request = URLRequest(url: url)
-        request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+        BeagleEndpoints.applyCockpitAuth(to: &request)
         return request
     }
 
@@ -488,10 +483,22 @@ public actor WebSocketClient {
 
 // MARK: - WebSocketState helpers
 
-extension WebSocketState {
+extension WebSocketState: ConnectionStateRepresentable {
     public var isConnected: Bool {
         if case .connected = self { return true }
         return false
+    }
+
+    public var isConnecting: Bool {
+        switch self {
+        case .connecting, .reconnecting: return true
+        case .disconnected, .connected, .failed: return false
+        }
+    }
+
+    public var failureMessage: String? {
+        if case .failed(let message) = self { return message }
+        return nil
     }
 
     public var truthMode: TruthMode {

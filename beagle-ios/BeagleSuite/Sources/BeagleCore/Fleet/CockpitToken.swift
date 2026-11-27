@@ -17,12 +17,27 @@ public enum CockpitToken {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".beagle/cockpit-token")
     }
 
+    /// Token read once from the app bundle's `Secrets.plist` (gitignored).
+    /// Empty when running outside an `.app` bundle (e.g. `SounioMissionControl`, `swift test`).
+    public static let bundledToken: String = {
+        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let token = dict["COCKPIT_MOBILE_TOKEN"] as? String,
+              !token.isEmpty, !token.hasPrefix("COLE-AQUI")
+        else {
+            return ""
+        }
+        return token
+    }()
+
     /// The first source that yields a non-empty token, or nil. Never logs the value.
     public static func resolve(explicit: String? = nil) -> String? {
-        if let explicit, !explicit.isEmpty { return explicit }
+        if let explicit, !explicit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return explicit.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
-        let bundled = BeagleClient.cockpitMobileToken
-        if !bundled.isEmpty { return bundled }
+        if !bundledToken.isEmpty { return bundledToken }
 
         if let env = ProcessInfo.processInfo.environment[environmentKey],
            !env.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

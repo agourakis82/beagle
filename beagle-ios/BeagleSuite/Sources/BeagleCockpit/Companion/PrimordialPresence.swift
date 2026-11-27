@@ -244,9 +244,10 @@ struct PrimordialPresence: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     @State private var inhaled = false
+    private static let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
 
     /// Vídeo pausado ⇒ mostrar o poster no lugar do laço.
-    private var isStill: Bool { reduceMotion || lowPower }
+    private var isStill: Bool { reduceMotion || lowPower || Self.isUITesting }
     private var isPaused: Bool { scenePhase != .active }
 
     /// Tinta do céu. Deliberadamente sutil: a presença é um bicho, não um medidor
@@ -298,11 +299,19 @@ struct PrimordialPresence: View {
     private var posterImage: some View {
         #if os(iOS)
         if let url = PresenceAssets.posterURL(for: state), let img = UIImage(contentsOfFile: url.path) {
-            Image(uiImage: img).resizable().scaledToFill()
+            Color.clear
+                .overlay {
+                    Image(uiImage: img).resizable().scaledToFill()
+                }
+                .clipped()
         }
         #else
         if let url = PresenceAssets.posterURL(for: state), let img = NSImage(contentsOfFile: url.path) {
-            Image(nsImage: img).resizable().scaledToFill()
+            Color.clear
+                .overlay {
+                    Image(nsImage: img).resizable().scaledToFill()
+                }
+                .clipped()
         }
         #endif
     }

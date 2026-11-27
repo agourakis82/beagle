@@ -11,6 +11,9 @@
 
 import SwiftUI
 import BeagleCore
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct ChatScreen: View {
     let store: ConversationStore   // @Observable — SwiftUI tracks property reads in body
@@ -41,7 +44,11 @@ public struct ChatScreen: View {
     /// audit found it had zero entry point on iPhone despite being the richest single
     /// feature in the app. Drawer footer.
     var onOpenWork: (() -> Void)?
+    var onOpenDailySynthesis: (() -> Void)?
+    var onOpenDeepExploration: (() -> Void)?
     @State private var draft = ""
+    @State private var attachedImageData: Data?
+    @State private var attachedDocument: ChatDocumentPayload?
     /// Última vez que o usuário mexeu em alguma coisa. `nil` → ainda não mexeu nesta
     /// sessão, e nesse caso a presença NÃO adormece (abrir o app e ficar lendo não é
     /// abandono).
@@ -55,8 +62,12 @@ public struct ChatScreen: View {
     /// ONE sheet for the whole screen — multiple `.sheet(isPresented:)` on the same view conflict
     /// in SwiftUI (the second silently breaks the first, which is why the drawer stopped opening).
     @State private var activeSheet: ChatSheet?
+    /// Action queued by `ConversationDrawer` to fire only after its UIKit dismissal completes,
+    /// avoiding parent/child sheet presentation collisions.
+    @State private var pendingDrawerAction: (() -> Void)?
     /// The companion's gear for the next message (voice model, or Fundo → Go-Deeper).
-    @State private var depth: ChatDepth = .sonnet
+    /// Persisted in @AppStorage so his choice (MoE / GPT 5.5 / Local Sem Censura / Sonnet 5) survives app restarts.
+    @AppStorage("beagle.chat.depth") private var depth: ChatDepth = .moe
     @State private var composerGoDeepStore = GoDeepStore()
     /// The top bar melts away while you read forward and returns when you scroll back up — the
     /// "chrome dissolves into the content" feel (Claude/Safari). Driven by scroll direction below.
@@ -81,7 +92,9 @@ public struct ChatScreen: View {
                 onOpenMemory: (() -> Void)? = nil,
                 onOpenDreamInsights: (() -> Void)? = nil,
                 unreadDreamInsightCount: Int = 0,
-                onOpenWork: (() -> Void)? = nil) {
+                onOpenWork: (() -> Void)? = nil,
+                onOpenDailySynthesis: (() -> Void)? = nil,
+                onOpenDeepExploration: (() -> Void)? = nil) {
         self.store = store
         self.breath = breath
         self.weather = weather
@@ -93,6 +106,8 @@ public struct ChatScreen: View {
         self.onOpenDreamInsights = onOpenDreamInsights
         self.unreadDreamInsightCount = unreadDreamInsightCount
         self.onOpenWork = onOpenWork
+        self.onOpenDailySynthesis = onOpenDailySynthesis
+        self.onOpenDeepExploration = onOpenDeepExploration
     }
 
     /// Estado da presença. Toda a regra vive em `PresenceResolver` (puro, testado em
@@ -129,12 +144,20 @@ public struct ChatScreen: View {
     /// essa a queixa que abriu o desenho. Se ele digitou, falar sozinho seria
     /// intromissão: quem digita está olhando.
     @State private var turnoVeioDeVoz = false
+    @AppStorage(CompanionVoice.autoSpeakModeKey) private var autoSpeakRaw: String = CompanionAutoSpeakMode.whenSpoken.rawValue
+    @AppStorage(CompanionLiveSessionTransportMode.storageKey) private var liveTransportRaw: String = CompanionLiveSessionTransportMode.auto.rawValue
+    /// Sessão de Voz Contínua Mãos-Livres (GPT-Live 1.1 Full-Duplex ou Walkie-Talkie Offline)
+    @State private var liveVoice = CompanionLiveVoiceSessionState()
+    @State private var gptLive = OpenAILiveVoiceSession()
+    @State private var usingGPTLiveFullDuplex = false
+    @State private var liveVoiceLoopTask: Task<Void, Never>?
+    @State private var lastForwardedTranscriptLength: Int = 0
 
     private var presenceState: PresenceState {
         PresenceResolver(
-            isStreaming: store.isStreaming,
-            isVoiceListening: voice.isListening,
-            composerFocused: !draft.isEmpty,
+            isStreaming: store.isStreaming || gptLive.activeDelegationCount > 0,
+            isVoiceListening: voice.isListening || (usingGPTLiveFullDuplex && liveVoice.isActive && liveVoice.phase == .listening),
+            composerFocused: !draft.isEmpty || attachedImageData != nil || attachedDocument != nil,
             isActive: scenePhase == .active,
             lastInteraction: lastInteraction,
             ultimaFalaDele: store.messages.last(where: { $0.role == .user })?.content,
@@ -162,46 +185,144 @@ public struct ChatScreen: View {
                     conversation
                 }
             }
-            // Layer 4: minimal top bar — history · title · new. Floats over the aurora.
+            // Layer 4: minimal top bar — history · title · walkie-talkie · new. Floats over the aurora.
             topBar
-            // Layer 5: composer pinned to the bottom. No body strip — body/sky/ambient data
-            // lives on its own screen now; the chat is just conversation.
-            composer
+            // Layer 5: floating live voice bar (when Walkie-Talkie is active) + composer pinned to bottom.
+            VStack(spacing: BeagleSpacing.xs) {
+                if liveVoice.isActive {
+                    liveVoiceFloatingBar
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                composer
+            }
+            .animation(.snappy(duration: 0.25), value: liveVoice.isActive)
         }
         // Entry ceremony — the space materializes with a breath instead of snapping in
         // (Gaggioli: ceremony over frictionless).
         .opacity(appeared ? 1 : 0)
         .scaleEffect(appeared ? 1 : 0.985, anchor: .bottom)
         .task {
+            let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
             if ProcessInfo.processInfo.arguments.contains("--demo-chat") {
                 store.seedDemoConversation()
             }
+            bindVoiceCallbacks()
+            CompanionLiveVoiceBus.shared.onCommand = { command in
+                handleLiveVoiceCommand(command)
+            }
+            if let queuedCommand = CompanionLiveVoiceBus.shared.consumePendingCommand() {
+                handleLiveVoiceCommand(queuedCommand)
+            }
+            guard !isUITesting else { return }
             // Warm the on-device speech assets now so the first hold doesn't eat the first
             // three words. Fire-and-forget and time-boxed inside the controller.
             voice.prewarm()
+            await consumeSharedInboxIfNeeded()
+            await consumeCompanionLaunchActionIfNeeded()
 
             // O que ele deixou. Em Task separada de propósito: a síntese leva
             // dezenas de segundos e NUNCA pode atrasar a tela abrir. Se falhar,
             // falha calada — a chegada é um presente, não um requisito.
             Task { await chegada.buscarSeForHora() }
         }
+        .onChange(of: DeepLinkRouter.shared.pendingCompanionAction) { _, _ in
+            Task { await consumeCompanionLaunchActionIfNeeded() }
+        }
+        .onChange(of: voice.transcript) { _, novoTexto in
+            guard liveVoice.isActive, !usingGPTLiveFullDuplex, liveVoice.phase == .listening else { return }
+            let trimmed = novoTexto.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            if abs(trimmed.count - lastForwardedTranscriptLength) >= 12 || lastForwardedTranscriptLength == 0 {
+                lastForwardedTranscriptLength = trimmed.count
+                liveVoice.updatePartialTranscript(trimmed)
+                LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+            }
+        }
+        .onChange(of: store.presenceNote) { _, nota in
+            guard liveVoice.isActive,
+                  (liveVoice.phase == .thinking || gptLive.activeDelegationCount > 0),
+                  let nota, !nota.isEmpty else { return }
+            liveVoice.updateThinkingNote(nota)
+            LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+        }
         .onChange(of: store.isStreaming) { antes, agora in
-            // Fim do turno: se ele FALOU, ele ouve de volta.
-            guard antes, !agora, turnoVeioDeVoz else { return }
+            guard antes, !agora else { return }
+            if liveVoice.isActive {
+                guard !usingGPTLiveFullDuplex else { return }
+                turnoVeioDeVoz = false
+                liveVoiceLoopTask?.cancel()
+                liveVoiceLoopTask = Task { @MainActor in
+                    guard liveVoice.isActive,
+                          liveVoice.phase != .paused,
+                          liveVoice.phase != .ended else { return }
+
+                    if let ultima = store.messages.last,
+                       ultima.role == .assistant,
+                       !ultima.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        liveVoice.voiceLabel = depth.label
+                        liveVoice.onAssistantSpeaking(ultima.content)
+                        LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+                        await voz.falar(ultima.content, id: ultima.id.uuidString)
+                    }
+
+                    guard !Task.isCancelled,
+                          liveVoice.isActive,
+                          liveVoice.phase != .paused,
+                          liveVoice.phase != .ended else { return }
+
+                    // Compasso acústico de 320ms para dissipar reverberação do alto-falante antes de rearmar o STT
+                    try? await Task.sleep(for: .milliseconds(320))
+
+                    guard !Task.isCancelled,
+                          liveVoice.isActive,
+                          liveVoice.phase != .paused,
+                          liveVoice.phase != .ended else { return }
+
+                    if liveVoice.onSpeechFinishedRearm() {
+                        lastForwardedTranscriptLength = 0
+                        LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+                        await armNextLiveVoiceTurn()
+                    }
+                }
+                return
+            }
+
+            // Fim do turno avulso: se ele FALOU (modo padrão) ou ativou Mãos-livres ("always"), ouve de volta.
+            let deveFalar = (autoSpeakRaw == CompanionAutoSpeakMode.always.rawValue)
+                || (autoSpeakRaw == CompanionAutoSpeakMode.whenSpoken.rawValue && turnoVeioDeVoz)
             turnoVeioDeVoz = false
-            guard let ultima = store.messages.last,
+            guard deveFalar,
+                  let ultima = store.messages.last,
                   ultima.role == .assistant,
                   !ultima.content.isEmpty else { return }
             Task { await voz.falar(ultima.content, id: ultima.id.uuidString) }
         }
         .onDisappear {
-            // Sair da tela cala a boca. Áudio tocando numa tela que ele fechou é
-            // o app falando sozinho.
-            voz.parar()
+            // Sair da tela cala a boca apenas fora da sessão contínua mãos-livres.
+            if !liveVoice.isActive {
+                voz.parar()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { voice.handleResignActive() }
-            if phase == .active { lastInteraction = .now; idleTick = .now }
+            // Na sessão contínua Walkie-Talkie, bloquear a tela no bolso/carro mantém a escuta e o áudio vivos.
+            if phase != .active && !liveVoice.isActive {
+                voice.handleResignActive()
+            }
+            if phase == .active {
+                lastInteraction = .now
+                idleTick = .now
+                if let queuedCommand = CompanionLiveVoiceBus.shared.consumePendingCommand() {
+                    handleLiveVoiceCommand(queuedCommand)
+                }
+                Task { await consumeSharedInboxIfNeeded() }
+            }
+        }
+        .onChange(of: DeepLinkRouter.shared.pending) { _, pending in
+            if pending == .chat {
+                _ = DeepLinkRouter.shared.consume()
+                activeSheet = nil
+                Task { await consumeSharedInboxIfNeeded() }
+            }
         }
         .onChange(of: draft) { _, _ in lastInteraction = .now }
         .onChange(of: store.messages.count) { _, _ in lastInteraction = .now }
@@ -213,12 +334,46 @@ public struct ChatScreen: View {
         .onAppear {
             withAnimation(.easeOut(duration: 0.55)) { appeared = true }
         }
-        .sheet(item: $activeSheet) { sheet in
+        .sheet(item: $activeSheet, onDismiss: {
+            if let action = pendingDrawerAction {
+                pendingDrawerAction = nil
+                action()
+            }
+        }) { sheet in
             switch sheet {
             case .history:
-                ConversationDrawer(store: store, onOpenSettings: onOpenSettings, onOpenProject: onOpenProject, onOpenData: onOpenData, onOpenMemory: onOpenMemory, onOpenDreamInsights: onOpenDreamInsights, unreadDreamInsightCount: unreadDreamInsightCount, onOpenWork: onOpenWork)
+                ConversationDrawer(
+                    store: store,
+                    onOpenSettings: onOpenSettings.map { action in { pendingDrawerAction = action } },
+                    onOpenProject: onOpenProject.map { action in { pendingDrawerAction = action } },
+                    onOpenData: onOpenData.map { action in { pendingDrawerAction = action } },
+                    onOpenMemory: onOpenMemory.map { action in { pendingDrawerAction = action } },
+                    onOpenDreamInsights: onOpenDreamInsights.map { action in { pendingDrawerAction = action } },
+                    unreadDreamInsightCount: unreadDreamInsightCount,
+                    onOpenWork: onOpenWork.map { action in { pendingDrawerAction = action } },
+                    onOpenDailySynthesis: onOpenDailySynthesis.map { action in { pendingDrawerAction = action } },
+                    onOpenDeepExploration: onOpenDeepExploration.map { action in { pendingDrawerAction = action } }
+                )
             case .goDeep(let prompt):
                 GoDeepView(store: composerGoDeepStore, prompt: prompt)
+            #if os(iOS)
+            case .camera:
+                CameraImagePicker { image in
+                    if let jpeg = image.jpegData(compressionQuality: 0.88) {
+                        attachedImageData = jpeg
+                        attachedDocument = nil
+                    }
+                }
+                .ignoresSafeArea()
+            case .documentScanner:
+                DocumentCameraScanner { image in
+                    if let jpeg = image.jpegData(compressionQuality: 0.90) {
+                        attachedImageData = jpeg
+                        attachedDocument = nil
+                    }
+                }
+                .ignoresSafeArea()
+            #endif
             }
         }
     }
@@ -230,7 +385,11 @@ public struct ChatScreen: View {
     private var topBar: some View {
         VStack {
             HStack(spacing: BeagleSpacing.sm) {
-                topBarButton("line.3.horizontal") { activeSheet = .history }
+                topBarButton(
+                    "line.3.horizontal",
+                    accessibilityLabel: "Histórico e menu",
+                    accessibilityIdentifier: "chat.topBar.drawerButton"
+                ) { activeSheet = .history }
                 Spacer(minLength: BeagleSpacing.sm)
                 VStack(spacing: 2) {
                     Text(store.currentConversationTitle)
@@ -238,6 +397,7 @@ public struct ChatScreen: View {
                         .foregroundStyle(BeagleTheme.companionInk)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .accessibilityIdentifier("chat.topBar.title")
                         // Legibility over the variable aurora - a soft dark halo keeps the title
                         // readable whether it floats over bright green or deep night.
                         .shadow(color: .black.opacity(0.45), radius: 4, y: 0.5)
@@ -250,7 +410,13 @@ public struct ChatScreen: View {
                         .shadow(color: .black.opacity(0.45), radius: 4, y: 0.5)
                 }
                 Spacer(minLength: BeagleSpacing.sm)
-                topBarButton("square.and.pencil") {
+                voiceTopBarControl
+                topBarButton(
+                    "square.and.pencil",
+                    accessibilityLabel: "Nova conversa",
+                    accessibilityIdentifier: "chat.topBar.newChatButton"
+                ) {
+                    voz.parar()
                     withAnimation(.easeOut(duration: 0.25)) { store.newConversation() }
                 }
             }
@@ -260,11 +426,124 @@ public struct ChatScreen: View {
             .opacity(topBarHidden ? 0 : 1)
             .offset(y: topBarHidden ? -72 : 0)
             .blur(radius: topBarHidden ? 6 : 0)
+            .allowsHitTesting(!topBarHidden)
             Spacer()
         }
     }
 
-    private func topBarButton(_ system: String, action: @escaping () -> Void) -> some View {
+    @ViewBuilder
+    private var voiceTopBarControl: some View {
+        HStack(spacing: 6) {
+            // Botão direto de 1 toque para Sessão de Voz Contínua (Walkie-Talkie Mãos-Livres + Dynamic Island)
+            Button {
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                #endif
+                Task {
+                    if liveVoice.isActive {
+                        endLiveVoiceSession()
+                    } else {
+                        await startLiveVoiceSession()
+                    }
+                }
+            } label: {
+                Image(systemName: liveVoice.isActive ? "dot.radiowaves.left.and.right" : "waveform.badge.mic")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(
+                        liveVoice.isActive
+                            ? liveVoiceAccent(for: liveVoice.phase)
+                            : BeagleTheme.companionInk.opacity(0.88)
+                    )
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(
+                        Circle().strokeBorder(
+                            liveVoice.isActive
+                                ? liveVoiceAccent(for: liveVoice.phase).opacity(0.55)
+                                : Color.white.opacity(0.12),
+                            lineWidth: liveVoice.isActive ? 1.0 : 0.5
+                        )
+                    )
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(liveVoice.isActive ? "Encerrar sessão de voz contínua" : "Iniciar sessão de voz contínua mãos-livres")
+
+            if voz.estaAtivo && !liveVoice.isActive {
+                Button {
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                    #endif
+                    voz.parar()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(voz.buscando ? "voz…" : "parar")
+                            .font(BeagleFont.caption2.font.weight(.semibold))
+                    }
+                    .foregroundStyle(MessageBubble.marcaAmbar)
+                    .frame(height: 40)
+                    .padding(.horizontal, 12)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(MessageBubble.marcaAmbar.opacity(0.45), lineWidth: 0.75))
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Parar leitura em voz")
+            } else if !liveVoice.isActive {
+                Menu {
+                    Button {
+                        Task { await startLiveVoiceSession() }
+                    } label: {
+                        Label("Iniciar Conversa de Voz Contínua", systemImage: "dot.radiowaves.left.and.right")
+                    }
+                    Picker("Modo Mãos-Livres", selection: $liveTransportRaw) {
+                        ForEach(CompanionLiveSessionTransportMode.allCases) { mode in
+                            Text(mode.label).tag(mode.rawValue)
+                        }
+                    }
+                    Divider()
+                    Picker("Resposta em Voz", selection: $autoSpeakRaw) {
+                        ForEach(CompanionAutoSpeakMode.allCases) { mode in
+                            Label(
+                                mode.label,
+                                systemImage: mode == .always
+                                    ? "waveform"
+                                    : (mode == .whenSpoken ? "speaker.wave.2" : "speaker.slash")
+                            )
+                            .tag(mode.rawValue)
+                        }
+                    }
+                } label: {
+                    Image(
+                        systemName: autoSpeakRaw == CompanionAutoSpeakMode.always.rawValue
+                            ? "waveform"
+                            : (autoSpeakRaw == CompanionAutoSpeakMode.manual.rawValue ? "speaker.slash" : "speaker.wave.2")
+                    )
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(
+                        autoSpeakRaw == CompanionAutoSpeakMode.always.rawValue
+                            ? BeagleTheme.truthObserved
+                            : BeagleTheme.companionInk.opacity(0.88)
+                    )
+                    .frame(width: 40, height: 40)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+                    .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Modo de resposta em voz")
+            }
+        }
+    }
+
+    private func topBarButton(
+        _ system: String,
+        accessibilityLabel: String,
+        accessibilityIdentifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
         // NO `.glassEffect` on these buttons: on iOS 26/27 glass applied to a Button mismatches the
         // tap region (the glass shape ≠ the hittable area), so taps were silently lost — that's why
         // the ☰ "didn't open" the drawer while the composer Menu (not a glass button) worked. A
@@ -285,6 +564,8 @@ public struct ChatScreen: View {
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     // Aurora CURTAIN sitting BEHIND the conversation. Spans the full width;
@@ -487,7 +768,9 @@ public struct ChatScreen: View {
                     // Presence LAYER — a murmur about the wait, not a line of his letter.
                     // Lives outside the message list so server-authored text never renders
                     // in serif as his voice (desenho 2026-08-02, item 5).
-                    if store.isStreaming, let note = store.presenceNote, !note.isEmpty {
+                    if (store.isStreaming || gptLive.activeDelegationCount > 0),
+                       let note = store.presenceNote,
+                       !note.isEmpty {
                         Text(note)
                             .font(BeagleFont.footnote.font.italic())
                             .foregroundStyle(BeagleTheme.textTertiary)
@@ -495,8 +778,8 @@ public struct ChatScreen: View {
                             .padding(.leading, BeagleSpacing.xs)
                             .transition(.opacity)
                     }
-                    // clearance so the floating composer never covers the last line
-                    Color.clear.frame(height: 72).id(Self.bottomAnchor)
+                    // clearance so the floating composer + live voice bar never cover the last line
+                    Color.clear.frame(height: liveVoice.isActive ? 136 : 72).id(Self.bottomAnchor)
                 }
                 .padding(.horizontal, BeagleSpacing.md)
                 .padding(.top, BeagleSpacing.md)
@@ -506,11 +789,29 @@ public struct ChatScreen: View {
             .defaultScrollAnchor(.bottom)   // recent messages hug the composer; void goes up top
             .scrollDismissesKeyboard(.interactively)
             // Direction-based chrome melt: finger up (offset grows → reading forward) hides the
-            // top bar; finger down (offset shrinks → going back) reveals it. Anchor-agnostic.
-            .onScrollGeometryChange(for: CGFloat.self) { geo in
-                geo.contentOffset.y
-            } action: { oldY, newY in
-                let delta = newY - oldY
+            // top bar; finger down (offset shrinks → going back) reveals it. Anchor-agnostic,
+            // and never hides the bar when the transcript fits on screen or sits at the top.
+            .onScrollGeometryChange(for: TopBarScrollMetrics.self) { geo in
+                TopBarScrollMetrics(
+                    offsetY: geo.contentOffset.y + geo.contentInsets.top,
+                    containerHeight: geo.containerSize.height,
+                    isScrollable: geo.contentSize.height > geo.containerSize.height + 24
+                )
+            } action: { oldMetrics, newMetrics in
+                // Ignore programmatic offset jumps caused by keyboard appearance/dismissal
+                // or orientation changes resizing the scroll container.
+                if abs(newMetrics.containerHeight - oldMetrics.containerHeight) > 1 {
+                    scrollAccum = 0
+                    return
+                }
+                if !newMetrics.isScrollable || newMetrics.offsetY <= 12 {
+                    if topBarHidden {
+                        withAnimation(.easeOut(duration: 0.3)) { topBarHidden = false }
+                    }
+                    scrollAccum = 0
+                    return
+                }
+                let delta = newMetrics.offsetY - oldMetrics.offsetY
                 guard abs(delta) > 0.5 else { return }     // ignore noise
                 // Reset the accumulator on a direction change so a deliberate gesture in one
                 // direction is what counts — not net drift.
@@ -525,14 +826,128 @@ public struct ChatScreen: View {
                 }
             }
             .onChange(of: store.messages.last?.content) { _, _ in
-                withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(Self.bottomAnchor, anchor: .bottom) }
+                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
             }
             .onChange(of: store.messages.count) { _, _ in
-                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                withAnimation(.snappy(duration: 0.22)) {
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                }
                 // A fresh turn brings the bar back so the title/controls are always reachable.
                 if topBarHidden { withAnimation(.easeOut(duration: 0.28)) { topBarHidden = false } }
             }
         }
+    }
+
+    // MARK: - Barra Flutuante da Sessão Contínua Mãos-Livres (Walkie-Talkie)
+
+    private func liveVoiceAccent(for phase: CompanionLiveVoicePhase) -> Color {
+        switch phase {
+        case .listening: return BeagleTheme.truthObserved
+        case .thinking:  return BeagleTheme.truthRemembered
+        case .speaking:  return MessageBubble.marcaAmbar
+        case .paused:    return BeagleTheme.textSecondary
+        case .ended:     return BeagleTheme.textTertiary
+        }
+    }
+
+    private var liveVoiceDisplayedLine: String {
+        if !usingGPTLiveFullDuplex && liveVoice.phase == .listening {
+            let partial = voice.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !partial.isEmpty { return partial }
+        } else if liveVoice.phase == .thinking || gptLive.activeDelegationCount > 0 {
+            if let note = store.presenceNote, !note.isEmpty { return note }
+        }
+        return liveVoice.liveLine.isEmpty ? liveVoice.phase.defaultLinePtBR : liveVoice.liveLine
+    }
+
+    private var liveVoiceFloatingBar: some View {
+        let tint = liveVoiceAccent(for: liveVoice.phase)
+        return HStack(spacing: 10) {
+            Image(systemName: liveVoice.phase.symbolName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(tint)
+                .symbolEffect(.pulse, isActive: liveVoice.phase == .listening || liveVoice.phase == .speaking)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("\(usingGPTLiveFullDuplex ? "GPT-Live 1.1" : "Voz Contínua") · \(liveVoice.phase.titlePtBR)")
+                        .font(BeagleFont.caption.font.weight(.semibold))
+                        .foregroundStyle(BeagleTheme.companionInk)
+                    if gptLive.activeDelegationCount > 0 {
+                        Text("MoE")
+                            .font(BeagleFont.caption2.font.monospaced())
+                            .foregroundStyle(BeagleTheme.truthRemembered)
+                    }
+                    if liveVoice.turnCount > 0 {
+                        Text("T\(liveVoice.turnCount)")
+                            .font(BeagleFont.caption2.font.monospaced())
+                            .foregroundStyle(tint)
+                    }
+                }
+                Text(liveVoiceDisplayedLine)
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            if liveVoice.phase == .speaking {
+                Button {
+                    #if canImport(UIKit)
+                    UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                    #endif
+                    handleLiveVoiceCommand(.interruptAndListen)
+                } label: {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                        .frame(width: 32, height: 32)
+                        .background(BeagleTheme.truthObserved.opacity(0.18), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Cortar resposta e falar agora")
+            }
+
+            Button {
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                #endif
+                handleLiveVoiceCommand(.togglePause)
+            } label: {
+                Image(systemName: liveVoice.phase == .paused ? "play.fill" : "pause.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(BeagleTheme.companionInk)
+                    .frame(width: 32, height: 32)
+                    .background(Color.white.opacity(0.12), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(liveVoice.phase == .paused ? "Retomar voz contínua" : "Pausar voz contínua")
+
+            Button {
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                #endif
+                endLiveVoiceSession()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(BeagleTheme.stateError)
+                    .frame(width: 32, height: 32)
+                    .background(BeagleTheme.stateError.opacity(0.18), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Encerrar voz contínua")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(tint.opacity(0.42), lineWidth: 0.85))
+        .padding(.horizontal, BeagleSpacing.md)
+        .shadow(color: .black.opacity(0.28), radius: 12, y: 4)
     }
 
     // MARK: - Composer (the only glass)
@@ -541,15 +956,28 @@ public struct ChatScreen: View {
         ChatComposer(
             text: $draft,
             depth: $depth,
+            attachedImageData: $attachedImageData,
+            attachedDocument: $attachedDocument,
             isStreaming: store.isStreaming,
             onSend: send,
             voice: voice,
             // Só o turno FALADO carrega tom. Digitado envia nil, e nil significa
             // "não falei" — não "falei normal".
             onVoiceCommit: { falado in
-                store.sinalDeVozDoTurno = voice.sinalDoUltimoTurno
-                turnoVeioDeVoz = true
-                sendText(falado)
+                handleVoiceCommittedUtterance(falado)
+            },
+            onWillArmVoice: {
+                voz.parar()
+            },
+            onRequestCamera: {
+                #if os(iOS)
+                activeSheet = .camera
+                #endif
+            },
+            onRequestScanner: {
+                #if os(iOS)
+                activeSheet = .documentScanner
+                #endif
             }
         )
         .padding(.horizontal, BeagleSpacing.md)
@@ -561,20 +989,107 @@ public struct ChatScreen: View {
 
     private var greeting: some View {
         let story = BodyStory.opening(physioSnapshot, hour: Calendar.current.component(.hour, from: Date()))
-        return VStack(spacing: BeagleSpacing.sm) {
-            Text(story.line)
-                .font(BeagleFont.title2.font)
-                .fontWeight(.semibold)
-                .foregroundStyle(BeagleTheme.companionInk)
-                .multilineTextAlignment(.center)
-                .lineSpacing(2)
-            Text(story.follow)
-                .font(BeagleFont.callout.font)
-                .foregroundStyle(BeagleTheme.textSecondary)
-                .multilineTextAlignment(.center)
+        return VStack(spacing: BeagleSpacing.md) {
+            VStack(spacing: BeagleSpacing.sm) {
+                Text(story.line)
+                    .font(BeagleFont.title2.font)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BeagleTheme.companionInk)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2)
+                Text(story.follow)
+                    .font(BeagleFont.callout.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, BeagleSpacing.xl)
+
+            quickLaunchCapsules
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, BeagleSpacing.xl)
+    }
+
+    private var quickLaunchCapsules: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: BeagleSpacing.xs + 2) {
+                if let onOpenDailySynthesis {
+                    quickLaunchChip(
+                        title: DailyBriefingBuilder.cachedTodaySynthesis() != nil ? "Síntese pronta" : "Síntese matinal",
+                        systemImage: "sun.horizon.fill",
+                        tint: BeagleTheme.postureWarm,
+                        action: onOpenDailySynthesis
+                    )
+                }
+
+                if let onOpenDeepExploration {
+                    quickLaunchChip(
+                        title: "Modo Fundo",
+                        systemImage: "scope",
+                        tint: BeagleTheme.truthRemembered,
+                        action: onOpenDeepExploration
+                    )
+                }
+
+                quickLaunchChip(
+                    title: liveVoice.isActive ? "Voz ativa" : "Voz mãos-livres",
+                    systemImage: "waveform.badge.mic",
+                    tint: BeagleTheme.truthObserved
+                ) {
+                    Task {
+                        if liveVoice.isActive {
+                            endLiveVoiceSession()
+                        } else {
+                            await startLiveVoiceSession()
+                        }
+                    }
+                }
+
+                if let onOpenData {
+                    let kpLabel: String = {
+                        if let kp = weather?.kp {
+                            return String(format: "Agora · Kp %.1f", kp)
+                        }
+                        return "Agora · Corpo & Céu"
+                    }()
+                    quickLaunchChip(
+                        title: kpLabel,
+                        systemImage: "sparkles",
+                        tint: BeagleTheme.auroraTeal,
+                        action: onOpenData
+                    )
+                }
+            }
+            .padding(.horizontal, BeagleSpacing.lg)
+        }
+    }
+
+    private func quickLaunchChip(
+        title: String,
+        systemImage: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            #if canImport(UIKit)
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            #endif
+            action()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(tint)
+                Text(title)
+                    .font(BeagleFont.caption.font.weight(.medium))
+                    .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+            }
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(tint.opacity(0.28), lineWidth: 0.75))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Agora strip (top bar)
@@ -627,29 +1142,364 @@ public struct ChatScreen: View {
         return PhysioSnapshot(sleepQuality: sleep, flow: store.flowState, restingHRElevated: false)
     }
 
+    // MARK: - Shared Inbox (Share Sheet → Chat)
+
+    private func consumeSharedInboxIfNeeded() async {
+        guard let loaded = BeagleSharedInbox.dequeueNext() else { return }
+        var textParts: [String] = []
+        if !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            textParts.append(draft.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if !loaded.item.text.isEmpty {
+            textParts.append(loaded.item.text)
+        }
+        for url in loaded.item.urls where !textParts.joined(separator: "\n").contains(url) {
+            textParts.append(url)
+        }
+        if !textParts.isEmpty {
+            draft = textParts.joined(separator: "\n")
+        }
+        if let pdfData = loaded.pdfData, !pdfData.isEmpty {
+            let fileName = loaded.item.originalPDFName ?? "documento_compartilhado.pdf"
+            if let extracted = await ChatDocumentPayload.extract(from: pdfData, fileName: fileName) {
+                attachedDocument = extracted
+                attachedImageData = nil
+            }
+        } else if let imgData = loaded.imageData, !imgData.isEmpty {
+            attachedImageData = imgData
+            attachedDocument = nil
+        }
+        #if canImport(UIKit)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        #endif
+    }
+
+    // MARK: - Action Button / Siri / Spotlight / Control Center Launch Actions
+
+    private func bindVoiceCallbacks() {
+        voice.onCommit = { falado in
+            handleVoiceCommittedUtterance(falado)
+        }
+        voice.onEmptyFinish = {
+            guard liveVoice.isActive, liveVoice.phase == .listening else { return }
+            let shouldRearm = liveVoice.onEmptySilenceWindow(maxStrikes: 2)
+            lastForwardedTranscriptLength = 0
+            LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+            guard shouldRearm else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(220))
+                guard liveVoice.isActive, liveVoice.phase == .listening else { return }
+                await armNextLiveVoiceTurn()
+            }
+        }
+    }
+
+    private func handleVoiceCommittedUtterance(_ falado: String) {
+        store.sinalDeVozDoTurno = voice.sinalDoUltimoTurno
+        turnoVeioDeVoz = true
+        lastForwardedTranscriptLength = 0
+        if liveVoice.isActive {
+            liveVoice.voiceLabel = depth.label
+            liveVoice.onUserUtteranceCommitted(falado)
+            LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+        }
+        sendText(falado)
+    }
+
+    private func startLiveVoiceSession() async {
+        liveVoiceLoopTask?.cancel()
+        liveVoiceLoopTask = nil
+        if usingGPTLiveFullDuplex || gptLive.isActive {
+            await gptLive.stop()
+        }
+        usingGPTLiveFullDuplex = false
+        voz.parar()
+        voice.stopQuietly()
+        bindVoiceCallbacks()
+
+        lastForwardedTranscriptLength = 0
+
+        let transportMode = CompanionLiveSessionTransportMode(rawValue: liveTransportRaw) ?? .auto
+        let wantsGPTLive: Bool = {
+            switch transportMode {
+            case .gptLiveFullDuplex:
+                return true
+            case .auto:
+                return DirectBrainCredentials.hasOpenAI && NetworkMonitor.shared.isOnline
+            case .walkieTalkieTurns:
+                return false
+            }
+        }()
+
+        if wantsGPTLive {
+            let rawTimbre = UserDefaults.standard.string(forKey: CompanionVoice.openAIVoiceKey) ?? "marin"
+            let normalizedTimbre = CompanionVoice.normalizedLiveVoice(rawTimbre)
+            let voiceBadge = "GPT-Live · \(normalizedTimbre.capitalized)"
+
+            gptLive.onTranscriptBubbleUpdate = { role, bubbleId, text, isFinal, tools in
+                store.upsertGPTLiveBubble(
+                    id: bubbleId,
+                    role: role,
+                    text: text,
+                    isFinal: isFinal,
+                    executedTools: tools
+                )
+            }
+            gptLive.onStateChanged = { phase, turns, line in
+                guard liveVoice.isActive, usingGPTLiveFullDuplex else { return }
+                liveVoice.phase = phase
+                liveVoice.turnCount = max(liveVoice.turnCount, turns)
+                liveVoice.liveLine = line
+                LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+            }
+            gptLive.onDelegateToBackend = { delegationCtx in
+                let useMoE = (depth == .moe || depth == .fundo)
+                return await store.executeGPTLiveDelegation(delegationCtx, useMoE: useMoE)
+            }
+            store.onVoiceResearchStart = { runId, campaign, slug, totalSteps, activeLens in
+                LiveActivityManager.shared.startResearchActivity(
+                    runId: runId,
+                    campaign: campaign,
+                    slug: slug,
+                    totalSteps: totalSteps,
+                    activeLens: activeLens
+                )
+            }
+            store.onVoiceResearchUpdate = { step, total, eta, activeLens, snippet, isCompleted in
+                if isCompleted {
+                    LiveActivityManager.shared.endResearchActivity(finalSummary: snippet)
+                } else {
+                    LiveActivityManager.shared.updateResearchActivity(
+                        step: step,
+                        total: total,
+                        eta: eta,
+                        activeLens: activeLens,
+                        summarySnippet: snippet
+                    )
+                }
+            }
+            store.onTriggerAsyncVoiceFollowup = { spokenSummary, backgroundFacts, tools in
+                await gptLive.pushAsyncFollowup(
+                    spokenSummary: spokenSummary,
+                    backgroundFacts: backgroundFacts,
+                    executedTools: tools
+                )
+            }
+            gptLive.onStartupFallbackNeeded = { _ in
+                guard liveVoice.isActive, usingGPTLiveFullDuplex else { return }
+                usingGPTLiveFullDuplex = false
+                Task { @MainActor in
+                    await gptLive.stop()
+                    guard liveVoice.isActive else { return }
+                    liveVoice.voiceLabel = depth.label
+                    liveVoice.phase = .listening
+                    liveVoice.liveLine = "Rede oscilou — retomando Walkie-Talkie local…"
+                    LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+                    await armNextLiveVoiceTurn()
+                }
+            }
+
+            usingGPTLiveFullDuplex = true
+            liveVoice.start(voiceLabel: voiceBadge)
+            liveVoice.liveLine = "Conectando ao GPT-Live 1.1 (full-duplex)…"
+            LiveActivityManager.shared.startVoiceSession(
+                conversationTitle: store.currentConversationTitle,
+                voiceLabel: voiceBadge
+            )
+            LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+
+            let priorHistory = store.messages.suffix(12).map { (role: $0.role, content: $0.content) }
+            let started = await gptLive.start(
+                apiKey: DirectBrainCredentials.openAIKey,
+                voice: normalizedTimbre,
+                priorMessages: priorHistory,
+                agoraDeveloperNote: store.buildGPTLiveAgoraNote(),
+                greetOnOpen: store.messages.isEmpty
+            )
+
+            if started {
+                return
+            }
+
+            usingGPTLiveFullDuplex = false
+            if transportMode == .gptLiveFullDuplex {
+                liveVoice.phase = .paused
+                liveVoice.liveLine = gptLive.lastError ?? "GPT-Live 1.1 indisponível agora — verifique sua chave OpenAI ou conexão."
+                LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+                return
+            }
+
+            // Modo Automático: fallback contínuo e silencioso para Walkie-Talkie Offline/Híbrido no hospital
+            liveVoice.voiceLabel = depth.label
+            liveVoice.phase = .listening
+            liveVoice.liveLine = "Modo Walkie-Talkie ativo — pode falar…"
+            LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+            await armNextLiveVoiceTurn()
+            return
+        }
+
+        liveVoice.start(voiceLabel: depth.label)
+        LiveActivityManager.shared.startVoiceSession(
+            conversationTitle: store.currentConversationTitle,
+            voiceLabel: depth.label
+        )
+        await armNextLiveVoiceTurn()
+    }
+
+    private func armNextLiveVoiceTurn() async {
+        guard liveVoice.isActive, !usingGPTLiveFullDuplex, liveVoice.phase == .listening else { return }
+        let started = await voice.startContinuousTurn()
+        if !started && liveVoice.isActive {
+            liveVoice.phase = .paused
+            liveVoice.liveLine = voice.erro
+                ?? voice.motivoDaRecusa
+                ?? "Microfone indisponível agora — toque para retomar"
+            LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+        }
+    }
+
+    private func handleLiveVoiceCommand(_ command: CompanionLiveVoiceCommand) {
+        switch command {
+        case .togglePause:
+            guard liveVoice.isActive else { return }
+            if usingGPTLiveFullDuplex {
+                let targetPaused = (liveVoice.phase != .paused)
+                Task { @MainActor in
+                    await gptLive.setPaused(targetPaused)
+                }
+                return
+            }
+            liveVoiceLoopTask?.cancel()
+            liveVoiceLoopTask = nil
+            liveVoice.apply(command: .togglePause)
+            lastForwardedTranscriptLength = 0
+            LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+            if liveVoice.phase == .paused {
+                voz.parar()
+                voice.stopQuietly()
+            } else if liveVoice.phase == .listening {
+                voz.parar()
+                Task { await armNextLiveVoiceTurn() }
+            }
+
+        case .interruptAndListen:
+            guard liveVoice.isActive else { return }
+            if usingGPTLiveFullDuplex {
+                Task { @MainActor in
+                    await gptLive.interruptOutputAndListen()
+                }
+                return
+            }
+            liveVoiceLoopTask?.cancel()
+            liveVoiceLoopTask = nil
+            voz.parar()
+            voice.stopQuietly()
+            liveVoice.apply(command: .interruptAndListen)
+            lastForwardedTranscriptLength = 0
+            LiveActivityManager.shared.updateVoiceSession(state: liveVoice)
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(180))
+                guard liveVoice.isActive, !usingGPTLiveFullDuplex, liveVoice.phase == .listening else { return }
+                await armNextLiveVoiceTurn()
+            }
+
+        case .endSession:
+            endLiveVoiceSession()
+        }
+    }
+
+    private func endLiveVoiceSession() {
+        let finalTurns = liveVoice.turnCount
+        let finalVoiceLabel = liveVoice.voiceLabel
+        let wasGPTLive = usingGPTLiveFullDuplex || gptLive.isActive
+        usingGPTLiveFullDuplex = false
+        liveVoiceLoopTask?.cancel()
+        liveVoiceLoopTask = nil
+        if wasGPTLive {
+            Task { @MainActor in
+                await gptLive.stop()
+            }
+        }
+        voz.parar()
+        voice.stopQuietly()
+        lastForwardedTranscriptLength = 0
+        liveVoice.apply(command: .endSession)
+        LiveActivityManager.shared.endVoiceSession(
+            turnCount: finalTurns,
+            voiceLabel: finalVoiceLabel
+        )
+    }
+
+    private func consumeCompanionLaunchActionIfNeeded() async {
+        guard let action = DeepLinkRouter.shared.consumeCompanionAction() else { return }
+        activeSheet = nil
+        voz.parar()
+        bindVoiceCallbacks()
+
+        if action.openNewConversation {
+            store.newConversation()
+        } else if let convId = action.conversationId, !convId.isEmpty {
+            store.switchTo(conversationId: convId)
+        }
+
+        if let prompt = action.initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !prompt.isEmpty {
+            if action.autoSendPrompt {
+                sendText(prompt)
+            } else {
+                draft = prompt
+            }
+        }
+
+        if action.continuousVoiceSession {
+            turnoVeioDeVoz = true
+            await startLiveVoiceSession()
+        } else if action.startHandsFreeVoice {
+            turnoVeioDeVoz = true
+            await voice.startHandsFreeFromShortcut()
+        }
+    }
+
     // MARK: - Send
 
     private func send() { sendText(draft) }
 
-    /// The single funnel for a turn, typed or spoken. Extracted so the voice commit inherits
-    /// the Fundo escalation and the voiceModel routing instead of quietly duplicating them.
+    /// The single funnel for a turn, typed, spoken, visual, or PDF. Extracted so voice + attachment commits
+    /// inherit the Fundo escalation and voiceModel routing cleanly.
     private func sendText(_ raw: String) {
         // Quem chegou aqui pelo teclado não quer ser interrompido por áudio.
-        if !draft.isEmpty { turnoVeioDeVoz = false }
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        // Fundo = escalate to a full Go-Deeper exploration instead of a chat turn.
-        if depth == .fundo {
+        if !draft.isEmpty && !liveVoice.isActive { turnoVeioDeVoz = false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let imageToSend = attachedImageData
+        let docToSend = attachedDocument
+        let hasMedia = (imageToSend != nil || docToSend != nil)
+        guard !trimmed.isEmpty || hasMedia else { return }
+
+        let defaultPrompt = docToSend != nil
+            ? "Analisa este documento PDF comigo."
+            : "Olha esta imagem comigo."
+        let text = trimmed.isEmpty ? defaultPrompt : trimmed
+
+        // Fundo = escalate to a full Go-Deeper exploration instead of a chat turn (when text-only and not in hands-free Walkie-Talkie).
+        if depth == .fundo && !hasMedia && !liveVoice.isActive {
             draft = ""
             activeSheet = .goDeep(text)
             return
         }
         draft = ""
-        store.voiceModel = depth.voiceModel   // Rápido → default voice; Pensar → stronger model
-        Task { await store.sendMessage(text) }
+        attachedImageData = nil
+        attachedDocument = nil
+        store.voiceModel = (depth == .fundo && (hasMedia || liveVoice.isActive)) ? "moe" : depth.voiceModel
+        Task { await store.sendMessage(text, imageData: imageToSend, document: docToSend) }
     }
 
     private static let bottomAnchor = "companion.chat.bottom"
+
+    private struct TopBarScrollMetrics: Equatable {
+        let offsetY: CGFloat
+        let containerHeight: CGFloat
+        let isScrollable: Bool
+    }
 }
 
 // MARK: - Sheets
@@ -659,10 +1509,18 @@ public struct ChatScreen: View {
 enum ChatSheet: Identifiable {
     case history
     case goDeep(String)   // prompt to explore
+    #if os(iOS)
+    case camera
+    case documentScanner
+    #endif
     var id: String {
         switch self {
         case .history: return "history"
         case .goDeep: return "goDeep"
+        #if os(iOS)
+        case .camera: return "camera"
+        case .documentScanner: return "documentScanner"
+        #endif
         }
     }
 }
@@ -680,6 +1538,8 @@ struct ConversationDrawer: View {
     var onOpenDreamInsights: (() -> Void)?
     var unreadDreamInsightCount: Int = 0
     var onOpenWork: (() -> Void)?
+    var onOpenDailySynthesis: (() -> Void)?
+    var onOpenDeepExploration: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var reloadToken = 0
 
@@ -733,16 +1593,31 @@ struct ConversationDrawer: View {
                         }
                     }
                 }
-                // Footer: memory + data screen + settings + project live here now (off the chat top).
+                // Footer: memory + daily synthesis + deep exploration + data screen + settings + project.
                 Section {
+                    if onOpenDailySynthesis != nil {
+                        Button { onOpenDailySynthesis?(); dismiss() } label: {
+                            Label("Síntese matinal", systemImage: "sun.horizon.fill")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                        .accessibilityIdentifier("chat.drawer.dailySynthesisButton")
+                    }
+                    if onOpenDeepExploration != nil {
+                        Button { onOpenDeepExploration?(); dismiss() } label: {
+                            Label("Modo Fundo", systemImage: "sparkle.magnifyingglass")
+                        }
+                        .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                        .accessibilityIdentifier("chat.drawer.deepExplorationButton")
+                    }
                     if onOpenMemory != nil {
-                        Button { dismiss(); onOpenMemory?() } label: {
+                        Button { onOpenMemory?(); dismiss() } label: {
                             Label("O que eu lembro de ti", systemImage: "brain.head.profile")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                        .accessibilityIdentifier("chat.drawer.memoryButton")
                     }
                     if onOpenDreamInsights != nil {
-                        Button { dismiss(); onOpenDreamInsights?() } label: {
+                        Button { onOpenDreamInsights?(); dismiss() } label: {
                             HStack {
                                 Label("Insights da noite", systemImage: "moon.stars.fill")
                                 if unreadDreamInsightCount > 0 {
@@ -754,30 +1629,35 @@ struct ConversationDrawer: View {
                             }
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                        .accessibilityIdentifier("chat.drawer.dreamInsightsButton")
                     }
                     if onOpenData != nil {
-                        Button { dismiss(); onOpenData?() } label: {
+                        Button { onOpenData?(); dismiss() } label: {
                             Label("Dados", systemImage: "chart.xyaxis.line")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                        .accessibilityIdentifier("chat.drawer.dataButton")
                     }
                     if onOpenWork != nil {
-                        Button { dismiss(); onOpenWork?() } label: {
+                        Button { onOpenWork?(); dismiss() } label: {
                             Label("Trabalho", systemImage: "bolt.fill")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                        .accessibilityIdentifier("chat.drawer.workButton")
                     }
                     if onOpenProject != nil {
-                        Button { dismiss(); onOpenProject?() } label: {
+                        Button { onOpenProject?(); dismiss() } label: {
                             Label("Projeto", systemImage: "scope")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                        .accessibilityIdentifier("chat.drawer.projectButton")
                     }
                     if onOpenSettings != nil {
-                        Button { dismiss(); onOpenSettings?() } label: {
+                        Button { onOpenSettings?(); dismiss() } label: {
                             Label("Configurações", systemImage: "gearshape")
                         }
                         .foregroundStyle(BeagleTheme.companionInk.opacity(0.9))
+                        .accessibilityIdentifier("chat.drawer.settingsButton")
                     }
                 }
             }
@@ -793,11 +1673,14 @@ struct ConversationDrawer: View {
                     Button("Fechar") { dismiss() }
                         .font(BeagleFont.caption.font)
                         .foregroundStyle(BeagleTheme.textSecondary)
+                        .accessibilityIdentifier("chat.drawer.closeButton")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         store.newConversation(); dismiss()
                     } label: { Image(systemName: "square.and.pencil") }
+                        .accessibilityLabel("Nova conversa")
+                        .accessibilityIdentifier("chat.drawer.newChatButton")
                 }
             }
         }

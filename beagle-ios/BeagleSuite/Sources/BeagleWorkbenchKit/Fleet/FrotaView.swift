@@ -23,8 +23,8 @@ import UIKit
 // A board that asserts a fresh state it does not have teaches its operator to distrust it.
 
 public struct FrotaView: View {
-    @State private var fleet: FleetStateClient
-    @State private var coord = CoordClient()
+    @State private var fleet: FleetStateStore
+    @State private var coord = CoordStore()
     @State private var answering: LaneSnapshot?
     @State private var answerText: String = ""
     /// The lane whose one-touch action is in flight. A button that looks idle while a keystroke
@@ -46,9 +46,9 @@ public struct FrotaView: View {
     /// `fleet` injetável para que a tela possa ser RENDERIZADA sem cluster. Não é ornamento de
     /// teste: enquanto a única forma de ver a Frota era conectar no broker e torcer para um
     /// agente estar parado, cada rodada de design era um palpite.
-    public init(fleet: FleetStateClient? = nil, onOpenLane: @escaping (String) -> Void = { _ in }) {
+    public init(fleet: FleetStateStore? = nil, onOpenLane: @escaping (String) -> Void = { _ in }) {
         injetado = fleet != nil
-        _fleet = State(initialValue: fleet ?? FleetStateClient())
+        _fleet = State(initialValue: fleet ?? FleetStateStore())
         self.onOpenLane = onOpenLane
     }
 
@@ -447,7 +447,7 @@ public struct FrotaView: View {
         if CockpitToken.resolve() == nil { return CockpitToken.missingReason }
         // A tradução de `Link` para texto é PURA e mora em `FleetStateClient` — mesmo padrão de
         // `SessionStore.rotuloDeGuiar`/`semCaixa`, testável sem esta view.
-        return FleetStateClient.explicacaoDoLink(fleet.link)
+        return FleetStateStore.linkDescription(fleet.link)
     }
 
     private var linkFooter: some View {
@@ -486,7 +486,7 @@ public struct FrotaView: View {
 
     /// Every lane action goes through here so none of them can fail invisibly: in-flight is
     /// shown, and a refusal lands as text on the card that was refused.
-    private func act(_ lane: LaneSnapshot, _ body: @escaping () async -> FleetStateClient.ActionResult) {
+    private func act(_ lane: LaneSnapshot, _ body: @escaping () async -> FleetStateStore.ActionResult) {
         guard acting == nil else { return }
         acting = lane.sid
         actionNote = nil

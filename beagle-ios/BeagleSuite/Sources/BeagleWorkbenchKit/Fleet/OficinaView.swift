@@ -13,7 +13,7 @@ import BeagleCore
 // minutes, so this screen reads verdicts instead of producing them — and says plainly when its
 // reading is old rather than implying a freshness it does not have.
 public struct OficinaView: View {
-    @State private var client = OficinaClient()
+    @State private var client = OficinaStore()
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
 
@@ -143,7 +143,7 @@ public struct OficinaView: View {
                         .foregroundStyle(.white)
                 }
                 Spacer()
-                if client.loading { ProgressView().controlSize(.small) }
+                if client.isLoading { ProgressView().controlSize(.small) }
             }
 
             if client.state.prs.isEmpty {

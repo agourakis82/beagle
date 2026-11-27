@@ -1,6 +1,8 @@
 #if os(macOS)
-import XCTest
+import AppKit
+import Foundation
 import SwiftUI
+import Testing
 @testable import BeagleCore
 @testable import BeagleWorkbenchKit
 
@@ -15,11 +17,12 @@ import SwiftUI
 /// Os dados são os MEDIDOS no censo do `codex app-server` de 10-ago-2026 — o mesmo turno real que
 /// escreveu `alvo.txt`. Fixture bonita esconderia o que quebra o layout: diff longo, comando com
 /// caminho gigante, erro cru.
-final class SessionSnapshotTests: XCTestCase {
+@Suite
+@MainActor
+struct SessionSnapshotTests {
 
     private static let outDir = "/tmp/frota-snapshots"
 
-    @MainActor
     private func render(_ view: some View, width: CGFloat, name: String) throws {
         let r = ImageRenderer(content: view
             .frame(width: width, alignment: .top)
@@ -29,7 +32,8 @@ final class SessionSnapshotTests: XCTestCase {
         guard let img = r.nsImage, let tiff = img.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else {
-            return XCTFail("ImageRenderer não produziu PNG para \(name)")
+            Issue.record("ImageRenderer não produziu PNG para \(name)")
+            return
         }
         try FileManager.default.createDirectory(atPath: Self.outDir, withIntermediateDirectories: true)
         let path = "\(Self.outDir)/\(name).png"
@@ -39,7 +43,6 @@ final class SessionSnapshotTests: XCTestCase {
 
     /// O que vai para o PNG: o conteúdo da Sessão sobre o chão da tela, sem o `ScrollView` —
     /// `ImageRenderer` propõe altura infinita ao filho de um scroll e devolve branco.
-    @MainActor
     private func retrato(_ store: SessionStore) -> some View {
         SessionView(store: store).conteudo
             .padding(16)
@@ -54,21 +57,20 @@ final class SessionSnapshotTests: XCTestCase {
     /// estar morta (era) sem nenhum PNG mudar. Este caso existe para que a lane exibida tenha
     /// prova em imagem. Renderiza os dois lados da mesma regra: sem escolha (segue o roster) e
     /// com escolha (a escolha vence), e o nome no cabeçalho tem que diferir entre os dois.
-    @MainActor
-    func testRetratoDoCabecalhoComRoster() throws {
+    @Test func testRetratoDoCabecalhoComRoster() throws {
         let roster = ["loom-1", "codex-4"]
 
         let semEscolha = SessaoLane.exibida(roster: roster, escolha: nil)
-        XCTAssertEqual(semEscolha, "loom-1")
+        #expect(semEscolha == "loom-1")
         try render(cabecalho(lane: semEscolha, roster: roster),
                    width: 900, name: "20-sessao-cabecalho-sem-escolha")
 
         let comEscolha = SessaoLane.exibida(roster: roster, escolha: "codex-4")
-        XCTAssertEqual(comEscolha, "codex-4")
+        #expect(comEscolha == "codex-4")
         try render(cabecalho(lane: comEscolha, roster: roster),
                    width: 900, name: "21-sessao-cabecalho-escolha-codex-4")
 
-        XCTAssertNotEqual(semEscolha, comEscolha)
+        #expect(semEscolha != comEscolha)
 
         // 🚨 Nos dois PNGs acima o nome da lane NÃO se lê: com roster > 1 o cabeçalho é um
         // `Menu`, e `ImageRenderer` desenha `Menu` como um retângulo-placeholder — a gaveta é
@@ -81,7 +83,6 @@ final class SessionSnapshotTests: XCTestCase {
     }
 
     /// O cabeçalho sozinho, com a lane já resolvida — é assim que a janela o constrói.
-    @MainActor
     private func cabecalho(lane: String, roster: [String]) -> some View {
         SessionView(lane: lane, roster: roster).cabecalho
             .padding(16)
@@ -122,10 +123,9 @@ final class SessionSnapshotTests: XCTestCase {
     +}
     """
 
-    private func agora(_ atras: TimeInterval) -> Date { Date().addingTimeInterval(-atras) }
+    private nonisolated func agora(_ atras: TimeInterval) -> Date { Date().addingTimeInterval(-atras) }
 
-    @MainActor
-    func testRetratoDeUmTurnoCompleto() throws {
+    @Test func testRetratoDeUmTurnoCompleto() throws {
         let s = SessionStore.fixture(lane: "codex-1", steps: [
             .prompt(id: 1, text: "Arruma o E175 da stdlib: zero_divisor não deveria ser consumível de fora.", at: agora(180)),
             .message(id: 2, text: "Vou ler os módulos afetados antes de mexer — o E175 costuma vir de visibilidade, não de tipo.", at: agora(174)),
@@ -137,8 +137,7 @@ final class SessionSnapshotTests: XCTestCase {
         try render(retrato(s), width: 900, name: "10-sessao-turno")
     }
 
-    @MainActor
-    func testRetratoComPedidoDeAprovacao() throws {
+    @Test func testRetratoComPedidoDeAprovacao() throws {
         // O estado que a tela existe para resolver: ele parado, esperando decisão.
         let s = SessionStore.fixture(lane: "codex-1", steps: [
             .prompt(id: 1, text: "Escreva um arquivo alvo.txt com exatamente a linha `oi`.", at: agora(40)),
@@ -153,8 +152,7 @@ final class SessionSnapshotTests: XCTestCase {
     /// `loomd/src/event.rs:486-500`). Este retrato existe para provar visualmente que o card
     /// agora mostra o diff embutido — antes deste conserto, `claude-4` mostrava só o título e o
     /// operador aprovava uma mudança que nunca viu.
-    @MainActor
-    func testRetratoComPedidoACPQueEmbutaODiff() throws {
+    @Test func testRetratoComPedidoACPQueEmbutaODiff() throws {
         let s = SessionStore.fixture(lane: "claude-4", steps: [
             .prompt(id: 1, text: "Escreva um arquivo alvo.txt com exatamente a linha `oi`.", at: agora(40)),
             .message(id: 2, text: "Vou criar o arquivo na raiz do workspace.", at: agora(35)),
@@ -165,8 +163,7 @@ final class SessionSnapshotTests: XCTestCase {
         try render(retrato(s), width: 900, name: "18-sessao-pedido-acp-diff-embutido")
     }
 
-    @MainActor
-    func testRetratoComComandoQueNaoSeDesfaz() throws {
+    @Test func testRetratoComComandoQueNaoSeDesfaz() throws {
         // A distinção que muda o risco. O rótulo tem que ser diferente do patch, e visivelmente.
         let s = SessionStore.fixture(lane: "codex-1", steps: [
             .prompt(id: 1, text: "Limpa os artefatos de build da worktree.", at: agora(20)),
@@ -177,8 +174,7 @@ final class SessionSnapshotTests: XCTestCase {
         try render(retrato(s), width: 900, name: "12-sessao-comando")
     }
 
-    @MainActor
-    func testRetratoEscrevendoEComFalha() throws {
+    @Test func testRetratoEscrevendoEComFalha() throws {
         let s = SessionStore.fixture(lane: "codex-1", steps: [
             .prompt(id: 1, text: "roda o gate da stdlib", at: agora(60)),
             .failure(id: 2, text: "turn/start failed: thread already has an active writer (-32600)", at: agora(50)),
@@ -187,8 +183,7 @@ final class SessionSnapshotTests: XCTestCase {
         try render(retrato(s), width: 900, name: "13-sessao-escrevendo")
     }
 
-    @MainActor
-    func testRetratoVazioEEstreito() throws {
+    @Test func testRetratoVazioEEstreito() throws {
         // Vazio é o primeiro contato com a tela, e a largura estreita é onde o layout quebra.
         try render(retrato(SessionStore.fixture(lane: "codex-2", steps: [])),
                    width: 900, name: "14-sessao-vazia")
@@ -200,15 +195,14 @@ final class SessionSnapshotTests: XCTestCase {
         try render(retrato(cheia), width: 430, name: "15-sessao-estreita")
     }
 
-    // ─── o ícone ────────────────────────────────────────────────────────────────────────────
+    // ─── o ícone ─────────────────────────────────────────────────────────────────────────
 
     /// Rasteriza o ícone nos tamanhos que o `.icns` exige, e um contato-folha para revisão.
     ///
     /// O tamanho que importa é 32: é onde o ícone vive de verdade (Dock, ⌘Tab, barra de título).
     /// Desenho que só funciona a 1024 é pôster, não ícone — então o retrato inclui os pequenos
     /// lado a lado, para a decisão ser tomada no tamanho em que ele vai ser visto.
-    @MainActor
-    func testIcone() throws {
+    @Test func testIcone() throws {
         for lado in [16, 32, 64, 128, 256, 512, 1024] {
             // ≤32pt recebe a arte simplificada. É o mesmo que o sistema faz, e o contato-folha
             // provou que é necessário: onze fios a 16pt são um borrão.
@@ -227,8 +221,7 @@ final class SessionSnapshotTests: XCTestCase {
             width: 460, name: "icone-contato")
     }
 
-    @MainActor
-    func testRetratoComDoisTurnos() throws {
+    @Test func testRetratoComDoisTurnos() throws {
         // O caso que motivou agrupar: sem fronteira, dois pedidos e suas respostas viram uma sopa
         // em que não se vê onde um acaba. Uma sessão de trabalho de verdade tem dez.
         let s = SessionStore.fixture(lane: "codex-4", steps: [
@@ -244,8 +237,7 @@ final class SessionSnapshotTests: XCTestCase {
         try render(retrato(s), width: 900, name: "16-sessao-dois-turnos")
     }
 
-    @MainActor
-    func testRetratoDeSessaoRetomada() throws {
+    @Test func testRetratoDeSessaoRetomada() throws {
         // Turno sem pedido: o prompt está fora da janela do diário. A tela DIZ isso em vez de
         // pendurar o trabalho no pedido seguinte — que seria atribuí-lo ao pedido errado.
         let s = SessionStore.fixture(lane: "loom-1", steps: [

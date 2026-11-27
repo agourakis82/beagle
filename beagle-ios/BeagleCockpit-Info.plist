@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>dev.sounio.cockpit.dream</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
@@ -55,6 +59,12 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Para consultar teus plantões, compromissos e agendar eventos reais no Calendário do iPhone quando você pedir.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>Para agendar plantões e compromissos no Calendário do iPhone quando você pedir.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Para capturar fotos, exames, receitas, quadros ou páginas direto na conversa com o Beagle.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state.</string>
 	<key>NSHealthUpdateUsageDescription</key>
@@ -67,12 +77,25 @@
 	<string>Para você falar com o companion em vez de digitar. O áudio é transcrito no próprio aparelho e descartado — nada de áudio bruto sai do iPhone.</string>
 	<key>NSMotionUsageDescription</key>
 	<string>Beagle reads the device barometer to record the exact local atmospheric pressure where you are.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Para anexar fotos, capturas de tela, artigos ou gráficos na conversa com o Beagle.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Para listar, concluir e criar lembretes reais no teu iPhone quando você pedir.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Para transformar a sua fala em texto aqui no aparelho, sem enviar áudio para nenhum servidor.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>dev.sounio.cockpit.viewProject</string>
 		<string>dev.sounio.cockpit.viewAgent</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>fetch</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

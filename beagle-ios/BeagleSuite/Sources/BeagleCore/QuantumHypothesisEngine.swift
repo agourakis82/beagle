@@ -68,17 +68,16 @@ public final class QuantumHypothesisEngine {
     // MARK: - Default Perspectives
 
     private let defaultPerspectives = [
-        "First principles",
-        "Historical analogy",
-        "Adversarial critique",
-        "Cross-domain transfer",
+        "Primeiros princípios",
+        "Mecanismo fisiológico / PBPK",
+        "Crítica adversarial & falseabilidade",
+        "Transferência interdisciplinar",
         "Reductio ad absurdum"
     ]
 
     // MARK: - Superpose
 
-    /// Generate N hypotheses from different perspectives for a given question.
-    /// Each starts with equal amplitude in a uniform superposition.
+    /// Generate N hypotheses from different perspectives for a given question.\n    /// Each starts with equal amplitude in a uniform superposition.
     public func superpose(question: String, perspectives: [String]? = nil) async -> [Hypothesis] {
         let angles = perspectives ?? defaultPerspectives
 
@@ -88,7 +87,7 @@ public final class QuantumHypothesisEngine {
         return angles.enumerated().map { index, perspective in
             let phase = (2.0 * .pi * Double(index)) / Double(angles.count)
             return Hypothesis(
-                text: "\(perspective): [awaiting exploration of '\(question)']",
+                text: "\(perspective): [aguardando exploração de '\(question)']",
                 perspective: perspective,
                 amplitude: initialAmplitude,
                 phase: phase
@@ -120,7 +119,7 @@ public final class QuantumHypothesisEngine {
                     destructive.append((hypotheses[i], hypotheses[j]))
                     // Destructive interference generates emergent insights
                     emergent.append(
-                        "Tension between \(hypotheses[i].perspective) and \(hypotheses[j].perspective)"
+                        "Tensão produtiva entre \(hypotheses[i].perspective) e \(hypotheses[j].perspective)"
                     )
                 }
             }

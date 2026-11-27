@@ -43,7 +43,7 @@ public struct LaneWindowView: View {
         HStack(spacing: 6) {
             Circle().fill(corDoEstado).frame(width: 7, height: 7)
             Text(lane).font(.system(.caption, design: .monospaced)).foregroundStyle(.white.opacity(0.85))
-            if let t = client.titulo?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, t != lane {
+            if let t = client.title?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, t != lane {
                 Text(FleetTerminalsView.encurtar(t, teto: 46))
                     .font(.system(size: 10))
                     .foregroundStyle(.white.opacity(0.55))

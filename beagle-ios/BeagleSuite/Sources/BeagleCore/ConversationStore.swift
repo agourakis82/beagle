@@ -40,6 +40,14 @@ public struct ChatMessage: Identifiable, Sendable {
     /// True while this is an instant on-device "presence" acknowledgment (warm pt-BR opener) shown
     /// to bridge the cloud latency — replaced the moment the grounded cloud reply starts streaming.
     public var isProvisional: Bool = false
+    /// Normalized JPEG image attached to this turn (nil for text/voice-only turns).
+    public var imageData: Data? = nil
+    /// Local Apple Vision OCR + classification digest extracted on-device.
+    public var imageLocalDigest: String? = nil
+    /// True on assistant replies that answered a visual turn.
+    public var hadVisualContext: Bool = false
+    /// Native iPhone / MCP tool names executed during this assistant turn (for provenance chips).
+    public var executedTools: [String] = []
 
     public init(
         id: UUID = UUID(),
@@ -54,7 +62,11 @@ public struct ChatMessage: Identifiable, Sendable {
         agentKind: String? = nil,
         sessionId: String? = nil,
         podName: String? = nil,
-        voiceName: String? = nil
+        voiceName: String? = nil,
+        imageData: Data? = nil,
+        imageLocalDigest: String? = nil,
+        hadVisualContext: Bool = false,
+        executedTools: [String] = []
     ) {
         self.id = id
         self.role = role
@@ -69,6 +81,10 @@ public struct ChatMessage: Identifiable, Sendable {
         self.sessionId = sessionId
         self.podName = podName
         self.voiceName = voiceName
+        self.imageData = imageData
+        self.imageLocalDigest = imageLocalDigest
+        self.hadVisualContext = hadVisualContext
+        self.executedTools = executedTools
     }
 }
 
@@ -109,13 +125,22 @@ public final class ConversationStore {
     public var onCompanionTurnStart: ((String, String) -> Void)?
     public var onCompanionTurnEnd: ((String?) -> Void)?
 
+    /// Async hooks for full-duplex `gpt-live-1.1` deep background delegations (`Modo Fundo` / `Rosalind` / `Síntese Matinal`).
+    public var onTriggerAsyncVoiceFollowup: ((String, String?, [String]) async -> Void)?
+    public var onVoiceResearchStart: ((String, String, String, Int, String?) -> Void)?
+    public var onVoiceResearchUpdate: ((Int, Int, Int, String?, String?, Bool) -> Void)?
+
     /// Friendly voice name for the Live Activity — mirrors ChatDepth's labels (BeagleCockpit layer,
     /// not importable from here) so the lock screen says "Sonnet 5" instead of "claude-sonnet-5".
     private func voiceLabel(for model: String?) -> String {
+        if let friendly = OpenAIModelCatalog.friendlyVoiceLabel(for: model) {
+            return friendly
+        }
         switch model {
+        case "moe": return "MoE Completo"
+        case "local-uncensored": return "Local Sem Censura"
         case "claude-sonnet-5": return "Sonnet 5"
         case "claude-opus-4-8": return "Opus 4.8"
-        case "gpt-5.5": return "GPT 5.5"
         case "grok": return "Grok 4.3"
         case "glm-5.2": return "GLM 5.2"
         case "kimi-k2.6": return "Kimi 2.6"
@@ -175,6 +200,7 @@ public final class ConversationStore {
     public private(set) var currentConversationId: String = ""
     /// Observable title of the active thread (for the chat top bar). Updates when the thread
     /// is created, switched, or auto-titled from the first user line.
+    private var hasBackfilledSpotlight: Bool = false
     public private(set) var currentConversationTitle: String = "Nova conversa"
 
     public var persistenceConversationId: String {
@@ -227,21 +253,65 @@ public final class ConversationStore {
     /// FLOW → cloud (deep reasoning worth the latency)
     /// NORMAL → local MLX (balanced)
     /// STRESS → Foundation Models (fast, don't overwhelm)
-    public func sendMessage(_ text: String) async {
+    public func sendMessage(
+        _ text: String,
+        imageData: Data? = nil,
+        document: ChatDocumentPayload? = nil
+    ) async {
         // O tom vale para ESTE turno. `defer` roda depois de todos os awaits, então
         // o sinal chega às chamadas do cliente e some antes do turno seguinte —
         // senão a próxima mensagem digitada herdaria a fala anterior.
         defer { sinalDeVozDoTurno = nil }
-        // Light, casual messages → instant on-device Apple Intelligence (when available).
-        if isLight(text), fastAvailable, fastResponder != nil {
+
+        // Prepara payload multimodal fora da main thread (redimensiona <=1568px JPEG + OCR/cena Apple Vision).
+        // Quando há PDF anexado sem imagem separada, usa a capa renderizada da Página 1 para visão + miniatura.
+        let effectiveImageData = imageData ?? document?.coverJPEGData
+        let vision: ChatVisionPayload?
+        if let effectiveImageData, !effectiveImageData.isEmpty {
+            vision = await ChatVisionPayload.prepare(from: effectiveImageData)
+        } else {
+            vision = nil
+        }
+
+        // Detecta automaticamente URLs, DOIs (10.xxxx/...), PMIDs e arXiv IDs na mensagem ou vindos do Share Sheet
+        // e busca os metadados/abstracts/texto ao vivo antes do turno, valendo para TODOS os cérebros (inclusive Local Sem Censura).
+        let detectedRefs = ScienceAndWebBridge.extractReferences(from: text)
+        let webPrefetch: (contextBlock: String, executedTools: [String])?
+        if !detectedRefs.isEmpty && NetworkMonitor.shared.isOnline {
+            let previousPresence = presenceNote
+            presenceNote = "lendo link / artigo compartilhado…"
+            webPrefetch = await ScienceAndWebBridge.shared.prefetchContextForPrompt(text)
+            if presenceNote == "lendo link / artigo compartilhado…" {
+                presenceNote = previousPresence
+            }
+        } else {
+            webPrefetch = nil
+        }
+
+        // Se o usuário escolheu explicitamente "Local Sem Censura", roda direto no modelo local MLX
+        // (com grounding completo, fisioma ao vivo, OCR/PDF, links/PubMed/DOI, bula/PCDT e sincronização com a memória do cluster).
+        if voiceModel == "local-uncensored" {
+            var pronto = llm.isReady
+            if !pronto { pronto = await llm.restaurarUltimoModelo() }
+            if pronto {
+                await sendMessageLocal(text, vision: vision, document: document, webPrefetch: webPrefetch)
+                if NetworkMonitor.shared.isOnline {
+                    Task { @MainActor [weak self] in await self?.refreshGroundingIfStale() }
+                }
+                return
+            }
+        }
+
+        // Light, casual messages → instant on-device Apple Intelligence (never used when an attachment, link/DOI, or explicit voice is selected).
+        if vision == nil, document == nil, detectedRefs.isEmpty, voiceModel == nil, isLight(text), fastAvailable, fastResponder != nil {
             await sendMessageFast(text)
             return
         }
-        // Companion: cloud (rich, grounded, server-side memory ingest) when online; the on-device
+        // Companion: cloud / Direct OpenAI / MoE / Claude when online; the on-device
         // MLX model when offline — and enqueue the offline turn so the memory spine receives it
         // once connectivity returns. `flowState` still travels in the cloud request body.
         if NetworkMonitor.shared.isOnline {
-            await sendMessageCloud(text)
+            await sendMessageCloud(text, vision: vision, document: document, webPrefetch: webPrefetch)
         } else {
             // Sem rede. O engine esquece o modelo a cada abertura do app, então
             // tentar restaurar AQUI é a diferença entre responder e não existir.
@@ -249,10 +319,9 @@ public final class ConversationStore {
             var pronto = llm.isReady
             if !pronto { pronto = await llm.restaurarUltimoModelo() }
             if pronto {
-                await sendMessageLocal(text)
-                enqueueOffline(userText: text)
+                await sendMessageLocal(text, vision: vision, document: document, webPrefetch: webPrefetch)
             } else {
-                await sendMessageCloud(text)
+                await sendMessageCloud(text, vision: vision, document: document, webPrefetch: webPrefetch)
             }
         }
         // Mantém o grounding offline fresco enquanto há rede. Fire-and-forget: nunca
@@ -262,10 +331,53 @@ public final class ConversationStore {
         }
     }
 
+    private static func composeUserBubbleContent(text: String, document: ChatDocumentPayload?) -> String {
+        guard let document else { return text }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "Analisa este documento PDF comigo." {
+            return "📄 \(document.summaryBadge)"
+        }
+        return "📄 \(document.summaryBadge)\n\(text)"
+    }
+
+    private static func composePersistedAttachmentDigest(
+        vision: ChatVisionPayload?,
+        document: ChatDocumentPayload?,
+        webBlock: String? = nil
+    ) -> String? {
+        var parts: [String] = []
+        if let doc = document {
+            let excerpt = String(doc.extractedText.prefix(2_400))
+            if excerpt.isEmpty {
+                parts.append("PDF anexado: \(doc.summaryBadge)")
+            } else {
+                parts.append("PDF anexado (\(doc.summaryBadge)):\n\(excerpt)")
+            }
+        }
+        if let v = vision?.localDigest, !v.isEmpty {
+            parts.append(v)
+        }
+        if let w = webBlock, !w.isEmpty {
+            parts.append(String(w.prefix(1_600)))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n")
+    }
+
+    private static func mergeUniqueTools(_ groups: [[String]]) -> [String] {
+        var seen: Set<String> = []
+        var out: [String] = []
+        for g in groups {
+            for item in g where seen.insert(item).inserted {
+                out.append(item)
+            }
+        }
+        return out
+    }
+
     /// Atualiza o cache de identidade quando está ausente ou com mais de 2h.
     public func refreshGroundingIfStale() async {
         if let at = groundingCachedAt, Date().timeIntervalSince(at) < 7200 { return }
-        let result = await client.fetchCompanionGrounding()
+        let result = await client.companionGrounding()
         // Nunca troque um cache bom por um pacote raquítico: offline, esse texto
         // é tudo o que ele sabe. O servidor já recusa abaixo de 2000 bytes; aqui
         // é a segunda parede, para o caso de um gateway devolver algo truncado.
@@ -293,8 +405,8 @@ public final class ConversationStore {
         guard let ctx = modelContext else { return }
         let store = OutboxStore(context: ctx)
         for item in store.pending() {
-            let result = await client.ingestTurn(IngestTurnRequest(
-                session_id: item.sessionId, userText: item.userText, assistantText: item.assistantText,
+            let result = await CockpitClient.shared.ingestTurn(IngestTurnRequest(
+                sessionId: item.sessionId, userText: item.userText, assistantText: item.assistantText,
                 clientTime: item.clientTime, timezone: item.timezone))
             if result.value != nil { store.delete(item) }
         }
@@ -474,11 +586,22 @@ public final class ConversationStore {
         return copiadas >= 3
     }
 
-    private func offlineGroundedPrompt(_ text: String) -> String {
+    private func offlineGroundedPrompt(
+        _ text: String,
+        visionDigest: String? = nil,
+        documentBlock: String? = nil,
+        webBlock: String? = nil
+    ) -> String {
         // USUÁRIO: só o que muda no turno. O grounding e as regras vão no papel de
         // SISTEMA (instrucoesOffline) — misturar os dois foi o bug.
-        let bula = BulaStore.shared.consulta(text)
-        let pcdt = BulaStore.shared.consultaPCDT(text)
+        let lookupCorpus = [
+            text,
+            visionDigest ?? "",
+            String((documentBlock ?? "").prefix(4_000)),
+            String((webBlock ?? "").prefix(3_000))
+        ].joined(separator: " ")
+        let bula = BulaStore.shared.consulta(lookupCorpus)
+        let pcdt = BulaStore.shared.consultaPCDT(lookupCorpus)
         var partes: [String] = []
         if let bula {
             partes.append(
@@ -491,6 +614,34 @@ public final class ConversationStore {
             partes.append(
                 "## Protocolo brasileiro em cache (VERBATIM — PCDT, Ministério da Saúde)\n"
                 + pcdt.map { "Citação: \($0.citacao)\n\n\($0.texto)" }.joined(separator: "\n\n---\n\n"))
+        }
+        // Injeta o estado biológico e heliobiológico ao vivo + resumo episódico no turno local
+        var agoraParts: [String] = []
+        if let physio = physioSummary {
+            var p: [String] = ["Prontidão \(physio.readiness.rawValue)"]
+            if let hrv = physio.hrvMs { p.append(String(format: "HRV %.0f ms", hrv)) }
+            if let sleep = physio.sleepHours { p.append(String(format: "Sono %.1fh", sleep)) }
+            agoraParts.append("Fisioma: " + p.joined(separator: " · "))
+        }
+        if let sky = currentSky {
+            var s: [String] = ["Céu \(sky.band.rawValue)", String(format: "Kp %.1f", sky.kp)]
+            if let dst = sky.dst { s.append(String(format: "Dst %.0f nT", dst)) }
+            agoraParts.append(s.joined(separator: " · "))
+        }
+        if let summary = currentRollingSummary(), !summary.isEmpty {
+            agoraParts.append("Resumo anterior desta conversa: \(String(summary.suffix(600)))")
+        }
+        if !agoraParts.isEmpty {
+            partes.append("[Agora: " + agoraParts.joined(separator: " | ") + "]")
+        }
+        if let visionDigest, !visionDigest.isEmpty {
+            partes.append("## Imagem anexada neste turno (leitura Apple Vision no aparelho)\n" + visionDigest)
+        }
+        if let documentBlock, !documentBlock.isEmpty {
+            partes.append(documentBlock)
+        }
+        if let webBlock, !webBlock.isEmpty {
+            partes.append(webBlock)
         }
         partes.append(text)
         return partes.joined(separator: "\n\n")
@@ -527,27 +678,53 @@ public final class ConversationStore {
     // MARK: - Send via on-device LLM
 
     /// Send using the on-device MLX model (streaming).
-    public func sendMessageLocal(_ text: String) async {
+    public func sendMessageLocal(
+        _ text: String,
+        vision: ChatVisionPayload? = nil,
+        document: ChatDocumentPayload? = nil,
+        webPrefetch: (contextBlock: String, executedTools: [String])? = nil
+    ) async {
         guard llm.isReady else {
             // Fallback to cloud
-            await sendMessageCloud(text)
+            await sendMessageCloud(text, vision: vision, document: document, webPrefetch: webPrefetch)
             return
         }
 
-        let userMessage = ChatMessage(role: .user, content: text)
+        let localWebBlock = webPrefetch.map { String($0.contextBlock.prefix(4_500)) }
+        let userMessage = ChatMessage(
+            role: .user,
+            content: Self.composeUserBubbleContent(text: text, document: document),
+            imageData: vision?.jpegData,
+            imageLocalDigest: Self.composePersistedAttachmentDigest(
+                vision: vision,
+                document: document,
+                webBlock: localWebBlock
+            )
+        )
         messages.append(userMessage)
         persist(message: userMessage)
         // Papéis separados: quem ele é vai como SISTEMA, o turno vai como fala.
         // O texto é o MESMO todo turno, então aplicarInstrucoes vira no-op depois
-        // da primeira vez — a sessão sobrevive e o prefill fica pago.
+        // da primeira vez — a sessao sobrevive e o prefill fica pago.
         llm.aplicarInstrucoes(instrucoesOffline() + llm.sufixoSemRaciocinio)
-        let prompt = offlineGroundedPrompt(text)
+        let prompt = offlineGroundedPrompt(
+            text,
+            visionDigest: vision?.localDigest,
+            documentBlock: document?.promptBlock(maxChars: 6_000),
+            webBlock: localWebBlock
+        )
 
         let assistantId = UUID()
         let modelName = llm.currentModel?.displayName ?? "local"
+        let initialLocalTools = Self.mergeUniqueTools([
+            document != nil ? ["local_pdf_reader"] : [],
+            webPrefetch?.executedTools ?? []
+        ])
         let placeholder = ChatMessage(
             id: assistantId, role: .assistant, content: "",
-            isStreaming: true, model: modelName, isLocal: true
+            isStreaming: true, model: modelName, isLocal: true,
+            hadVisualContext: vision != nil || document != nil,
+            executedTools: initialLocalTools
         )
         messages.append(placeholder)
         isStreaming = true
@@ -591,34 +768,243 @@ public final class ConversationStore {
             }
             messages[idx].isStreaming = false
             persist(message: messages[idx])
-            await autoImportExchange(
-                user: userMessage,
-                assistant: messages[idx],
-                sourceSurface: "beagle-apple-local"
-            )
+            let respondidaLocal = messages[idx]
+            Task { @MainActor [weak self] in
+                await self?.syncTurnToClusterMemory(
+                    user: userMessage,
+                    assistant: respondidaLocal,
+                    sourceSurface: "beagle-apple-local-uncensored",
+                    vision: vision
+                )
+            }
         }
         isStreaming = false
     }
 
-    // MARK: - Send via cloud (HERMES)
+    // MARK: - Send via cloud (HERMES / Direct OpenAI / Direct Claude / MoE + Beagle MCP)
 
-    /// Send using the cloud backend (beagle-core /api/v1/chat).
-    public func sendMessageCloud(_ text: String) async {
+    /// Sincroniza obrigatoriamente qualquer turno (Local Sem Censura, OpenAI Direto, Claude Direto ou MoE)
+    /// com a espinha dorsal de memória do cluster (`/api/mobile/v1/ingest` + `/api/mobile/v1/memory/assisted-import`),
+    /// garantindo fallback no `OutboxStore` se o cluster oscilar, além de atualizar o resumo episódico rolante.
+    private func syncTurnToClusterMemory(
+        user: ChatMessage,
+        assistant: ChatMessage,
+        sourceSurface: String,
+        alsoIngestSpine: Bool = true,
+        vision: ChatVisionPayload? = nil
+    ) async {
+        let baseUserText = user.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userText: String = {
+            if let digest = user.imageLocalDigest, !digest.isEmpty {
+                return baseUserText.isEmpty
+                    ? "[Imagem anexada — \(digest)]"
+                    : "\(baseUserText)\n[Imagem anexada — \(digest)]"
+            }
+            return baseUserText
+        }()
+        let assistantText = assistant.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !userText.isEmpty, !assistantText.isEmpty else { return }
+
+        // Arquiva também o artefato visual privado no exocórtex do cluster quando online
+        if let vision, NetworkMonitor.shared.isOnline {
+            var hints = ["chat-multimodal", "vision-on-device"]
+            if !vision.extractedOCR.isEmpty { hints.append("ocr") }
+            if !vision.barcodes.isEmpty { hints.append("barcode") }
+            let artifactReq = VisualEvidenceArtifactRequest(
+                sessionId: persistenceConversationId,
+                projectSlug: projectSlug,
+                sourceSurface: sourceSurface,
+                sourceKind: "chat_image",
+                mediaType: vision.mimeType,
+                contentHash: vision.sha256Hex,
+                artifactDataBase64: vision.base64JPEG,
+                artifactByteCount: vision.jpegData.count,
+                localSummary: String(userText.prefix(360)),
+                extractedText: vision.extractedOCR.isEmpty ? nil : vision.extractedOCR,
+                localHints: hints,
+                privacyClass: "sensitive",
+                confirmationState: "private_cluster_artifact_only"
+            )
+            _ = await client.visualEvidenceArtifact(artifactReq)
+        }
+
+        if alsoIngestSpine {
+            let nowISO = ISO8601DateFormatter().string(from: Date())
+            let tz = TimeZone.current.identifier
+            if NetworkMonitor.shared.isOnline {
+                let res = await CockpitClient.shared.ingestTurn(IngestTurnRequest(
+                    sessionId: persistenceConversationId,
+                    userText: userText,
+                    assistantText: assistantText,
+                    clientTime: nowISO,
+                    timezone: tz
+                ))
+                if res.value != nil {
+                    if let i = messages.firstIndex(where: { $0.id == assistant.id }) {
+                        messages[i].savedToMemory = true
+                    }
+                } else if let ctx = modelContext {
+                    OutboxStore(context: ctx).enqueue(
+                        sessionId: persistenceConversationId,
+                        userText: userText,
+                        assistantText: assistantText,
+                        clientTime: nowISO,
+                        timezone: tz
+                    )
+                }
+            } else if let ctx = modelContext {
+                OutboxStore(context: ctx).enqueue(
+                    sessionId: persistenceConversationId,
+                    userText: userText,
+                    assistantText: assistantText,
+                    clientTime: nowISO,
+                    timezone: tz
+                )
+            }
+        }
+
+        var memoryUser = user
+        memoryUser.content = userText
+        await autoImportExchange(
+            user: memoryUser,
+            assistant: assistant,
+            sourceSurface: sourceSurface
+        )
+        await maybeCompactRollingSummary()
+    }
+
+    /// Executa a Camada 1 do MoE: escuta rápida e sem censura no LLM local (se carregado na RAM)
+    /// para extrair leitura clínica/humana sem filtros antes da síntese profunda do GPT / Claude.
+    private func generateMoELocalUncensoredDraft(
+        for text: String,
+        visionDigest: String? = nil,
+        documentBlock: String? = nil,
+        webBlock: String? = nil
+    ) async -> String? {
+        var ready = llm.isReady
+        if !ready && DirectBrainCredentials.keepLocalLoadedWhenOnline {
+            ready = await llm.restaurarUltimoModelo()
+        }
+        guard ready else { return nil }
+        llm.aplicarInstrucoes(instrucoesOffline() + llm.sufixoSemRaciocinio)
+        let prompt = offlineGroundedPrompt(
+            text,
+            visionDigest: visionDigest,
+            documentBlock: documentBlock,
+            webBlock: webBlock
+        )
+        var draft = ""
+        do {
+            for try await chunk in llm.generate(prompt: prompt) {
+                draft += chunk
+                if draft.count > 1600 { break }
+            }
+        } catch {
+            return nil
+        }
+        let clean = stripReasoning(draft)
+        if clean.isEmpty || Self.pareceEco(clean, instrucoes: instrucoesOffline()) {
+            return nil
+        }
+        return clean
+    }
+
+    /// Send using the cloud backend (beagle-core /api/v1/chat) OR Direct Brain (OpenAI GPT / Anthropic Claude / MoE + Beagle MCP).
+    public func sendMessageCloud(
+        _ text: String,
+        vision: ChatVisionPayload? = nil,
+        document: ChatDocumentPayload? = nil,
+        webPrefetch: (contextBlock: String, executedTools: [String])? = nil
+    ) async {
         // Build history BEFORE appending new user message — pass as STRUCTURED
-        // turn-based messages (role+content), NOT a "User: ... Assistant: ..."
-        // concatenated string. Smart models (Grok) read concatenated transcripts
-        // as text-to-continue and hallucinate the next user line.
-        let history: [[String: String]] = messages
-            .suffix(10)
-            .map { ["role": $0.role == .user ? "user" : "assistant", "content": $0.content] }
-        let contextualPrompt = text
+        // turn-based messages (role+content) with a deep 60-message window (vs the old 10-message truncation).
+        var history: [[String: String]] = []
+        var directTurns: [DirectBrainTurn] = []
+        if let summary = currentRollingSummary(), !summary.isEmpty {
+            let epUser = "[Contexto episódico acumulado desta conversa: \(summary)]"
+            let epAssistant = "Tenho todo esse contexto episódico vivo comigo."
+            history.append(["role": "user", "content": epUser])
+            history.append(["role": "assistant", "content": epAssistant])
+            directTurns.append(DirectBrainTurn(role: "user", content: epUser))
+            directTurns.append(DirectBrainTurn(role: "assistant", content: epAssistant))
+        }
 
-        let userMessage = ChatMessage(role: .user, content: text)
+        let recentWindow = Array(messages.suffix(60))
+        // Keep full base64 pixels on up to the 2 most recent historical visual turns so follow-up questions
+        // ("e ali no canto?", "compara com a foto anterior") see real pixels without bloating 60 turns.
+        let recentVisualIds = Set(
+            recentWindow
+                .filter { $0.role == .user && $0.imageData != nil }
+                .suffix(2)
+                .map(\.id)
+        )
+
+        let recentTurns: [[String: String]] = recentWindow.map { msg in
+            let role = msg.role == .user ? "user" : "assistant"
+            var content = msg.content
+            if let digest = msg.imageLocalDigest, !digest.isEmpty, msg.role == .user {
+                content = content.isEmpty
+                    ? "[Imagem anexada — \(digest)]"
+                    : "\(content)\n[Imagem anexada — \(digest)]"
+            }
+            return ["role": role, "content": content]
+        }
+        history.append(contentsOf: recentTurns)
+
+        for msg in recentWindow {
+            let role = msg.role == .user ? "user" : "assistant"
+            var content = msg.content
+            if let digest = msg.imageLocalDigest, !digest.isEmpty, msg.role == .user {
+                content = content.isEmpty
+                    ? "[Imagem anterior — \(digest)]"
+                    : "\(content)\n[Imagem anterior — \(digest)]"
+            }
+            let b64: String? = (recentVisualIds.contains(msg.id)) ? msg.imageData?.base64EncodedString() : nil
+            directTurns.append(DirectBrainTurn(
+                role: role,
+                content: content,
+                imageBase64: b64,
+                imageMediaType: b64 != nil ? "image/jpeg" : nil
+            ))
+        }
+
+        let cloudDocBlock = document?.promptBlock(maxChars: 32_000)
+        let cloudWebBlock = webPrefetch?.contextBlock
+        let contextualPrompt = (vision != nil || document != nil || cloudWebBlock != nil)
+            ? offlineGroundedPrompt(
+                text,
+                visionDigest: vision?.localDigest,
+                documentBlock: cloudDocBlock,
+                webBlock: cloudWebBlock
+            )
+            : text
+
+        let userMessage = ChatMessage(
+            role: .user,
+            content: Self.composeUserBubbleContent(text: text, document: document),
+            imageData: vision?.jpegData,
+            imageLocalDigest: Self.composePersistedAttachmentDigest(
+                vision: vision,
+                document: document,
+                webBlock: cloudWebBlock
+            )
+        )
         messages.append(userMessage)
         persist(message: userMessage)
 
+        let initialCloudTools = Self.mergeUniqueTools([
+            document != nil ? ["local_pdf_reader"] : [],
+            webPrefetch?.executedTools ?? []
+        ])
         let assistantId = UUID()
-        let placeholder = ChatMessage(id: assistantId, role: .assistant, content: "", isStreaming: true)
+        let placeholder = ChatMessage(
+            id: assistantId,
+            role: .assistant,
+            content: "",
+            isStreaming: true,
+            hadVisualContext: vision != nil || document != nil,
+            executedTools: initialCloudTools
+        )
         messages.append(placeholder)
         isStreaming = true
 
@@ -639,13 +1025,206 @@ public final class ConversationStore {
         }
 
         // Temporal awareness: send the previous contact time (the client owns the thread),
-        // then stamp this exchange as the new "last contact" for the next turn. First send →
-        // previousContact == nil → the server frames it as a first contact.
+        // then stamp this exchange as the new "last contact" for the next turn.
         let previousContact = lastContactAt
         lastContactAt = Date()
 
         // Presence is a signal about THIS turn; it must not survive it, on any exit path.
         defer { presenceNote = nil }
+
+        // MARK: Direct Brain & MoE Routing (OpenAI GPT-6.2 Direct + Beagle MCP + Local Uncensored + Anthropic Direct)
+        let wantsMoE = (voiceModel == "moe")
+        let wantsDirectOpenAI = wantsMoE || ((voiceModel == nil || OpenAIModelCatalog.isDirectOpenAIModel(voiceModel)) && DirectBrainCredentials.hasOpenAI)
+        let wantsDirectAnthropic = ((voiceModel == "claude-sonnet-5" || voiceModel == "claude-opus-4-8") && DirectBrainCredentials.hasAnthropic)
+
+        if wantsDirectOpenAI || wantsDirectAnthropic {
+            if let document {
+                presenceNote = wantsMoE
+                    ? "MoE · lendo PDF (\(document.pageCount) pág.) + GPT + memória do cluster…"
+                    : "lendo PDF (\(document.pageCount) pág.) + memória do cluster & MCP…"
+            } else if vision != nil {
+                presenceNote = wantsMoE
+                    ? "MoE · lendo imagem local + GPT + memória do cluster…"
+                    : "lendo tua imagem + memória do cluster & MCP…"
+            } else if cloudWebBlock != nil {
+                presenceNote = wantsMoE
+                    ? "MoE · lendo artigo/link + escuta local + memória do cluster…"
+                    : "lendo artigo / link + memória do cluster & MCP…"
+            } else {
+                presenceNote = wantsMoE
+                    ? "MoE · escuta local sem censura + memória do cluster…"
+                    : "consultando memória do cluster & MCP…"
+            }
+
+            // Run GraphRAG++ cluster memory recall (using text + any OCR/PDF/Web excerpt)
+            let recallQuery: String = {
+                var parts = [text]
+                if let doc = document, !doc.extractedText.isEmpty {
+                    parts.append(String(doc.extractedText.prefix(280)))
+                } else if let ocr = vision?.extractedOCR, !ocr.isEmpty {
+                    parts.append(String(ocr.prefix(240)))
+                } else if let web = cloudWebBlock, !web.isEmpty {
+                    parts.append(String(web.prefix(260)))
+                }
+                return parts.joined(separator: " ")
+            }()
+            async let recalledTask = DirectBrainClient.shared.recallRelevantMemory(for: recallQuery, projectSlug: projectSlug)
+            var moeDraft: String? = nil
+            if wantsMoE {
+                moeDraft = await generateMoELocalUncensoredDraft(
+                    for: text,
+                    visionDigest: vision?.localDigest,
+                    documentBlock: document?.promptBlock(maxChars: 6_000),
+                    webBlock: cloudWebBlock.map { String($0.prefix(4_500)) }
+                )
+            }
+            let recalledMemories = await recalledTask
+
+            let splitPrompt = await DirectBrainClient.shared.buildSplitSystemPrompt(
+                cachedGrounding: cachedGrounding,
+                physioSummary: physioSummary,
+                physioContext: activeSystemInstruction,
+                currentSky: currentSky,
+                flowState: flowState,
+                sleepQuality01: sleepQuality01,
+                voiceTone: sinalDeVozDoTurno,
+                lastContactAt: previousContact,
+                rollingSummary: currentRollingSummary(),
+                recentThreadDigest: recentCrossThreadDigest(),
+                recalledMemories: recalledMemories,
+                moeLocalUncensoredDraft: moeDraft
+            )
+            let fullSystem = splitPrompt.turnInstructions.isEmpty
+                ? splitPrompt.developerPrefix
+                : splitPrompt.developerPrefix + "\n\n" + splitPrompt.turnInstructions
+
+            // Include Bula/PCDT verbatim clinical grounding + Apple Vision OCR + multi-page PDF text + live Web/PubMed/DOI context alongside Page 1 pixels
+            let userTurnWithClinicalCache = offlineGroundedPrompt(
+                text,
+                visionDigest: vision?.localDigest,
+                documentBlock: cloudDocBlock,
+                webBlock: cloudWebBlock
+            )
+            var directHistory = recentTurns
+            directHistory.append(["role": "user", "content": userTurnWithClinicalCache])
+            directTurns.append(DirectBrainTurn(
+                role: "user",
+                content: userTurnWithClinicalCache,
+                imageBase64: vision?.base64JPEG,
+                imageMediaType: vision?.mimeType
+            ))
+
+            var directStreamed = ""
+            var directResponseModel: String?
+            var directExecutedTools: [String] = initialCloudTools
+            do {
+                if wantsDirectOpenAI && DirectBrainCredentials.hasOpenAI {
+                    let targetModel = wantsMoE ? DirectBrainCredentials.openAIModel : (voiceModel ?? DirectBrainCredentials.openAIModel)
+                    let response = try await DirectBrainClient.shared.streamOpenAI(
+                        model: targetModel,
+                        systemPrompt: fullSystem,
+                        developerPrefix: splitPrompt.developerPrefix,
+                        turnInstructions: splitPrompt.turnInstructions,
+                        history: directHistory,
+                        turns: directTurns,
+                        projectSlug: projectSlug,
+                        onStatus: { [weak self] statusText in
+                            await MainActor.run {
+                                self?.presenceNote = statusText
+                            }
+                        },
+                        onToken: { [weak self] token in
+                            await MainActor.run {
+                                guard let self else { return }
+                                directStreamed += token
+                                self.presenceNote = nil
+                                if let idx = self.messages.firstIndex(where: { $0.id == assistantId }) {
+                                    if self.messages[idx].isProvisional { self.messages[idx].isProvisional = false }
+                                    self.messages[idx].content = self.stripReasoning(directStreamed)
+                                }
+                            }
+                        }
+                    )
+                    directResponseModel = response.model
+                    directExecutedTools = Self.mergeUniqueTools([directExecutedTools, response.executedTools])
+                } else if wantsDirectAnthropic && DirectBrainCredentials.hasAnthropic {
+                    let response = try await DirectBrainClient.shared.streamAnthropic(
+                        model: voiceModel ?? "claude-sonnet-5",
+                        systemPrompt: fullSystem,
+                        history: directHistory,
+                        turns: directTurns,
+                        projectSlug: projectSlug,
+                        onStatus: { [weak self] statusText in
+                            await MainActor.run {
+                                self?.presenceNote = statusText
+                            }
+                        },
+                        onToken: { [weak self] token in
+                            await MainActor.run {
+                                guard let self else { return }
+                                directStreamed += token
+                                self.presenceNote = nil
+                                if let idx = self.messages.firstIndex(where: { $0.id == assistantId }) {
+                                    if self.messages[idx].isProvisional { self.messages[idx].isProvisional = false }
+                                    self.messages[idx].content = self.stripReasoning(directStreamed)
+                                }
+                            }
+                        }
+                    )
+                    directResponseModel = response.model
+                    directExecutedTools = Self.mergeUniqueTools([directExecutedTools, response.executedTools])
+                }
+            } catch {
+                // If direct API call fails (e.g. key quota/network), fall through seamlessly to cluster stream below
+                directStreamed = ""
+            }
+
+            if !directStreamed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
+                    messages[idx].content = stripReasoning(directStreamed)
+                    messages[idx].isStreaming = false
+                    messages[idx].model = wantsMoE ? directResponseModel.map { "moe-local+\($0)" } : (directResponseModel ?? voiceModel)
+                    messages[idx].source = wantsMoE ? "beagle-moe-mcp" : "beagle-direct-mcp"
+                    messages[idx].executedTools = directExecutedTools
+                    persist(message: messages[idx])
+                    onCompanionTurnEnd?(messages[idx].content)
+                    let respondidaDireta = messages[idx]
+                    Task { @MainActor [weak self] in
+                        await self?.syncTurnToClusterMemory(
+                            user: userMessage,
+                            assistant: respondidaDireta,
+                            sourceSurface: wantsMoE ? "beagle-apple-moe" : "beagle-apple-direct-mcp",
+                            alsoIngestSpine: true,
+                            vision: vision
+                        )
+                    }
+                }
+                isStreaming = false
+                return
+            }
+
+            // If user selected MoE without a direct OpenAI key yet, inject the local uncensored draft into the cluster request
+            if wantsMoE, let moeDraft, !moeDraft.isEmpty {
+                history.append([
+                    "role": "assistant",
+                    "content": "[Leitura inicial sem filtro do modelo local no dispositivo: \(moeDraft)]"
+                ])
+            }
+        }
+
+        // Enrich system instruction with rolling summary & cross-thread continuity for cluster turns
+        let clusterSystemInstruction: String? = {
+            var parts: [String] = []
+            if let base = activeSystemInstruction, !base.isEmpty { parts.append(base) }
+            if let roll = currentRollingSummary(), !roll.isEmpty {
+                parts.append("Resumo episódico anterior desta conversa:\n\(roll)")
+            }
+            if let cross = recentCrossThreadDigest(), !cross.isEmpty {
+                parts.append("Continuidade de conversas recentes no Cockpit:\n\(cross)")
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
+        }()
+        let clusterVoiceModel: String? = (voiceModel == "moe" || voiceModel == "local-uncensored") ? DirectBrainCredentials.openAIModel : voiceModel
 
         // STREAM tokens live from /api/mobile/v1/chat/stream. The user sees the
         // companion typing as the model emits — no more 7-9s frozen wait.
@@ -653,7 +1232,7 @@ public final class ConversationStore {
         // never goes completely dark.
         let stream = client.chatStream(
             prompt: contextualPrompt,
-            system: activeSystemInstruction,
+            system: clusterSystemInstruction,
             projectSlug: projectSlug,
             projectFamily: projectFamily,
             publicationScope: publicationScope,
@@ -668,7 +1247,9 @@ public final class ConversationStore {
             sleepHours: physioSummary?.sleepHours,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
-            voiceModel: voiceModel,
+            voiceModel: clusterVoiceModel,
+            imageBase64: vision?.base64JPEG,
+            imageMimeType: vision?.mimeType,
             // Presence: written to the presence LAYER, not to the message slot — so the
             // on-device quickAck (which owns that slot) always wins, by construction, and
             // no server-authored sentence can ever be mistaken for his voice.
@@ -755,10 +1336,12 @@ public final class ConversationStore {
                 // separada, com o 404 consertado antes.
                 let respondida = messages[idx]
                 Task { @MainActor [weak self] in
-                    await self?.autoImportExchange(
+                    await self?.syncTurnToClusterMemory(
                         user: userMessage,
                         assistant: respondida,
-                        sourceSurface: "beagle-apple-cloud"
+                        sourceSurface: "beagle-apple-cloud",
+                        alsoIngestSpine: false,
+                        vision: vision
                     )
                 }
             }
@@ -770,7 +1353,7 @@ public final class ConversationStore {
         // buffered /chat endpoint so the user always gets a reply.
         let result = await client.chat(
             prompt: contextualPrompt,
-            system: activeSystemInstruction,
+            system: clusterSystemInstruction,
             projectSlug: projectSlug,
             projectFamily: projectFamily,
             publicationScope: publicationScope,
@@ -785,7 +1368,9 @@ public final class ConversationStore {
             sleepHours: physioSummary?.sleepHours,
             kp: currentSky?.kp, dst: currentSky?.dst,
             solarWind: currentSky?.solarWindSpeed, bz: currentSky?.bz,
-            voiceModel: voiceModel
+            voiceModel: clusterVoiceModel,
+            imageBase64: vision?.base64JPEG,
+            imageMimeType: vision?.mimeType
         )
 
         if let idx = messages.firstIndex(where: { $0.id == assistantId }) {
@@ -805,10 +1390,12 @@ public final class ConversationStore {
                 // Mesma razão do caminho de streaming: durabilidade não segura a conversa.
                 let respondidaBuf = messages[idx]
                 Task { @MainActor [weak self] in
-                    await self?.autoImportExchange(
+                    await self?.syncTurnToClusterMemory(
                         user: userMessage,
                         assistant: respondidaBuf,
-                        sourceSurface: "beagle-apple-cloud"
+                        sourceSurface: "beagle-apple-cloud",
+                        alsoIngestSpine: false,
+                        vision: vision
                     )
                 }
             } else {
@@ -832,6 +1419,7 @@ public final class ConversationStore {
         guard let lastUserIdx = messages.lastIndex(where: { $0.role == .user }) else { return }
         let userId = messages[lastUserIdx].id
         let prompt = messages[lastUserIdx].content
+        let attachedImage = messages[lastUserIdx].imageData
 
         // Remove the assistant response(s) after the last user message
         if let lastAssistantIdx = messages.lastIndex(where: { $0.role == .assistant }) {
@@ -842,7 +1430,7 @@ public final class ConversationStore {
             messages.remove(at: userIdx)
         }
 
-        await sendMessage(prompt)
+        await sendMessage(prompt, imageData: attachedImage)
     }
 
     /// Clear all messages.
@@ -861,6 +1449,9 @@ public final class ConversationStore {
                 modelContext.delete(message)
             }
             try? modelContext.save()
+        }
+        Task.detached {
+            await ConversationSpotlightIndexer.shared.removeConversation(id: conversationId)
         }
     }
 
@@ -919,10 +1510,15 @@ public final class ConversationStore {
     }
 
     /// Build conversation history as strings for seeding an LLM context.
-    public func historyForContext(maxTurns: Int = 20) -> [String] {
-        messages.suffix(maxTurns).map { msg in
-            "\(msg.role == .user ? "User" : "Beagle"): \(msg.content)"
+    public func historyForContext(maxTurns: Int = 60) -> [String] {
+        var result: [String] = []
+        if let summary = currentRollingSummary(), !summary.isEmpty {
+            result.append("[Resumo episódico anterior: \(summary)]")
         }
+        result.append(contentsOf: messages.suffix(maxTurns).map { msg in
+            "\(msg.role == .user ? "User" : "Beagle"): \(msg.content)"
+        })
+        return result
     }
 
     // MARK: - Derived
@@ -935,6 +1531,13 @@ public final class ConversationStore {
 
     public func loadPersistedConversation() {
         guard let modelContext else { return }
+        // Se nenhuma thread foi selecionada ainda na abertura do app, retoma automaticamente
+        // a conversa mais recente com mensagens para não perder a continuidade entre sessões.
+        if currentConversationId.isEmpty {
+            if let mostRecent = conversations().first {
+                currentConversationId = mostRecent.id
+            }
+        }
         let conversationId = persistenceConversationId
         let descriptor = FetchDescriptor<PersistedMessage>(
             predicate: #Predicate<PersistedMessage> { message in
@@ -944,9 +1547,24 @@ public final class ConversationStore {
         )
 
         guard let persisted = try? modelContext.fetch(descriptor) else { return }
-        messages = persisted.map { stored in
-            ChatMessage(
-                role: MessageRole(rawValue: stored.role) ?? .assistant,
+        var loaded: [ChatMessage] = []
+        var pendingVisualTurn = false
+        for stored in persisted {
+            let role = MessageRole(rawValue: stored.role) ?? .assistant
+            if role == .user {
+                pendingVisualTurn = (stored.imageData != nil)
+            }
+            let parsedAgentKind: String?
+            let parsedTools: [String]
+            if let ak = stored.agentKind, ak.hasPrefix("tools:") {
+                parsedAgentKind = nil
+                parsedTools = ak.dropFirst("tools:".count).split(separator: ",").map(String.init)
+            } else {
+                parsedAgentKind = stored.agentKind
+                parsedTools = []
+            }
+            loaded.append(ChatMessage(
+                role: role,
                 content: stored.content,
                 timestamp: stored.sentAt,
                 isStreaming: false,
@@ -954,15 +1572,86 @@ public final class ConversationStore {
                 tokensUsed: stored.tokensUsed,
                 isLocal: stored.isLocal,
                 source: stored.source,
-                agentKind: stored.agentKind,
+                agentKind: parsedAgentKind,
                 sessionId: stored.sessionId,
-                podName: stored.podName
-            )
+                podName: stored.podName,
+                imageData: stored.imageData,
+                imageLocalDigest: stored.imageExtractedText,
+                hadVisualContext: role == .assistant ? pendingVisualTurn : false,
+                executedTools: parsedTools
+            ))
+            if role == .assistant {
+                pendingVisualTurn = false
+            }
         }
+        messages = loaded
         isStreaming = false
+        refreshCurrentTitle()
+        lastContactAt = messages.last(where: { $0.role == .user })?.timestamp
+            ?? conversations().first?.updatedAt
         // Backfill a thread record for legacy/un-recorded conversations so they show in the drawer.
         if !messages.isEmpty {
             touchConversationRecord(firstUserText: messages.first(where: { $0.role == .user })?.content)
+        }
+        backfillRecentConversationsToSpotlightIfNeeded()
+    }
+
+    // MARK: - Rolling Episodic Summary & Cross-Thread Continuity
+
+    public func currentRollingSummary() -> String? {
+        guard let ctx = modelContext else { return nil }
+        let id = persistenceConversationId
+        let d = FetchDescriptor<PersistedConversation>(predicate: #Predicate<PersistedConversation> { $0.id == id })
+        return (try? ctx.fetch(d).first)?.rollingSummary
+    }
+
+    public func recentCrossThreadDigest(maxThreads: Int = 3) -> String? {
+        guard let ctx = modelContext else { return nil }
+        let activeId = persistenceConversationId
+        let others = conversations().filter { $0.id != activeId }.prefix(maxThreads)
+        guard !others.isEmpty else { return nil }
+        var lines: [String] = []
+        for conv in others {
+            if let roll = conv.rollingSummary, !roll.isEmpty {
+                lines.append("• [\(conv.displayTitle)]: \(String(roll.prefix(240)))")
+            } else {
+                let cid = conv.id
+                let md = FetchDescriptor<PersistedMessage>(
+                    predicate: #Predicate<PersistedMessage> { $0.conversationId == cid },
+                    sortBy: [SortDescriptor(\PersistedMessage.sentAt, order: .reverse)]
+                )
+                if let recentMsgs = try? ctx.fetch(md).prefix(2), !recentMsgs.isEmpty {
+                    let snippet = recentMsgs.reversed().map { "\($0.role == "user" ? "D" : "B"): \(String($0.content.prefix(110)))" }.joined(separator: " / ")
+                    lines.append("• [\(conv.displayTitle)]: \(snippet)")
+                }
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    private func maybeCompactRollingSummary() async {
+        guard let ctx = modelContext else { return }
+        let id = persistenceConversationId
+        let d = FetchDescriptor<PersistedConversation>(predicate: #Predicate<PersistedConversation> { $0.id == id })
+        guard let conv = try? ctx.fetch(d).first else { return }
+
+        let total = messages.count
+        let unsummarized = total - conv.summarizedMessageCount
+        // Compacta quando acumulam >= 16 mensagens novas além da janela ativa
+        guard total >= 20, unsummarized >= 12 else { return }
+
+        let cutoff = max(0, total - 12)
+        guard cutoff > conv.summarizedMessageCount else { return }
+        let slice = messages[conv.summarizedMessageCount..<cutoff].map {
+            (role: $0.role == .user ? "user" : "assistant", content: $0.content)
+        }
+        if let updated = await DirectBrainClient.shared.compactRollingSummary(
+            existingSummary: conv.rollingSummary,
+            newMessages: Array(slice)
+        ) {
+            conv.rollingSummary = updated
+            conv.summarizedMessageCount = cutoff
+            try? ctx.save()
         }
     }
 
@@ -1018,6 +1707,8 @@ public final class ConversationStore {
             conv.title = title.trimmingCharacters(in: .whitespacesAndNewlines)
             conv.updatedAt = .now
             try? ctx.save()
+            if id == persistenceConversationId { refreshCurrentTitle() }
+            scheduleSpotlightIndex(for: id)
         }
     }
 
@@ -1038,6 +1729,9 @@ public final class ConversationStore {
         let cd = FetchDescriptor<PersistedConversation>(predicate: #Predicate<PersistedConversation> { $0.id == id })
         if let convs = try? ctx.fetch(cd) { for c in convs { ctx.delete(c) } }
         try? ctx.save()
+        Task.detached {
+            await ConversationSpotlightIndexer.shared.removeConversation(id: id)
+        }
         if persistenceConversationId == id {
             if let next = conversations().first {
                 switchTo(conversationId: next.id)
@@ -1094,6 +1788,11 @@ public final class ConversationStore {
 
     private func persist(message: ChatMessage) {
         guard let modelContext else { return }
+        let encodedAgentKind: String? = {
+            if let existing = message.agentKind, !existing.isEmpty { return existing }
+            guard !message.executedTools.isEmpty else { return nil }
+            return "tools:" + message.executedTools.joined(separator: ",")
+        }()
         let persisted = PersistedMessage(
             role: message.role.rawValue,
             content: message.content,
@@ -1101,16 +1800,80 @@ public final class ConversationStore {
             tokensUsed: message.tokensUsed,
             isLocal: message.isLocal,
             source: message.source,
-            agentKind: message.agentKind,
+            agentKind: encodedAgentKind,
             sessionId: message.sessionId,
             podName: message.podName,
             conversationId: persistenceConversationId,
-            sentAt: message.timestamp
+            sentAt: message.timestamp,
+            imageData: message.imageData,
+            imageExtractedText: message.imageLocalDigest
         )
         modelContext.insert(persisted)
         try? modelContext.save()
         // Keep the thread record fresh (updatedAt for ordering; title from the first user line).
-        touchConversationRecord(firstUserText: message.role == .user ? message.content : nil)
+        let titleSeed: String? = {
+            guard message.role == .user else { return nil }
+            let trimmed = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+            if message.imageData != nil { return "Imagem compartilhada" }
+            return nil
+        }()
+        touchConversationRecord(firstUserText: titleSeed)
+        scheduleSpotlightIndex(for: persistenceConversationId)
+    }
+
+    // MARK: - CoreSpotlight Conversation Indexing
+
+    public func spotlightSnapshot(for conversationId: String) -> SpotlightConversationSnapshot? {
+        guard let ctx = modelContext else { return nil }
+        let convDesc = FetchDescriptor<PersistedConversation>(
+            predicate: #Predicate<PersistedConversation> { $0.id == conversationId }
+        )
+        let conv = try? ctx.fetch(convDesc).first
+        let msgDesc = FetchDescriptor<PersistedMessage>(
+            predicate: #Predicate<PersistedMessage> { $0.conversationId == conversationId },
+            sortBy: [SortDescriptor(\.sentAt, order: .forward)]
+        )
+        let storedMsgs = (try? ctx.fetch(msgDesc)) ?? []
+        guard !storedMsgs.isEmpty || !(conv?.rollingSummary ?? "").isEmpty else { return nil }
+
+        let turns: [SpotlightMessageTurn] = storedMsgs.suffix(40).map { m in
+            SpotlightMessageTurn(
+                role: m.role,
+                content: m.content,
+                attachmentDigest: m.imageExtractedText,
+                hasImage: m.imageData != nil
+            )
+        }
+        return SpotlightConversationSnapshot(
+            conversationId: conversationId,
+            title: conv?.displayTitle ?? "Conversa no Beagle",
+            projectSlug: conv?.projectSlug ?? projectSlug,
+            updatedAt: conv?.updatedAt ?? storedMsgs.last?.sentAt ?? .now,
+            rollingSummary: conv?.rollingSummary,
+            turns: turns
+        )
+    }
+
+    private func scheduleSpotlightIndex(for conversationId: String) {
+        guard let snapshot = spotlightSnapshot(for: conversationId) else { return }
+        Task.detached(priority: .utility) {
+            await ConversationSpotlightIndexer.shared.index(snapshot)
+        }
+    }
+
+    private func backfillRecentConversationsToSpotlightIfNeeded() {
+        guard !hasBackfilledSpotlight, let ctx = modelContext else { return }
+        hasBackfilledSpotlight = true
+        let desc = FetchDescriptor<PersistedConversation>(
+            sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+        )
+        guard let recentConvs = try? ctx.fetch(desc).prefix(40), !recentConvs.isEmpty else { return }
+        let snapshots = recentConvs.compactMap { spotlightSnapshot(for: $0.id) }
+        guard !snapshots.isEmpty else { return }
+        Task.detached(priority: .background) {
+            await ConversationSpotlightIndexer.shared.indexBatch(snapshots)
+        }
     }
 
     private func autoImportExchange(
@@ -1213,6 +1976,392 @@ public final class ConversationStore {
             }
         )
         return (try? modelContext.fetchCount(descriptor)) ?? 0
+    }
+
+    // MARK: - GPT-Live (`gpt-live-1.1`) Full-Duplex Bubbles & Client Delegation (MoE + Bula + MCP)
+
+    public enum DeepVoiceDelegationKind: String, Sendable, Equatable {
+        case modoFundo = "modo_fundo"
+        case rosalindBio = "rosalind_bio"
+        case morningSynthesis = "morning_synthesis"
+    }
+
+    /// Detecta se o pedido falado na sessão `gpt-live-1.1` exige deliberação assíncrona pesada
+    /// (`Modo Fundo`, `GPT-Rosalind PBPK/Bio` ou `Síntese Matinal`), permitindo retorno falado imediato
+    /// + execução real em segundo plano com Dynamic Island e retorno por voz ao concluir.
+    public nonisolated static func classifyDeepVoiceIntent(_ utterance: String) -> DeepVoiceDelegationKind? {
+        let lower = utterance
+            .lowercased()
+            .folding(options: .diacriticInsensitive, locale: Locale(identifier: "pt_BR"))
+
+        if lower.contains("sintese matinal")
+            || lower.contains("briefing matinal")
+            || lower.contains("resumo da manha")
+            || lower.contains("resumo do dia")
+            || lower.contains("briefing do dia") {
+            return .morningSynthesis
+        }
+
+        if lower.contains("modo fundo")
+            || lower.contains("explora a fundo")
+            || lower.contains("explorar a fundo")
+            || lower.contains("pesquisa profunda")
+            || lower.contains("go deeper")
+            || lower.contains("mesa redonda") {
+            return .modoFundo
+        }
+
+        if lower.contains("rosalind")
+            || lower.contains("pbpk")
+            || lower.contains("farmacocinetica")
+            || lower.contains("biodisponibilidade")
+            || lower.contains("meia-vida plasmatica") {
+            return .rosalindBio
+        }
+
+        return nil
+    }
+
+    ///Nota contextual compacta (`developer` em `session.input`) para abrir sessões `gpt-live-1.1`
+    /// já alinhadas ao fisioma, clima espacial, projeto ativo e memória episódica recente.
+    public func buildGPTLiveAgoraNote() -> String? {
+        var parts: [String] = ["Projeto ativo: \(projectSlug). Conversa: \(currentConversationTitle)."]
+        if let physio = physioSummary {
+            var p: [String] = ["Prontidão \(physio.readiness.rawValue)"]
+            if let hrv = physio.hrvMs { p.append(String(format: "HRV %.0f ms", hrv)) }
+            if let sleep = physio.sleepHours { p.append(String(format: "Sono %.1fh", sleep)) }
+            parts.append("Fisioma: " + p.joined(separator: " · "))
+        }
+        if let sky = currentSky {
+            parts.append(String(format: "Clima geomagnético: %@ (Kp %.1f)", sky.band.rawValue, sky.kp))
+        }
+        if let roll = currentRollingSummary(), !roll.isEmpty {
+            parts.append("Resumo episódico desta conversa: " + String(roll.suffix(420)))
+        } else if let cross = recentCrossThreadDigest(maxThreads: 2), !cross.isEmpty {
+            parts.append("Conversas recentes: " + String(cross.prefix(320)))
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// Atualiza ou consolida uma bolha de transcrição full-duplex vinda do `gpt-live-1.1`,
+    /// persistindo no SwiftData/Spotlight e sincronizando turnos fechados com a memória do cluster.
+    public func upsertGPTLiveBubble(
+        id: UUID,
+        role: MessageRole,
+        text: String,
+        isFinal: Bool,
+        executedTools: [String] = []
+    ) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let modelTag: String? = (role == .assistant) ? OpenAILiveProtocol.liveModel : nil
+        let sourceTag: String? = (role == .assistant) ? "openai-gpt-live" : nil
+
+        if let idx = messages.firstIndex(where: { $0.id == id }) {
+            let wasAlreadyFinal = !messages[idx].isStreaming
+            messages[idx].content = trimmed
+            messages[idx].isStreaming = !isFinal
+            if !executedTools.isEmpty {
+                messages[idx].executedTools = Self.mergeUniqueTools([messages[idx].executedTools, executedTools])
+            }
+            if isFinal && !wasAlreadyFinal {
+                persist(message: messages[idx])
+                if role == .assistant,
+                   let prevUser = messages[..<idx].last(where: { $0.role == .user }) {
+                    let settledAssistant = messages[idx]
+                    Task { @MainActor [weak self] in
+                        await self?.syncTurnToClusterMemory(
+                            user: prevUser,
+                            assistant: settledAssistant,
+                            sourceSurface: "beagle-apple-gpt-live",
+                            alsoIngestSpine: true
+                        )
+                    }
+                }
+            }
+        } else {
+            let msg = ChatMessage(
+                id: id,
+                role: role,
+                content: trimmed,
+                isStreaming: !isFinal,
+                model: modelTag,
+                source: sourceTag,
+                executedTools: executedTools
+            )
+            messages.append(msg)
+            if isFinal {
+                persist(message: msg)
+                if role == .assistant,
+                   let prevUser = messages.dropLast().last(where: { $0.role == .user }) {
+                    Task { @MainActor [weak self] in
+                        await self?.syncTurnToClusterMemory(
+                            user: prevUser,
+                            assistant: msg,
+                            sourceSurface: "beagle-apple-gpt-live",
+                            alsoIngestSpine: true
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /// Executa uma delegação `client` do `gpt-live-1.1` no cérebro MoE completo do Beagle
+    /// (Bula/PCDT verbatim + GraphRAG++ + rascunho local sem censura + OpenAI/Claude + MCP + Apple Tools).
+    public func executeGPTLiveDelegation(
+        _ context: OpenAILiveDelegationContext,
+        useMoE: Bool = true
+    ) async -> OpenAILiveDelegationOutcome {
+        let queryText = context.latestUserUtterance.isEmpty
+            ? (context.transcriptWindow.last?.text ?? "Verifique o contexto recente da conversa.")
+            : context.latestUserUtterance
+
+        // Fast-path: deep asynchronous delegation (Modo Fundo / GPT-Rosalind / Síntese Matinal)
+        if let deepKind = Self.classifyDeepVoiceIntent(queryText) {
+            switch deepKind {
+            case .morningSynthesis:
+                if let cached = DailyBriefingBuilder.cachedTodaySynthesis() {
+                    let spoken = OpenAILiveProtocol.truncateForLiveAppend(
+                        "Síntese matinal de hoje pronta — resuma naturalmente em voz alta os pontos principais para o Demetrios:\n\(cached)",
+                        maxChars: 1_200
+                    )
+                    return OpenAILiveDelegationOutcome(
+                        spokenSummary: spoken,
+                        backgroundFacts: cached,
+                        executedTools: ["daily_briefing_cache"]
+                    )
+                }
+
+                let slug = projectSlug
+                let physio = physioSummary
+                let sky = currentSky
+                let flow = flowState ?? "NORMAL"
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let ctx = await DailyBriefingBuilder.gatherLiveContext(
+                        captureLines: [],
+                        physioSummary: physio,
+                        sky: sky,
+                        projectSlug: slug
+                    )
+                    guard let generated = try? await DailyBriefingBuilder.generateMorningSynthesis(
+                        context: ctx,
+                        projectSlug: slug,
+                        flowState: flow
+                    ), !generated.isEmpty else { return }
+                    DailyBriefingBuilder.saveTodaySynthesis(generated, context: ctx)
+                    let bubble = ChatMessage(
+                        role: .assistant,
+                        content: "### Síntese Matinal\n\n" + generated,
+                        model: OpenAIModelCatalog.defaultFlagshipModel,
+                        source: "daily-synthesis-voice",
+                        executedTools: ["daily_briefing_astra"]
+                    )
+                    self.messages.append(bubble)
+                    self.persist(message: bubble)
+                    await self.onTriggerAsyncVoiceFollowup?(
+                        "A Síntese Matinal do Demetrios acabou de ficar pronta. Comunique os destaques principais com naturalidade em 3 a 4 frases:\n\(String(generated.prefix(900)))",
+                        generated,
+                        ["daily_briefing_astra"]
+                    )
+                }
+
+                return OpenAILiveDelegationOutcome(
+                    spokenSummary: "Avise ao Demetrios em uma frase natural que você já está gerando a Síntese Matinal cruzando o fisioma do Apple Watch, o clima espacial NOAA e a agenda das próximas 48 horas, e que vai ler os destaques assim que fechar.",
+                    backgroundFacts: nil,
+                    executedTools: ["daily_briefing_launch"]
+                )
+
+            case .modoFundo, .rosalindBio:
+                let lenses: Set<GoDeepModality> = (deepKind == .rosalindBio)
+                    ? [.rosalindBio, .astraDeep]
+                    : [.astraDeep, .rosalindBio, .swarmConsensus, .causalExtract]
+                let label = (deepKind == .rosalindBio) ? "GPT-Rosalind (Bio/PBPK)" : "Modo Fundo (Astra + Rosalind)"
+                let slug = projectSlug
+
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let deepStore = GoDeepStore(enabledModalities: lenses)
+                    let persisted = PersistedDeepSession(prompt: queryText, modalityCount: deepStore.enabledModalities.count)
+                    self.modelContext?.insert(persisted)
+                    try? self.modelContext?.save()
+
+                    deepStore.onResearchStart = { [weak self] runId, campaign, rSlug in
+                        self?.onVoiceResearchStart?(runId, campaign, rSlug, max(2, lenses.count + 1), label)
+                    }
+                    deepStore.onResearchStateChange = { [weak self] step, total, eta, activeLens, snippet, isCompleted in
+                        self?.onVoiceResearchUpdate?(step, total, eta, activeLens, snippet, isCompleted)
+                    }
+                    deepStore.onSessionComplete = { [weak self] payload in
+                        persisted.synthesisText = payload.synthesis
+                        persisted.modalityResults = payload.modalityResultsJSON
+                        persisted.citationsJSON = payload.citationsJSON
+                        persisted.modalityCount = payload.modalityCount
+                        persisted.completedAt = payload.completedAt
+                        try? self?.modelContext?.save()
+                    }
+
+                    await deepStore.goDeeperAndWait(prompt: queryText)
+                    guard let synth = deepStore.synthesis, !synth.isEmpty else { return }
+
+                    let tools = deepKind == .rosalindBio ? ["gpt_rosalind_pbpk", "astra_xhigh"] : ["modo_fundo_astra", "gpt_rosalind_pbpk"]
+                    let bubble = ChatMessage(
+                        role: .assistant,
+                        content: "### \(label)\n\n" + synth,
+                        model: deepKind == .rosalindBio ? OpenAIModelCatalog.lifeSciencesModel : OpenAIModelCatalog.defaultFlagshipModel,
+                        source: "modo-fundo-voice",
+                        executedTools: tools
+                    )
+                    self.messages.append(bubble)
+                    self.persist(message: bubble)
+                    _ = slug
+                    await self.onTriggerAsyncVoiceFollowup?(
+                        "A investigação profunda (\(label)) sobre '\(String(queryText.prefix(90)))' acabou de concluir em segundo plano. Sintetize em voz alta a conclusão central e a recomendação prática em 3 a 5 frases diretas:\n\(String(synth.prefix(950)))",
+                        synth,
+                        tools
+                    )
+                }
+
+                return OpenAILiveDelegationOutcome(
+                    spokenSummary: "Confirme em 1 frase curta e calorosa que você acabou de disparar \(label) em segundo plano (visível na Dynamic Island) e que já vai trazer a síntese verificada assim que as lentes terminarem, enquanto vocês continuam conversando normalmente.",
+                    backgroundFacts: "Investigação \(label) iniciada assincronamente para: \(queryText)",
+                    executedTools: [deepKind.rawValue]
+                )
+            }
+        }
+
+        presenceNote = useMoE
+            ? "GPT-Live · delegando ao MoE, Bula & MCP…"
+            : "GPT-Live · consultando memória & ferramentas…"
+        defer { presenceNote = nil }
+
+        async let recalledTask = DirectBrainClient.shared.recallRelevantMemory(
+            for: queryText,
+            projectSlug: projectSlug
+        )
+        let webPrefetch = await ScienceAndWebBridge.shared.prefetchContextForPrompt(queryText)
+        var moeDraft: String? = nil
+        if useMoE {
+            moeDraft = await generateMoELocalUncensoredDraft(
+                for: queryText,
+                webBlock: webPrefetch.map { String($0.contextBlock.prefix(3_500)) }
+            )
+        }
+        let recalledMemories = await recalledTask
+
+        let splitBase = await DirectBrainClient.shared.buildSplitSystemPrompt(
+            cachedGrounding: cachedGrounding,
+            physioSummary: physioSummary,
+            physioContext: activeSystemInstruction,
+            currentSky: currentSky,
+            flowState: flowState,
+            sleepQuality01: sleepQuality01,
+            voiceTone: nil,
+            lastContactAt: lastContactAt,
+            rollingSummary: currentRollingSummary(),
+            recentThreadDigest: recentCrossThreadDigest(),
+            recalledMemories: recalledMemories,
+            moeLocalUncensoredDraft: moeDraft
+        )
+
+        let delegationSuffix = """
+
+
+        ## Voice conversation context (GPT-Live Client Delegation)
+        Você está apoiando o modelo de voz `gpt-live-1.1` durante uma conversa falada full-duplex ao vivo com o Demetrios.
+        As transcrições de voz podem conter hesitações, palavras incompletas ou correções posteriores; use o contexto mais recente e os registros verificados (Bula/PCDT, MCP, GraphRAG++, agenda, lembretes, PubMed/Web).
+        Se precisar acionar ferramentas MCP, científicas ou nativas do iPhone, execute-as agora.
+
+        ## Return the result
+        Devolva os fatos verificados em português do Brasil direto, objetivo e sem Markdown pesado, em até 140 palavras (~220 tokens), pronto para o `gpt-live-1.1` comunicar naturalmente em voz alta. Se uma ação foi concluída numa ferramenta, confirme o resultado; se faltar um dado indispensável, diga exatamente qual detalhe perguntar.
+        """
+        let delegationDeveloperPrefix = splitBase.developerPrefix + delegationSuffix
+        let delegationFullSystem = splitBase.turnInstructions.isEmpty
+            ? delegationDeveloperPrefix
+            : delegationDeveloperPrefix + "\n\n" + splitBase.turnInstructions
+
+        let groundedUserPrompt = offlineGroundedPrompt(
+            queryText,
+            webBlock: webPrefetch?.contextBlock
+        )
+
+        var history: [[String: String]] = []
+        var turns: [DirectBrainTurn] = []
+        for entry in context.transcriptWindow.dropLast() {
+            history.append(["role": entry.role, "content": entry.text])
+            turns.append(DirectBrainTurn(role: entry.role, content: entry.text))
+        }
+        history.append(["role": "user", "content": groundedUserPrompt])
+        turns.append(DirectBrainTurn(role: "user", content: groundedUserPrompt))
+
+        var toolsUsed: [String] = webPrefetch?.executedTools ?? []
+        var rawOutput = ""
+
+        if DirectBrainCredentials.hasOpenAI {
+            do {
+                let targetModel = DirectBrainCredentials.openAIModel
+                let res = try await DirectBrainClient.shared.streamOpenAI(
+                    model: targetModel,
+                    systemPrompt: delegationFullSystem,
+                    developerPrefix: delegationDeveloperPrefix,
+                    turnInstructions: splitBase.turnInstructions,
+                    reasoningEffort: "low",
+                    history: history,
+                    turns: turns,
+                    projectSlug: projectSlug,
+                    onStatus: { [weak self] status in
+                        await MainActor.run {
+                            self?.presenceNote = status
+                        }
+                    },
+                    onToken: { _ in }
+                )
+                rawOutput = res.content
+                toolsUsed = Self.mergeUniqueTools([toolsUsed, res.executedTools])
+            } catch {
+                rawOutput = ""
+            }
+        }
+
+        if rawOutput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let fallback = await client.chat(
+                prompt: groundedUserPrompt,
+                system: delegationFullSystem,
+                projectSlug: projectSlug,
+                projectFamily: projectFamily,
+                publicationScope: publicationScope,
+                discussionProfile: discussionProfile,
+                flowState: flowState,
+                physioPolicy: physioPolicy,
+                history: history
+            )
+            rawOutput = fallback.value?.response ?? ""
+        }
+
+        let cleaned = stripReasoning(rawOutput)
+        let summary = OpenAILiveProtocol.truncateForLiveAppend(
+            cleaned.isEmpty
+                ? "Não consegui confirmar esse dado externo agora; avise o Demetrios com transparência."
+                : cleaned,
+            maxChars: 1_400
+        )
+
+        var backgroundFacts: String? = nil
+        if let bula = BulaStore.shared.consulta(queryText) {
+            backgroundFacts = OpenAILiveProtocol.truncateForLiveAppend(
+                "Referência de bula verificada (\(bula.nomePT) / \(bula.generico), \(bula.citacao)): \(String(bula.texto.prefix(900)))",
+                maxChars: 1_200
+            )
+        }
+
+        lastContactAt = Date()
+        return OpenAILiveDelegationOutcome(
+            spokenSummary: summary,
+            backgroundFacts: backgroundFacts,
+            executedTools: toolsUsed
+        )
     }
 }
 
@@ -1438,6 +2587,12 @@ public final class BulaStore: @unchecked Sendable {
     public func consultaPCDT(_ pergunta: String, limite: Int = 2) -> [PCDTTrecho] {
         guard disponivel else { return [] }
         guard pareceClinica(normaliza(pergunta)) else { return [] }
+        return consultaPCDTDireta(pergunta, limite: limite)
+    }
+
+    /// Busca direta FTS5/BM25 nos PCDTs do Ministério da Saúde quando invocada explicitamente por tool-call clínica.
+    public func consultaPCDTDireta(_ pergunta: String, limite: Int = 3) -> [PCDTTrecho] {
+        guard disponivel else { return [] }
         let tokens = normaliza(pergunta).split(separator: " ").map(String.init)
             .filter { $0.count >= 4 && !Self.paradas.contains($0) }
         guard !tokens.isEmpty else { return [] }
@@ -1455,11 +2610,45 @@ public final class BulaStore: @unchecked Sendable {
         defer { sqlite3_finalize(st) }
         let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
         sqlite3_bind_text(st, 1, expr, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_int(st, 2, Int32(limite))
+        sqlite3_bind_int(st, 2, Int32(min(limite, 20)))
         while sqlite3_step(st) == SQLITE_ROW {
             out.append(PCDTTrecho(texto: Self.texto(st, 0), citacao: Self.texto(st, 1)))
         }
         return out
+    }
+
+    /// Sugere nomes de fármacos próximos na base local quando a busca exata falha.
+    public func buscarFarmacosSemelhantes(_ termo: String, limite: Int = 8) -> [String] {
+        guard disponivel else { return [] }
+        let q = normaliza(termo)
+        let tokens = q.split(separator: " ").map(String.init)
+            .filter { $0.count >= 3 && !Self.paradas.contains($0) }
+        guard !tokens.isEmpty else { return [] }
+
+        var pontuados: [(score: Int, label: String)] = []
+        var vistos: Set<String> = []
+        for f in farmacos {
+            let label = "\(f.pt) (\(f.generico))"
+            guard !vistos.contains(label) else { continue }
+            let alvo = normaliza("\(f.pt) \(f.generico) \(f.marcas)")
+            var score = 0
+            for t in tokens {
+                let prefix3 = String(t.prefix(3))
+                if alvo.contains(t) {
+                    score += t.count * 3
+                } else if alvo.contains(prefix3) {
+                    score += 2
+                }
+            }
+            if score > 0 {
+                vistos.insert(label)
+                pontuados.append((score, label))
+            }
+        }
+        return pontuados
+            .sorted { $0.score > $1.score }
+            .prefix(limite)
+            .map(\.label)
     }
 }
 

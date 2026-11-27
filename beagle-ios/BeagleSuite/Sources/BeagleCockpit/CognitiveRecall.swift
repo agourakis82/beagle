@@ -73,12 +73,7 @@ struct CognitiveAPI: Sendable {
     /// → IP → in-cluster). Mirrors CockpitClient's resolution so Recall works off-tailnet too.
     var baseURLs: [String]
 
-    static let fallbackChain = [
-        "https://beagle.chiuratto.ai",
-        "http://sounio-cockpit.tail21cbc4.ts.net",
-        "http://100.107.208.198",
-        "http://project-cockpit.beagle.svc.cluster.local",
-    ]
+    static let fallbackChain: [String] = BeagleEndpoints.cockpitURLs.map(\.absoluteString)
 
     init(preferred: String) {
         var urls: [String] = []
@@ -108,7 +103,7 @@ struct CognitiveAPI: Sendable {
             var req = URLRequest(url: url)
             req.httpMethod = "POST"
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            req.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            BeagleEndpoints.applyCockpitAuth(to: &req)
             req.httpBody = try JSONSerialization.data(withJSONObject: body)
             // Synthesis can take up to ~75s; dead hosts fail fast at the connection layer.
             req.timeoutInterval = 75

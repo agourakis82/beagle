@@ -179,4 +179,99 @@ struct SuggestExplorationTool: Tool {
         "Exploration suggested: \"\(arguments.topic)\" — the researcher can open Go Deeper to explore this with multiple reasoning modalities."
     }
 }
+
+@available(iOS 26, macOS 26, *)
+struct AppleCalendarTool: Tool {
+    let name = "appleCalendar"
+    let description = "List upcoming shifts/appointments or create a new event in the user's iPhone/Mac Calendar (EventKit)."
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "Action to perform: 'list' or 'create'")
+        var action: String
+        @Guide(description: "For 'create': event title; for 'list': optional search filter (empty string for all)")
+        var titleOrFilter: String
+        @Guide(description: "For 'create': start date/time in 'yyyy-MM-dd HH:mm' or ISO-8601; empty for 'list'")
+        var startISO: String
+        @Guide(description: "For 'list': days ahead (default 7); for 'create': duration in minutes (default 60)")
+        var spanValue: Int
+    }
+
+    func call(arguments: Arguments) async throws -> String {
+        if arguments.action.lowercased() == "create" {
+            return await AppleDeviceToolsBridge.shared.execute(
+                name: "apple_calendar_create_event",
+                args: [
+                    "title": arguments.titleOrFilter,
+                    "start_iso": arguments.startISO,
+                    "duration_minutes": max(15, arguments.spanValue)
+                ]
+            )
+        }
+        return await AppleDeviceToolsBridge.shared.execute(
+            name: "apple_calendar_list_events",
+            args: [
+                "days_ahead": arguments.spanValue > 0 ? arguments.spanValue : 7,
+                "search": arguments.titleOrFilter
+            ]
+        )
+    }
+}
+
+@available(iOS 26, macOS 26, *)
+struct AppleRemindersTool: Tool {
+    let name = "appleReminders"
+    let description = "List, create, or complete reminders in the user's iPhone/Mac Reminders app (EventKit)."
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "Action: 'list', 'create', or 'complete'")
+        var action: String
+        @Guide(description: "Reminder title (for 'create'), title/id to complete (for 'complete'), or optional search text (for 'list')")
+        var text: String
+        @Guide(description: "Optional due date/time in 'yyyy-MM-dd HH:mm' or ISO-8601 when creating a reminder; empty otherwise")
+        var dueISO: String
+    }
+
+    func call(arguments: Arguments) async throws -> String {
+        switch arguments.action.lowercased() {
+        case "create":
+            return await AppleDeviceToolsBridge.shared.execute(
+                name: "apple_reminders_create",
+                args: ["title": arguments.text, "due_iso": arguments.dueISO]
+            )
+        case "complete":
+            return await AppleDeviceToolsBridge.shared.execute(
+                name: "apple_reminders_complete",
+                args: ["title_or_id": arguments.text]
+            )
+        default:
+            return await AppleDeviceToolsBridge.shared.execute(
+                name: "apple_reminders_list",
+                args: ["search": arguments.text]
+            )
+        }
+    }
+}
+
+@available(iOS 26, macOS 26, *)
+struct ClinicalBulaTool: Tool {
+    let name = "clinicalBulaPCDT"
+    let description = "Deterministic offline lookup of approved drug labels (FDA/DailyMed verbatim) and Brazilian SUS PCDT clinical protocols."
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "Drug name (Portuguese, English, or brand) or clinical condition")
+        var drugOrCondition: String
+        @Guide(description: "Clinical question or dosing context (e.g. 'renal impairment', 'pregnancy', 'dosage')")
+        var clinicalQuestion: String
+    }
+
+    func call(arguments: Arguments) async throws -> String {
+        AppleDeviceToolsBridge.shared.lookupBulaAndPCDT(
+            drugOrCondition: arguments.drugOrCondition,
+            clinicalQuestion: arguments.clinicalQuestion
+        )
+    }
+}
 #endif

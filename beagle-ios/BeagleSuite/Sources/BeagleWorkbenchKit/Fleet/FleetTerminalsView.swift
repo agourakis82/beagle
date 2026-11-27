@@ -58,6 +58,27 @@ public struct FleetTerminalsView: View {
         .navigationTitle("Fleet")
     }
 
+    #if os(macOS)
+    /// 🚨 `MultiLaneTerminalView`, não `.id(store.activeAgent)` remontando: o remount MEDIA certo
+    /// o clique (log de `AgentTabBarNative` confirmou toda troca), mas a tela virava lixo — porque
+    /// `PTYClient.connect()` é um no-op quando o client já está conectado, e é só nessa primeira
+    /// conexão que o broker reenvia o scrollback (achado do Fable 5, medido em `PTYClient.swift`
+    /// + `broker.mjs`/`ring.mjs`). Um terminal novo, vazio, recebendo fatias de stream sem o
+    /// replay não é "bagunçado" por acidente estético — é o comportamento correto de um buffer
+    /// que nunca viu o `subscribe`. A cura é nunca remontar: ver `MultiLaneTerminalView.swift`.
+    private var terminals: some View {
+        Group {
+            if store.opened.isEmpty {
+                ContentUnavailableView("Pick an agent", systemImage: "terminal")
+            } else {
+                MultiLaneTerminalView(store: store)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Self.canvas)
+        .modifier(TrocaPorSwipe(store: store))
+    }
+    #else
     private var terminals: some View {
         ZStack {
             ForEach(store.opened, id: \.self) { agent in
@@ -74,7 +95,40 @@ public struct FleetTerminalsView: View {
         .background(Self.canvas)
         .modifier(TrocaPorSwipe(store: store))
     }
+    #endif
 
+    #if os(macOS)
+    /// 🚨 `AgentTabBarNative`, não `ScrollView` + `Button`: clicar num chip pra ABRIR a primeira
+    /// lane funcionava, mas trocar pra outra já aberta depois não — a mesma regressão de mouse
+    /// do macOS 26.2 que motivou `SidebarNativeView` (Mission Control), só que pior aqui porque
+    /// os chips ficam ao lado do `ZStack` de terminais que É a causa raiz documentada. Ver
+    /// `AgentTabBarNative.swift`.
+    private var agentBar: some View {
+        AgentTabBarNative(chips: chips) { agent in
+            print("[chipbar2] onSelect agent=\(agent) antes=\(store.activeAgent)")
+            store.open(agent)
+            print("[chipbar2] onSelect depois=\(store.activeAgent)")
+            haptic()
+        }
+        .frame(height: 40)
+        .background(Self.canvas)
+    }
+
+    private var chips: [AgentChip] {
+        store.agents.map { agent in
+            AgentChip(
+                agent: agent,
+                opened: store.opened.contains(agent),
+                active: agent == store.activeAgent,
+                stateColor: stateColor(store.state(for: agent)),
+                familyColor: color(for: agent),
+                titulo: store.title(for: agent),
+                hasUnread: store.hasUnread(agent),
+                chamou: store.hasPendingBell(for: agent)
+            )
+        }
+    }
+    #else
     private var agentBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -86,6 +140,7 @@ public struct FleetTerminalsView: View {
         }
         .background(Self.canvas)
     }
+    #endif
 
     /// Encurta o título para caber num chip.
     ///
@@ -136,7 +191,7 @@ public struct FleetTerminalsView: View {
                 // lane está fazendo. Vem DEPOIS do nome e mais apagado: o nome é o endereço, que
                 // ele usa para navegar; o título é o assunto, que muda toda hora. Trocar um pelo
                 // outro faria a barra reordenar-se no olho a cada mudança de tarefa.
-                if let t = store.titulo(agent) {
+                if let t = store.title(for: agent) {
                     Text(Self.encurtar(t))
                         .font(.system(size: 10))
                         .foregroundStyle(.white.opacity(0.55))
@@ -154,7 +209,7 @@ public struct FleetTerminalsView: View {
             //
             // O sino VENCE quando os dois valem: quem chamou é mais urgente que quem falou.
             .overlay(alignment: .topTrailing) {
-                if store.chamou(agent) {
+                if store.hasPendingBell(for: agent) {
                     Image(systemName: "bell.fill")
                         .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(Self.canvas)
@@ -202,7 +257,7 @@ public struct FleetTerminalsView: View {
     private var barraDeControles: some View {
         HStack(spacing: 10) {
             // O título que a lane anuncia (OSC 0/2) — o que ela está fazendo AGORA.
-            if let t = store.titulo(store.activeAgent) {
+            if let t = store.title(for: store.activeAgent) {
                 Text(Self.encurtar(t, teto: 46))
                     .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.55))

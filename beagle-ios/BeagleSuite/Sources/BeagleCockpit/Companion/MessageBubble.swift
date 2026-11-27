@@ -24,8 +24,19 @@ struct MessageBubble: View {
     var onRegenerate: (() -> Void)? = nil
 
     @State private var showThinking = false
-    @State private var showGoDeep = false
+    @State private var activeBubbleSheet: BubbleSheet?
     @State private var goDeepStore = GoDeepStore()
+
+    private enum BubbleSheet: Identifiable {
+        case goDeep
+        case imagePreview
+        var id: String {
+            switch self {
+            case .goDeep: return "goDeep"
+            case .imagePreview: return "imagePreview"
+            }
+        }
+    }
 
     /// Âmbar do desenho da presença — a mesma brasa do ancestral de luz.
     static let marcaAmbar = Color(red: 0.78, green: 0.48, blue: 0.29)
@@ -48,14 +59,36 @@ struct MessageBubble: View {
             VStack(alignment: isUser ? .trailing : .leading, spacing: BeagleSpacing.xxs) {
                 bubble
                     .contextMenu { if !isThinking { messageActions } }
-                    .sheet(isPresented: $showGoDeep) {
-                        GoDeepView(store: goDeepStore, prompt: displayedText)
+                    .sheet(item: $activeBubbleSheet) { sheet in
+                        switch sheet {
+                        case .goDeep:
+                            GoDeepView(store: goDeepStore, prompt: displayedText)
+                        case .imagePreview:
+                            if let data = message.imageData {
+                                ChatImageLightboxView(imageData: data)
+                            }
+                        }
                     }
                 if !isUser, let thinking = parsed.thinking {
                     thinkingDisclosure(thinking)
                 }
-                if !isUser, let provenance = groundingLabel {
-                    MemoryProvenanceChip(label: provenance)
+                if !isUser, !isThinking, !message.isProvisional {
+                    let provenance = groundingLabel
+                    let mostrarBotaoVoz = voz != nil && (
+                        isLast
+                        || (voz?.estaFalando(message.id.uuidString) == true)
+                        || (voz?.estaBuscando(message.id.uuidString) == true)
+                    )
+                    if provenance != nil || mostrarBotaoVoz {
+                        HStack(spacing: BeagleSpacing.xs) {
+                            if let provenance {
+                                MemoryProvenanceChip(label: provenance)
+                            }
+                            if mostrarBotaoVoz, let voz {
+                                botaoOuvir(voz)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -69,10 +102,37 @@ struct MessageBubble: View {
     // from bubble state (not inside the menu) to dodge the context-menu→sheet teardown bug.
     @ViewBuilder
     private var messageActions: some View {
-        Button { copyText() } label: { Label("Copiar", systemImage: "doc.on.doc") }
-        Button { showGoDeep = true } label: { Label("Go Deeper", systemImage: "scope") }
-        if !isUser, isLast, let voz {
-            botaoOuvir(voz)
+        Button { copyText() } label: { Label("Copiar texto", systemImage: "doc.on.doc") }
+        if message.imageData != nil {
+            Button { activeBubbleSheet = .imagePreview } label: {
+                Label("Ampliar imagem", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
+            #if canImport(UIKit)
+            Button {
+                if let data = message.imageData, let img = UIImage(data: data) {
+                    UIPasteboard.general.image = img
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
+            } label: {
+                Label("Copiar imagem", systemImage: "photo.on.rectangle")
+            }
+            #endif
+        }
+        Button { activeBubbleSheet = .goDeep } label: { Label("Go Deeper", systemImage: "scope") }
+        if !isUser, let voz {
+            let id = message.id.uuidString
+            let ativo = voz.estaFalando(id) || voz.estaBuscando(id)
+            Button {
+                Task {
+                    if ativo { voz.parar() }
+                    else { await voz.falar(parsed.message, id: id) }
+                }
+            } label: {
+                Label(
+                    ativo ? "Parar leitura em voz" : "Ouvir resposta",
+                    systemImage: ativo ? "stop.fill" : "speaker.wave.2"
+                )
+            }
         }
         if !isUser, isLast, let onRegenerate {
             Button { onRegenerate() } label: { Label("Regenerar", systemImage: "arrow.clockwise") }
@@ -119,6 +179,7 @@ struct MessageBubble: View {
                 Text(thinking)
                     .font(BeagleFont.footnote.font)
                     .foregroundStyle(BeagleTheme.textSecondary)
+                    .textSelection(.enabled)
                     .padding(BeagleSpacing.sm)
                     .background(BeagleTheme.companionSurface.opacity(0.5), in: RoundedRectangle(cornerRadius: BeagleRadius.md))
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -170,13 +231,22 @@ struct MessageBubble: View {
                     .padding(.horizontal, BeagleSpacing.md)
             } else if isUser {
                 // Você sabe o que escreveu. A tela serve à voz dele.
-                Text(message.content)
-                    .font(BeagleFont.body.font.italic())
-                    .foregroundStyle(BeagleTheme.textPrimary.opacity(0.58))
-                    .multilineTextAlignment(.trailing)
-                    .textSelection(.enabled)
-                    .padding(.vertical, BeagleSpacing.sm)
-                    .padding(.horizontal, BeagleSpacing.md)
+                VStack(alignment: .trailing, spacing: BeagleSpacing.xs) {
+                    if let data = message.imageData {
+                        userAttachedImageView(data)
+                    }
+                    let caption = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let showCaption = !caption.isEmpty && !(message.imageData != nil && caption == "Olha esta imagem comigo.")
+                    if showCaption {
+                        Text(message.content)
+                            .font(BeagleFont.body.font.italic())
+                            .foregroundStyle(BeagleTheme.textPrimary.opacity(0.58))
+                            .multilineTextAlignment(.trailing)
+                            .textSelection(.enabled)
+                    }
+                }
+                .padding(.vertical, BeagleSpacing.sm)
+                .padding(.horizontal, BeagleSpacing.md)
             } else if message.isProvisional {
                 // Instant on-device presence — warm pt-BR opener, styled as a soft murmur (not a
                 // final answer) until the grounded cloud reply replaces it.
@@ -225,13 +295,128 @@ struct MessageBubble: View {
         )
     }
 
-    /// Quiet provenance when the companion grounded on memory/physiome (finding 7).
+    @ViewBuilder
+    private func userAttachedImageView(_ data: Data) -> some View {
+        #if canImport(UIKit)
+        if let uiImage = UIImage(data: data) {
+            Button {
+                activeBubbleSheet = .imagePreview
+            } label: {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 260, maxHeight: 300)
+                    .clipShape(RoundedRectangle(cornerRadius: BeagleRadius.md, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: BeagleRadius.md, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.14), lineWidth: 0.75)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Imagem enviada — toque para ampliar")
+        }
+        #elseif canImport(AppKit)
+        if let nsImage = NSImage(data: data) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 260, maxHeight: 300)
+                .clipShape(RoundedRectangle(cornerRadius: BeagleRadius.md, style: .continuous))
+        }
+        #endif
+    }
+
+    /// Quiet provenance when the companion grounded on memory/physiome/MoE/MCP/Vision/iPhone tools (finding 7).
     private var groundingLabel: String? {
-        guard let source = message.source, !source.isEmpty else { return nil }
-        switch source {
-        case "physiome", "physiome-digest": return "do teu corpo"
-        case "exocortex", "memory", "recall": return "do que lembro de ti"
-        default: return nil
+        let visionPrefix = message.hadVisualContext ? "visão · " : ""
+        let badges = AppleDeviceToolsBridge.provenanceBadges(for: message.executedTools)
+        let toolsPrefix = badges.isEmpty ? "" : badges.joined(separator: " + ") + " · "
+
+        if let source = message.source, !source.isEmpty {
+            switch source {
+            case "physiome", "physiome-digest": return visionPrefix + toolsPrefix + "do teu corpo"
+            case "exocortex", "memory", "recall": return visionPrefix + toolsPrefix + "do que lembro de ti"
+            case "beagle-moe-mcp":
+                return message.savedToMemory
+                    ? visionPrefix + toolsPrefix + "MoE · sem censura + MCP · salvo na memória"
+                    : visionPrefix + toolsPrefix + "MoE · sem censura + MCP"
+            case "beagle-direct-mcp":
+                let m = message.model ?? "GPT"
+                return message.savedToMemory
+                    ? visionPrefix + toolsPrefix + "\(m) · MCP · salvo na memória"
+                    : visionPrefix + toolsPrefix + "\(m) · MCP"
+            case "cloud-stream":
+                if message.savedToMemory {
+                    return visionPrefix + toolsPrefix + "salvo na memória do cluster"
+                }
+                if !badges.isEmpty {
+                    return visionPrefix + badges.joined(separator: " + ")
+                }
+                return message.hadVisualContext ? "visão multimodal · cluster" : nil
+            default: break
+            }
+        }
+        if message.isLocal {
+            return message.savedToMemory
+                ? visionPrefix + toolsPrefix + "local sem censura · salvo na memória"
+                : visionPrefix + toolsPrefix + "local sem censura · on-device"
+        }
+        if message.savedToMemory {
+            return visionPrefix + toolsPrefix + "salvo na memória do cluster"
+        }
+        if !badges.isEmpty {
+            return visionPrefix + badges.joined(separator: " + ")
+        }
+        if message.hadVisualContext {
+            return "visão multimodal"
+        }
+        return nil
+    }
+}
+
+private struct ChatImageLightboxView: View {
+    let imageData: Data
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1.0
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                #if canImport(UIKit)
+                if let uiImage = UIImage(data: imageData) {
+                    ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .scaledToFit()
+                            .scaleEffect(scale)
+                            .gesture(
+                                MagnificationGesture()
+                                    .onChanged { value in
+                                        scale = min(max(value, 1.0), 4.0)
+                                    }
+                            )
+                            .onTapGesture(count: 2) {
+                                withAnimation(.snappy(duration: 0.22)) {
+                                    scale = scale > 1.1 ? 1.0 : 2.2
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding()
+                    }
+                }
+                #endif
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fechar") { dismiss() }
+                        .foregroundStyle(.white)
+                }
+            }
+            #if os(iOS)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            #endif
         }
     }
 }
@@ -571,6 +756,7 @@ fileprivate struct MarkdownTableView: View {
             .padding(BeagleSpacing.sm)
         }
         .background(BeagleTheme.companionSurface.opacity(0.4), in: RoundedRectangle(cornerRadius: BeagleRadius.md))
+        .textSelection(.enabled)
     }
 }
 

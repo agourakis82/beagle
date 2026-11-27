@@ -40,12 +40,20 @@ public final class TerminalStore {
     /// Whether the user is scrolled to the bottom (for smart scroll).
     public var isAtBottom: Bool = true
 
+    /// Active OpenAI Agents API session ID (when connected via `connectOpenAIAgentSession`).
+    public private(set) var openAIAgentSessionId: String? = nil
+    public private(set) var isOpenAIAgentTurnActive: Bool = false
+
     // MARK: - Private state
 
     private let client = WebSocketClient()
     private var streamTask: Task<Void, Never>?
     private var parser = ANSIParser()
     private let lineCache = AttributedLineCache()
+    private var isOpenAIAgentMode: Bool = false
+    private var openAIAgentSlug: String = ""
+    private var openAIAgentModel: String = OpenAIModelCatalog.defaultFlagshipModel
+    private var openAIAgentInstructions: String = ""
 
     // MARK: - Config
 
@@ -62,6 +70,7 @@ public final class TerminalStore {
     /// Connect to an agent terminal WebSocket.
     public func connect(slug: String, kind: String) {
         disconnect()
+        isOpenAIAgentMode = false
         connectionState = .connecting
         parser.reset()
         clearLastExit()
@@ -102,6 +111,7 @@ public final class TerminalStore {
     /// Connect to a workspace terminal WebSocket.
     public func connectTerminal(slug: String, sessionId: String = "") {
         disconnect()
+        isOpenAIAgentMode = false
         connectionState = .connecting
         parser.reset()
         clearLastExit()
@@ -141,6 +151,7 @@ public final class TerminalStore {
     /// Connect to a Beagle Notebook Terminal pane.
     public func connectWorkspacePane(slug: String, sessionId: String, paneId: String) {
         disconnect()
+        isOpenAIAgentMode = false
         connectionState = .connecting
         parser.reset()
         clearLastExit()
@@ -177,42 +188,289 @@ public final class TerminalStore {
         }
     }
 
+    // MARK: - OpenAI Agents API (`v1/agents/sessions`, `OpenAI-Beta: agents=v1`)
+
+    public static func defaultOpenAIAgentInstructions(for slug: String) -> String {
+        """
+        Você é o agente autônomo do ecossistema Beagle operando em um sandbox gerenciado (`openai_hosted`) para o projeto `\(slug)` de Demetrios Chiuratto Agourakis.
+        Use seu ambiente Linux/Python/shell hospedado para investigar, prototipar, analisar dados científicos/PBPK, inspecionar código, validar hipóteses e sintetizar resultados rigorosos em português do Brasil.
+        Seja direto, técnico, conciso e transparente sobre comandos executados e artefatos gerados.
+        """
+    }
+
+    /// Inicia ou retoma uma sessão nativa na OpenAI Agents API (`POST /v1/agents/sessions` + SSE),
+    /// com suporte a steering em tempo real (`sendInput`), cancelamento (`stopProcess`) e histórico salvo (`/items`).
+    public func connectOpenAIAgentSession(
+        slug: String,
+        model: String? = nil,
+        instructions: String? = nil,
+        initialPrompt: String? = nil,
+        forceNewSession: Bool = false
+    ) {
+        disconnect()
+        isOpenAIAgentMode = true
+        openAIAgentSlug = slug
+        let chosenModel = (model?.isEmpty == false) ? model! : DirectBrainCredentials.openAIModel
+        openAIAgentModel = chosenModel
+        openAIAgentInstructions = instructions ?? Self.defaultOpenAIAgentInstructions(for: slug)
+        parser.reset()
+        clearLastExit()
+
+        let apiKey = DirectBrainCredentials.openAIKey
+        guard !apiKey.isEmpty else {
+            let msg = "Chave da API OpenAI não configurada. Abra Ajustes → Modelos & APIs para inserir sua sk-…"
+            appendStatusLine("✗ \(msg)", isStderr: true)
+            connectionState = .failed(msg)
+            return
+        }
+
+        if forceNewSession {
+            OpenAIAgentsSessionClient.saveSessionId(nil, forProject: slug)
+        }
+
+        connectionState = .connecting
+        let savedId = forceNewSession ? nil : OpenAIAgentsSessionClient.savedSessionId(forProject: slug)
+        let promptToSend: String = {
+            let trimmed = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty { return trimmed }
+            return "Prepare o workspace em nuvem para o projeto '\(slug)' e informe brevemente que está pronto para receber instruções."
+        }()
+
+        streamTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                if let existingId = savedId {
+                    self.openAIAgentSessionId = existingId
+                    self.connectionState = .connected(source: "openai-agents · \(chosenModel)")
+                    self.appendStatusLine("● Sessão OpenAI Agents retomada: \(existingId) (\(chosenModel))", isStderr: false)
+
+                    if let items = try? await OpenAIAgentsSessionClient.shared.listSavedItems(
+                        apiKey: apiKey,
+                        sessionId: existingId,
+                        limit: 20
+                    ), !items.isEmpty {
+                        self.appendStatusLine("── Histórico salvo (\(items.count) itens) ──", isStderr: false)
+                        for item in items.suffix(6) {
+                            let prefix = item.role == "user" ? "❯ " : "◈ "
+                            let snippet = item.text.replacingOccurrences(of: "\n", with: "\r\n")
+                            self.processRawOutput("\(prefix)\(snippet)\r\n", isStderr: false)
+                        }
+                        self.appendStatusLine("────────────────────────────────────────", isStderr: false)
+                    }
+
+                    if let rawPrompt = initialPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !rawPrompt.isEmpty {
+                        self.processRawOutput("\r\n❯ \(rawPrompt)\r\n", isStderr: false)
+                        self.isOpenAIAgentTurnActive = true
+                        try await OpenAIAgentsSessionClient.shared.sendInputMessage(
+                            apiKey: apiKey,
+                            sessionId: existingId,
+                            text: rawPrompt
+                        )
+                    }
+
+                    await self.listenToOpenAIAgentStream(apiKey: apiKey, sessionId: existingId)
+                } else {
+                    self.appendStatusLine("● Criando sessão OpenAI Agents (\(chosenModel) · openai_hosted)…", isStderr: false)
+                    self.processRawOutput("❯ \(promptToSend)\r\n", isStderr: false)
+                    self.isOpenAIAgentTurnActive = true
+
+                    let created = try await OpenAIAgentsSessionClient.shared.createAndStreamSession(
+                        apiKey: apiKey,
+                        model: chosenModel,
+                        instructions: self.openAIAgentInstructions,
+                        initialInput: promptToSend,
+                        onEvent: { [weak self] event in
+                            await MainActor.run {
+                                self?.handleOpenAIAgentEvent(event, slug: slug, model: chosenModel)
+                            }
+                        }
+                    )
+                    if !created.sessionId.isEmpty {
+                        self.openAIAgentSessionId = created.sessionId
+                        OpenAIAgentsSessionClient.saveSessionId(created.sessionId, forProject: slug)
+                        await self.listenToOpenAIAgentStream(apiKey: apiKey, sessionId: created.sessionId)
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                self.isOpenAIAgentTurnActive = false
+                let desc = error.localizedDescription
+                self.appendStatusLine("✗ OpenAI Agents API: \(desc)", isStderr: true)
+                self.connectionState = .failed(desc)
+            }
+        }
+    }
+
+    private func listenToOpenAIAgentStream(apiKey: String, sessionId: String) async {
+        while !Task.isCancelled && isOpenAIAgentMode {
+            do {
+                _ = try await OpenAIAgentsSessionClient.shared.streamExistingSession(
+                    apiKey: apiKey,
+                    sessionId: sessionId,
+                    stopOnTurnCompleted: false,
+                    onEvent: { [weak self] event in
+                        await MainActor.run {
+                            guard let self else { return }
+                            self.handleOpenAIAgentEvent(event, slug: self.openAIAgentSlug, model: self.openAIAgentModel)
+                        }
+                    }
+                )
+                // Brief pause before re-subscribing if SSE stream closed cleanly between turns
+                try? await Task.sleep(for: .seconds(1))
+            } catch is CancellationError {
+                break
+            } catch {
+                if Task.isCancelled || !isOpenAIAgentMode { break }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    private func handleOpenAIAgentEvent(_ event: OpenAIAgentStreamEvent, slug: String, model: String) {
+        switch event {
+        case .sessionCreated(let sid):
+            openAIAgentSessionId = sid
+            OpenAIAgentsSessionClient.saveSessionId(sid, forProject: slug)
+            connectionState = .connected(source: "openai-agents · \(model)")
+            appendStatusLine("● Sessão ativa: \(sid) · sandbox hospedado conectado", isStderr: false)
+        case .textDelta(_, let delta):
+            isOpenAIAgentTurnActive = true
+            let normalized = delta.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\r\n")
+            processRawOutput(normalized, isStderr: false)
+        case .textDone:
+            break
+        case .statusLine(let line):
+            appendStatusLine("  ↳ \(line)", isStderr: false)
+        case .requiresAction(let detail):
+            appendStatusLine("⚠ Ação requerida pelo agente: \(detail)", isStderr: true)
+        case .turnCompleted:
+            isOpenAIAgentTurnActive = false
+            processRawOutput("\r\n", isStderr: false)
+            appendStatusLine("✓ Turno concluído — envie nova tarefa ou redirecione durante a execução.", isStderr: false)
+        }
+    }
+
+    public func resetOpenAIAgentSession(for slug: String) {
+        OpenAIAgentsSessionClient.saveSessionId(nil, forProject: slug)
+        openAIAgentSessionId = nil
+        isOpenAIAgentTurnActive = false
+        disconnect()
+    }
+
     // MARK: - Send
 
     public func sendInput(_ text: String) {
+        if isOpenAIAgentMode {
+            sendOpenAIAgentUserMessage(text)
+            return
+        }
         Task { await client.sendInput(text) }
     }
 
     public func sendPaste(_ text: String) {
+        if isOpenAIAgentMode {
+            sendOpenAIAgentUserMessage(text)
+            return
+        }
         Task { await client.sendPaste(text) }
     }
 
+    private func sendOpenAIAgentUserMessage(_ rawText: String) {
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        guard let sessionId = openAIAgentSessionId, !sessionId.isEmpty else {
+            connectOpenAIAgentSession(
+                slug: openAIAgentSlug.isEmpty ? "sounio" : openAIAgentSlug,
+                model: openAIAgentModel,
+                instructions: openAIAgentInstructions,
+                initialPrompt: trimmed,
+                forceNewSession: true
+            )
+            return
+        }
+
+        if isOpenAIAgentTurnActive {
+            appendStatusLine("↻ Redirecionando turno em andamento (steering c/ Idempotency-Key)…", isStderr: false)
+        }
+        processRawOutput("\r\n❯ \(trimmed)\r\n", isStderr: false)
+        isOpenAIAgentTurnActive = true
+
+        let apiKey = DirectBrainCredentials.openAIKey
+        Task { @MainActor [weak self] in
+            do {
+                try await OpenAIAgentsSessionClient.shared.sendInputMessage(
+                    apiKey: apiKey,
+                    sessionId: sessionId,
+                    text: trimmed
+                )
+            } catch {
+                self?.isOpenAIAgentTurnActive = false
+                self?.appendStatusLine("✗ Falha ao enviar mensagem ao agente: \(error.localizedDescription)", isStderr: true)
+            }
+        }
+    }
+
     public func sendSignal(_ signal: String = "SIGINT") {
+        if isOpenAIAgentMode {
+            cancelOpenAIAgentTurn()
+            return
+        }
         Task { await client.sendSignal(signal) }
     }
 
     public func sendFocus() {
+        guard !isOpenAIAgentMode else { return }
         Task { await client.sendFocus() }
     }
 
     public func stopProcess() {
+        if isOpenAIAgentMode {
+            cancelOpenAIAgentTurn()
+            return
+        }
         Task { await client.stopProcess() }
     }
 
+    private func cancelOpenAIAgentTurn() {
+        guard let sessionId = openAIAgentSessionId, !sessionId.isEmpty else { return }
+        let apiKey = DirectBrainCredentials.openAIKey
+        appendStatusLine("■ Enviando agent.session.input.cancel para interromper o turno atual…", isStderr: false)
+        Task { @MainActor [weak self] in
+            do {
+                try await OpenAIAgentsSessionClient.shared.cancelActiveTurn(apiKey: apiKey, sessionId: sessionId)
+                self?.isOpenAIAgentTurnActive = false
+            } catch {
+                self?.appendStatusLine("✗ Falha ao cancelar turno: \(error.localizedDescription)", isStderr: true)
+            }
+        }
+    }
+
     public func startProcess(_ command: String) {
+        if isOpenAIAgentMode {
+            sendOpenAIAgentUserMessage(command)
+            return
+        }
         Task { await client.startProcess(command) }
     }
 
     public func approve(_ text: String = "y\n") {
+        if isOpenAIAgentMode {
+            sendOpenAIAgentUserMessage(text)
+            return
+        }
         Task { await client.approve(text) }
     }
 
     public func attachBlockToMemory(blockId: String) {
+        guard !isOpenAIAgentMode else { return }
         Task { await client.attachBlockToMemory(blockId: blockId) }
     }
 
     public func sendResize(cols: Int, rows: Int) {
         grid.resize(cols: cols)
+        guard !isOpenAIAgentMode else { return }
         Task { await client.sendResize(cols: cols, rows: rows) }
     }
 
@@ -221,6 +479,8 @@ public final class TerminalStore {
     public func disconnect() {
         streamTask?.cancel()
         streamTask = nil
+        isOpenAIAgentMode = false
+        isOpenAIAgentTurnActive = false
         Task { await client.disconnect() }
         connectionState = .disconnected
     }

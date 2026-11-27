@@ -225,17 +225,10 @@ public actor PhysiomeUploader {
     ///  1. Public gateway (https://beagle.chiuratto.ai) — reachable from any device;
     ///     routes to physiome-ingest.beagle.svc.cluster.local:8080 via cockpit proxy.
     ///  2. Direct in-cluster path — used when the app runs inside the cluster network.
-    private let physiomeBaseURLs: [URL] = [
-        URL(string: "https://beagle.chiuratto.ai")!,
-        URL(string: "http://physiome-ingest.beagle.svc.cluster.local:8080")!
-    ]
+    private let physiomeBaseURLs: [URL] = BeagleEndpoints.physiomeURLs
 
-    /// Cockpit auth-bridge endpoints — same list as BeagleClient.ensureAuth().
-    private let physAuthBridgeURLs: [URL] = [
-        URL(string: "https://beagle.chiuratto.ai")!,
-        URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-        URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-    ]
+    /// Cockpit auth-bridge endpoints — same canonical list as `BeagleClient.ensureAuth()`.
+    private let physAuthBridgeURLs: [URL] = BeagleEndpoints.cockpitURLs
 
     /// Dedicated URLSession for physiome uploads (separate connection pool from
     /// BeagleClient so token negotiation timeouts don't stall ongoing health-data drains).
@@ -258,7 +251,7 @@ public actor PhysiomeUploader {
         for base in physAuthBridgeURLs {
             guard let url = URL(string: "/api/auth/beagle-token", relativeTo: base) else { continue }
             var authRequest = URLRequest(url: url)
-            authRequest.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            BeagleEndpoints.applyCockpitAuth(to: &authRequest)
             guard let (data, resp) = try? await physSession.data(for: authRequest),
                   let http = resp as? HTTPURLResponse, http.statusCode == 200 else { continue }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
@@ -319,7 +312,7 @@ public actor PhysiomeUploader {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue(physConsumerId, forHTTPHeaderField: "X-Beagle-Consumer")
-            request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            BeagleEndpoints.applyCockpitAuth(to: &request)
             request.timeoutInterval = 60
             request.httpBody = payload
             do {

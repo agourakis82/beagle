@@ -2,6 +2,11 @@ import Foundation
 import Network
 import Observation
 
+public extension Notification.Name {
+    /// Posted on MainActor whenever `NetworkMonitor` observes an offline → online transition.
+    static let beagleNetworkDidReconnect = Notification.Name("dev.sounio.cockpit.networkDidReconnect")
+}
+
 /// Observable connectivity signal. `isOnline` flips with the real network path so the companion
 /// can route to the cloud when reachable and the on-device model when not, and flush its outbox
 /// the moment connectivity returns. MainActor-isolated (→ Sendable), so the NWPathMonitor's
@@ -27,7 +32,10 @@ public final class NetworkMonitor {
                 guard let self else { return }
                 let was = self.isOnline
                 self.isOnline = online
-                if online && !was { self.onReconnect?() }
+                if online && !was {
+                    self.onReconnect?()
+                    NotificationCenter.default.post(name: .beagleNetworkDidReconnect, object: nil)
+                }
                 if !online && was { self.onDisconnect?() }
             }
         }

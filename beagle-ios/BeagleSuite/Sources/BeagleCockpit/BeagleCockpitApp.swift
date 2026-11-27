@@ -14,6 +14,9 @@ import SwiftUI
 import SwiftData
 import BeagleCore
 import BeagleWorkbenchKit
+#if canImport(CoreSpotlight) && !os(watchOS)
+import CoreSpotlight
+#endif
 #if os(iOS)
 import UIKit
 import BackgroundTasks
@@ -33,16 +36,24 @@ struct BeagleCockpitApp: App {
     @State private var bootError: String?
     @State private var launchOverrides = LaunchOverrides.current
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var forceOnboardingInSession = ProcessInfo.processInfo.arguments.contains("--reset-onboarding")
 
     init() {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--reset-onboarding") {
+            UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
+        }
         #if os(iOS)
+        if args.contains("--ui-testing") {
+            UIView.setAnimationsEnabled(false)
+        }
         Self.configureShellChrome()
         #endif
     }
 
     var body: some Scene {
         WindowGroup {
-            if hasCompletedOnboarding {
+            if hasCompletedOnboarding && !forceOnboardingInSession {
                 RootView(path: $navigationPath, bootError: $bootError, launchOverrides: launchOverrides)
                 .environment(catalog)
                 .environment(cognitive)
@@ -56,6 +67,27 @@ struct BeagleCockpitApp: App {
                     PersistedExocortexHomeSnapshot.self,
                     PersistedAssistedImportOutbox.self,
                 ])
+                .sheet(isPresented: Binding(
+                    get: { MemorySearchNavigation.shared.episodeID != nil },
+                    set: { if !$0 { MemorySearchNavigation.shared.episodeID = nil } }
+                )) {
+                    if let id = MemorySearchNavigation.shared.episodeID {
+                        MemorySearchDetailView(episodeID: id)
+                    }
+                }
+                .sheet(isPresented: Binding(
+                    get: { ResearchRunSearchNavigation.shared.runID != nil },
+                    set: { if !$0 { ResearchRunSearchNavigation.shared.runID = nil } }
+                )) {
+                    if let runID = ResearchRunSearchNavigation.shared.runID {
+                        ResearchRunSearchDetailView(runID: runID)
+                    }
+                }
+                .task {
+                    guard !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { return }
+                    await LiveActivityManager.shared.restoreClusterActivitiesAfterLaunch()
+                    await MemorySearchIndex.refresh()
+                }
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
@@ -69,10 +101,27 @@ struct BeagleCockpitApp: App {
                         navigateToProject(slug)
                     }
                 }
+                #if canImport(CoreSpotlight) && !os(watchOS)
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let rawId = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                       let convId = ConversationSpotlightIndexer.conversationId(fromSpotlightIdentifier: rawId) {
+                        navigationPath = NavigationPath()
+                        DeepLinkRouter.shared.requestCompanionAction(
+                            CompanionLaunchAction(conversationId: convId)
+                        )
+                    }
+                }
+                #endif
                 .preferredColorScheme(.dark)
         .tint(BeagleTheme.truthObserved)
             } else {
-                OnboardingView(isComplete: $hasCompletedOnboarding)
+                OnboardingView(isComplete: Binding(
+                    get: { hasCompletedOnboarding && !forceOnboardingInSession },
+                    set: { completed in
+                        hasCompletedOnboarding = completed
+                        if completed { forceOnboardingInSession = false }
+                    }
+                ))
                     .preferredColorScheme(.dark)
             }
         }
@@ -120,7 +169,10 @@ struct BeagleCockpitApp: App {
         await physio.refresh()
         await DreamSynthesisEngine.shared.synthesize(
             thoughts: cognitive.recentThoughts,
-            cognitivePosture: physio.cognitivePosture
+            cognitivePosture: physio.cognitivePosture,
+            neuralSynthesizer: { candidateThoughts in
+                await FoundationModelsAgent.shared.synthesizeDreamBridge(thoughts: candidateThoughts)
+            }
         )
     }
 
@@ -243,6 +295,7 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
+                guard !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { break }
                 // Returning to foreground (connectivity likely restored):
                 // re-fetch credentials and auto-drain any queued captures/messages.
                 Task {
@@ -279,10 +332,16 @@ struct RootView: View {
         #if canImport(WatchConnectivity)
         WatchExocortexBridge.shared.activate()
         #endif
-        SemanticSearchEngine.shared.warmup()
+        let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        if !isUITesting {
+            SemanticSearchEngine.shared.warmup()
+        }
         cognitive.loadPersistedThoughts()
         DreamSynthesisEngine.shared.loadPersistedInsights()
         cognitive.activeProjectSlug = launchOverrides.projectSlug ?? cognitive.activeProjectSlug ?? "sounio"
+        if isUITesting {
+            return
+        }
 
         let authReady = await BeagleClient.shared.ensureAuth()
         startPhysiomeRealtimeSync()
@@ -321,7 +380,7 @@ struct RootView: View {
         // Demo/screenshot mode: never trigger the system HealthKit auth sheet — it would
         // cover the chat UI being previewed. Real launches authorize as normal.
         let args = ProcessInfo.processInfo.arguments
-        if args.contains("--demo") || args.contains("--demo-chat") { return }
+        if args.contains("--demo") || args.contains("--demo-chat") || args.contains("--beagle-skip-physio-auth") { return }
         Task.detached(priority: .utility) {
             let uploader = PhysiomeUploader.shared
             await uploader.recoverAndFlush()
@@ -444,11 +503,17 @@ struct RootView: View {
             }
         }
         .onChange(of: deepLink.pending) { _, _ in
+            if deepLink.pending == .capture {
+                sidebarSelection = .mind
+                return
+            }
             guard let d = deepLink.consume() else { return }
             switch d {
-            case .frota:   sidebarSelection = .frota
-            case .oficina: sidebarSelection = .oficina
-            case .work:    sidebarSelection = .work
+            case .chat, .capture, .sintese: sidebarSelection = .mind
+            case .fundo:                    sidebarSelection = .deep
+            case .frota:                    sidebarSelection = .frota
+            case .oficina:                  sidebarSelection = .oficina
+            case .work:                     sidebarSelection = .work
             }
         }
         .tint(BeagleTheme.truthObserved)

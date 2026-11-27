@@ -13,19 +13,57 @@ import Observation
 /// blip is worse than one that admits its data is old.
 @MainActor
 @Observable
-public final class FleetStateClient {
-    public enum Link: Sendable, Equatable {
+public final class FleetStateStore {
+    public enum Link: ConnectionStateRepresentable {
         case idle, connecting, live, reconnecting
         /// 🚨 Achado de review: muitas quedas seguidas, mas o cliente NÃO parou — o laço em
-        /// `drop` roda para sempre, com o atraso saturado no teto (`proximoAtrasoMs`). Isto é só
+        /// `drop` roda para sempre, com o atraso saturado no teto (`nextRetryDelayMs`). Isto é só
         /// um AVISO para a UI ("está demorando"), nunca uma afirmação de que o motor desligou.
         /// Antes, esse aviso reaproveitava `.failed`, e a `FrotaView` desenhava um botão "Tentar
         /// de novo" como se a reconexão dependesse do operador clicar — exatamente a mentira que
         /// esta fatia existe para matar, e desta vez sobre o próprio transporte que ela conserta.
-        case insistindo(motivo: String, tentativas: Int)
+        case retrying(reason: String, attempts: Int)
         /// Parou de vez. Só por erro de CONFIGURAÇÃO (endpoint inválido) — nada que uma
         /// retentativa resolveria sozinha, então aqui não há mentira em dizer "parei".
         case failed(String)
+
+        @available(*, deprecated, renamed: "retrying(reason:attempts:)")
+        public static func insistindo(motivo: String, tentativas: Int) -> Link {
+            .retrying(reason: motivo, attempts: tentativas)
+        }
+
+        public var isConnected: Bool { self == .live }
+
+        public var isConnecting: Bool {
+            switch self {
+            case .connecting, .reconnecting, .retrying:
+                return true
+            case .idle, .live, .failed:
+                return false
+            }
+        }
+
+        public var failureMessage: String? {
+            switch self {
+            case .failed(let message):
+                return message
+            case .retrying(let reason, _):
+                return reason
+            case .idle, .connecting, .live, .reconnecting:
+                return nil
+            }
+        }
+
+        public var truthMode: TruthMode {
+            switch self {
+            case .live:
+                return .observed
+            case .idle:
+                return .declared
+            case .connecting, .reconnecting, .retrying, .failed:
+                return .stale
+            }
+        }
     }
 
     public private(set) var link: Link = .idle
@@ -58,10 +96,17 @@ public final class FleetStateClient {
         return l.roster
     }
 
+    /// What the lane accepts, according to the server. `nil` when the lane is absent from the
+    /// latest frame — `nil` prevents the UI from offering an unsupported gesture.
+    public func acceptedCapability(for sid: String) -> Aceita? {
+        lanes.first { $0.sid == sid }?.aceita
+    }
+
     /// O que a lane aceita, segundo o servidor. `nil` quando a lane não está no último quadro —
     /// e `nil` faz a tela NÃO oferecer gesto, que é o comportamento seguro.
+    @available(*, deprecated, renamed: "acceptedCapability(for:)")
     public func aceita(de sid: String) -> Aceita? {
-        lanes.first { $0.sid == sid }?.aceita
+        acceptedCapability(for: sid)
     }
 
     /// Trava: a fonte já respondeu nesta sessão. É o que separa QUEDA de AUSÊNCIA, e portanto
@@ -108,8 +153,8 @@ public final class FleetStateClient {
         loomd: LoomdHealth? = nil,
         link: Link = .live,
         lastFrameAt: Date? = Date()
-    ) -> FleetStateClient {
-        let c = FleetStateClient()
+    ) -> FleetStateStore {
+        let c = FleetStateStore()
         c.lanes = lanes
         c.loomd = loomd
         c.link = link
@@ -385,44 +430,36 @@ public final class FleetStateClient {
         // SÓ como aviso para a UI — o laço de retentativa abaixo roda de qualquer jeito, sempre,
         // com o atraso saturado no teto. O cliente não tem mais estado de desistência permanente.
         retries += 1
-        // `.insistindo`, não `.failed`: o laço abaixo agenda a próxima tentativa de qualquer
+        // `.retrying`, não `.failed`: o laço abaixo agenda a próxima tentativa de qualquer
         // jeito, então "parei" seria mentira depois de `maxRetries` tanto quanto antes.
         link = retries >= maxRetries
-            ? .insistindo(motivo: error.localizedDescription, tentativas: retries)
+            ? .retrying(reason: error.localizedDescription, attempts: retries)
             : .reconnecting
-        let delayMs = Self.proximoAtrasoMs(retries: retries)
+        let delayMs = Self.nextRetryDelayMs(retries: retries)
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(delayMs))
             self?.connect()
         }
     }
 
-    /// Pura: backoff exponencial com teto de 10s, e SEM limite de `retries` — o laço em `drop`
-    /// continua chamando esta função para sempre; ela só para de crescer o atraso ao bater no
-    /// teto. Mesmo padrão de `PTYClient.proximoAtrasoMs`, que já resolveu este defeito exato
-    /// (lane presa para sempre depois de uma queda) para o socket de terminal; o socket da Frota
-    /// não pode regredir para o bug que aquele conserto existiu para matar.
-    nonisolated static func proximoAtrasoMs(retries: Int) -> Int {
-        // 🚨 A fórmula ORIGINAL (`min(retries, 5)`) nunca alcançava o teto declarado: com o
-        // expoente travado em 5, `250 * 2^5 = 8_000`, sempre abaixo dos 10_000 que o `min` dizia
-        // ser o limite — um teto que existia só no comentário. O expoente 6 é o menor que faz
-        // `250 * 2^6 = 16_000` estourar o `min` de verdade e saturar em 10_000.
+    /// Pure exponential backoff capped at 10s, with no retry ceiling.
+    public nonisolated static func nextRetryDelayMs(retries: Int) -> Int {
+        // Exponent 6 is the smallest value where `250 * 2^6 = 16_000` actually hits the 10_000ms cap.
         min(10_000, 250 * (1 << min(max(retries, 1), 6)))
     }
 
-    /// O texto explicativo para cada estado do link. PURA — extraída para ser testável sem UI,
-    /// no mesmo padrão de `SessionStore.rotuloDeGuiar`/`semCaixa` desta mesma fatia.
-    ///
-    /// 🚨 `.insistindo` NUNCA pode devolver um texto que implique que o cliente parou: ele está
-    /// retentando sozinho, em segundo plano, o tempo todo. Dizer o contrário manda o operador
-    /// embora achando que perdeu a frota — pior notícia que a verdade, que já é boa ("caiu,
-    /// mas eu mesmo estou tentando de novo").
-    public nonisolated static func explicacaoDoLink(_ link: Link) -> String {
+    @available(*, deprecated, renamed: "nextRetryDelayMs(retries:)")
+    nonisolated static func proximoAtrasoMs(retries: Int) -> Int {
+        nextRetryDelayMs(retries: retries)
+    }
+
+    /// Pure explanatory message for each link state (testable without UI).
+    public nonisolated static func linkDescription(_ link: Link) -> String {
         switch link {
         case .failed(let why):
             return "O broker não respondeu: \(why). Tailnet ativa? Cockpit no ar?"
-        case .insistindo(let motivo, let tentativas):
-            return "O broker caiu — reconectando sozinho (tentativa \(tentativas)): \(motivo). Tailnet ativa? Cockpit no ar?"
+        case .retrying(let reason, let attempts):
+            return "O broker caiu — reconectando sozinho (tentativa \(attempts)): \(reason). Tailnet ativa? Cockpit no ar?"
         case .reconnecting:
             return "Reconectando ao broker…"
         case .connecting:
@@ -433,4 +470,12 @@ public final class FleetStateClient {
             return "Sem conexão com o broker."
         }
     }
+
+    @available(*, deprecated, renamed: "linkDescription(_:)")
+    public nonisolated static func explicacaoDoLink(_ link: Link) -> String {
+        linkDescription(link)
+    }
 }
+
+@available(*, deprecated, renamed: "FleetStateStore")
+public typealias FleetStateClient = FleetStateStore

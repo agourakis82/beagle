@@ -13,28 +13,28 @@ import SwiftData
 @Observable
 @MainActor
 public final class ExocortexStore {
-    public var home: Truthful<ExocortexHomeSnapshot> = .declared(.bootstrap, source: "bootstrap")
-    public var projectionStatus: Truthful<MemoryProjectionStatus>?
-    public var graphStatus: Truthful<MemoryGraphStatus>?
-    public var bakeoffStatus: Truthful<MemoryGraphStatus>?
-    public var benchmarkStatus: Truthful<MemoryBenchmarkStatus>?
-    public var truthSetStatus: Truthful<MemoryTruthSetStatus>?
-    public var recentGraph: Truthful<MemoryGraphRecentResponse>?
-    public var recentWorlds: Truthful<MemoryWorldsRecentResponse>?
-    public var spatialControlRoom: Truthful<ControlRoomSnapshot>?
-    public var mindPalace: Truthful<MindPalaceSnapshot>?
-    public var spatialDesk: Truthful<SpatialDeskSnapshot>?
-    public var focusCoach: Truthful<FocusCoachState>?
-    public var memoryCandidates: Truthful<MemoryCandidateListResponse>?
-    public var memoryGovernanceStatus: Truthful<MemoryGovernanceStatus>?
-    public var memoryContradictions: Truthful<MemoryContradictionListResponse>?
-    public var sounioWorkday: Truthful<SounioWorkdaySnapshot>?
-    public var recentSounioMoments: Truthful<SounioMomentListResponse>?
-    public var lastGraphRagQuery: Truthful<GraphRagQueryResponse>?
-    public var lastAssistedImport: Truthful<AssistedImportBatchResult>?
-    public var mcpTools: Truthful<MCPToolListResult>?
-    public var cachedHomeSnapshot: ExocortexHomeSnapshot?
-    public var isLoading = false
+    public private(set) var home: Truthful<ExocortexHomeSnapshot> = .declared(.bootstrap, source: "bootstrap")
+    public private(set) var projectionStatus: Truthful<MemoryProjectionStatus>?
+    public private(set) var graphStatus: Truthful<MemoryGraphStatus>?
+    public private(set) var bakeoffStatus: Truthful<MemoryGraphStatus>?
+    public private(set) var benchmarkStatus: Truthful<MemoryBenchmarkStatus>?
+    public private(set) var truthSetStatus: Truthful<MemoryTruthSetStatus>?
+    public private(set) var recentGraph: Truthful<MemoryGraphRecentResponse>?
+    public private(set) var recentWorlds: Truthful<MemoryWorldsRecentResponse>?
+    public private(set) var spatialControlRoom: Truthful<ControlRoomSnapshot>?
+    public private(set) var mindPalace: Truthful<MindPalaceSnapshot>?
+    public private(set) var spatialDesk: Truthful<SpatialDeskSnapshot>?
+    public private(set) var focusCoach: Truthful<FocusCoachState>?
+    public private(set) var memoryCandidates: Truthful<MemoryCandidateListResponse>?
+    public private(set) var memoryGovernanceStatus: Truthful<MemoryGovernanceStatus>?
+    public private(set) var memoryContradictions: Truthful<MemoryContradictionListResponse>?
+    public private(set) var sounioWorkday: Truthful<SounioWorkdaySnapshot>?
+    public private(set) var recentSounioMoments: Truthful<SounioMomentListResponse>?
+    public private(set) var lastGraphRagQuery: Truthful<GraphRagQueryResponse>?
+    public private(set) var lastAssistedImport: Truthful<AssistedImportBatchResult>?
+    public private(set) var mcpTools: Truthful<MCPToolListResult>?
+    public private(set) var cachedHomeSnapshot: ExocortexHomeSnapshot?
+    public private(set) var isLoading = false
     public var modelContext: ModelContext?
 
     private let client: BeagleClient

@@ -81,7 +81,7 @@ public final class MoshiSessionManager {
         // The cockpit's OUTER auth gate checks x-cockpit-token (or COCKPIT_AUTH_TOKEN/tailnet
         // header) on every request — the Bearer above is a SEPARATE, inner check for the Moshi
         // service itself. Both are required; missing this one silently 401'd the voice handshake.
-        request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+        BeagleEndpoints.applyCockpitAuth(to: &request)
 
         webSocketTask = urlSession.webSocketTask(with: request)
         webSocketTask?.resume()

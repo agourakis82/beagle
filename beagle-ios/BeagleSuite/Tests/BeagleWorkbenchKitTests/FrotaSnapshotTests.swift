@@ -1,6 +1,8 @@
 #if os(macOS)
-import XCTest
+import AppKit
+import Foundation
 import SwiftUI
+import Testing
 @testable import BeagleCore
 @testable import BeagleWorkbenchKit
 
@@ -18,11 +20,12 @@ import SwiftUI
 /// Os dados são os MEDIDOS na frota real em 10-ago-2026 (11 lanes de agente + 4 sessões do t560
 /// + loom-1). Inventar dados bonitos aqui esconderia justamente o que quebra o layout: título
 /// comprido, detalhe que estoura, lane ausente, leitura velha.
-final class FrotaSnapshotTests: XCTestCase {
+@Suite
+@MainActor
+struct FrotaSnapshotTests {
 
     private static let outDir = "/tmp/frota-snapshots"
 
-    @MainActor
     private func render(_ view: some View, size: CGSize, name: String) throws {
         _ = size.height  // a altura vem do conteúdo: recortar aqui esconderia o que estoura
         // 🚨 `.dark` explícito, como `SessionSnapshotTests` já fazia. A Frota escapava disto
@@ -40,7 +43,8 @@ final class FrotaSnapshotTests: XCTestCase {
               let tiff = img.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let png = rep.representation(using: .png, properties: [:]) else {
-            return XCTFail("ImageRenderer não produziu PNG para \(name)")
+            Issue.record("ImageRenderer não produziu PNG para \(name)")
+            return
         }
         try FileManager.default.createDirectory(atPath: Self.outDir, withIntermediateDirectories: true)
         let path = "\(Self.outDir)/\(name).png"
@@ -48,10 +52,8 @@ final class FrotaSnapshotTests: XCTestCase {
         print("SNAPSHOT \(path) \(Int(size.width))x\(Int(size.height))")
     }
 
-
     /// O que vai para o PNG: o CONTEÚDO da Frota sobre o mesmo chão que a tela usa.
     /// Sem o `ScrollView`, que faz o `ImageRenderer` propor altura infinita e devolver branco.
-    @MainActor
     private func retrato(_ fleet: FleetStateClient) -> some View {
         FrotaView(fleet: fleet).conteudo
             .background(Color(red: 0.043, green: 0.055, blue: 0.086))
@@ -146,8 +148,7 @@ final class FrotaSnapshotTests: XCTestCase {
 
     // MARK: - Retratos
 
-    @MainActor
-    func testRetratoDaFrotaReal() throws {
+    @Test func testRetratoDaFrotaReal() throws {
         let now = Date()
         let fleet = FleetStateClient.fixture(
             lanes: Self.frotaReal(now: now),
@@ -158,8 +159,7 @@ final class FrotaSnapshotTests: XCTestCase {
         try render(retrato(fleet), size: CGSize(width: 430, height: 932), name: "02-frota-estreita")
     }
 
-    @MainActor
-    func testRetratoCalmo() throws {
+    @Test func testRetratoCalmo() throws {
         let now = Date()
         // Nada na prateleira: o estado MAIS comum do dia, e o que decide se a tela vale a pena
         // ficar aberta. Uma Frota que só é boa em emergência é um alarme, não um posto de trabalho.
@@ -170,8 +170,7 @@ final class FrotaSnapshotTests: XCTestCase {
         try render(retrato(fleet), size: CGSize(width: 1180, height: 900), name: "03-frota-calma")
     }
 
-    @MainActor
-    func testRetratoDegradado() throws {
+    @Test func testRetratoDegradado() throws {
         let now = Date()
         // Fonte caída + leitura velha + lane ausente: os três jeitos de a tela ter que ADMITIR
         // que não sabe. É onde um painel bonito costuma mentir.
@@ -189,8 +188,7 @@ final class FrotaSnapshotTests: XCTestCase {
     /// Quais SF Symbols realmente RESOLVEM neste contexto. No primeiro retrato, `escape` e
     /// `macwindow` saíram como quadrado amarelo de símbolo faltando — e um ícone que não resolve
     /// é pior que rótulo apagado. Medir é mais barato que chutar.
-    @MainActor
-    func testSimbolos() throws {
+    @Test func testSimbolos() throws {
         let nomes = ["return", "escape", "macwindow", "xmark", "xmark.circle",
                      "stop.circle", "arrow.branch", "arrow.triangle.branch",
                      "terminal", "rectangle.on.rectangle", "arrow.up.forward.app",

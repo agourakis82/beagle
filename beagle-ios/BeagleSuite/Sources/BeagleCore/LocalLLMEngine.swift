@@ -55,6 +55,9 @@ public enum ModelPersonality: String, CaseIterable, Sendable {
 public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
 
     // Reasoning
+    case qwen3_8B_Uncensored = "qwen3-8b-abliterated-4bit"
+    case llama3_1_8B_Uncensored = "llama3.1-8b-abliterated-4bit"
+    case qwen2_5_7B_Uncensored = "qwen2.5-7b-abliterated-4bit"
     case qwen3_8B        = "qwen3-8b-4bit"
     case qwen3_14B       = "qwen3-14b-4bit"
     case deepseekR1      = "deepseek-r1-7b-4bit"
@@ -130,6 +133,9 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return "Mamba 130M"
         case .mamba370m:      return "Mamba 370M"
         case .mamba790m:      return "Mamba 790M"
+        case .qwen3_8B_Uncensored: return "Qwen 3 8B Uncensored (Abliterated)"
+        case .llama3_1_8B_Uncensored: return "Llama 3.1 8B Uncensored (Abliterated)"
+        case .qwen2_5_7B_Uncensored: return "Qwen 2.5 7B Uncensored (Abliterated)"
         case .qwen3_8B:      return "Qwen 3 8B"
         case .qwen3_14B:     return "Qwen 3 14B"
         case .deepseekR1:    return "DeepSeek-R1 7B"
@@ -175,6 +181,7 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
 
     public var category: ModelCategory {
         switch self {
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored: return .reasoning
         case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B: return .reasoning
         case .qwen3_14B: return .reasoning
         case .mimo7B, .phi35Mini, .qwen2_5_7B, .codeQwen7B: return .code
@@ -197,6 +204,9 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return "~100 MB"
         case .mamba370m:      return "~280 MB"
         case .mamba790m:      return "~500 MB"
+        case .qwen3_8B_Uncensored: return "~4.8 GB"
+        case .llama3_1_8B_Uncensored: return "~4.8 GB"
+        case .qwen2_5_7B_Uncensored: return "~4.5 GB"
         case .qwen3_8B:      return "~5 GB"
         case .qwen3_14B:     return "~8,3 GB"
         case .deepseekR1:    return "~5 GB"
@@ -245,7 +255,8 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m: return "130M"
         case .mamba370m: return "370M"
         case .mamba790m: return "790M"
-        case .qwen3_8B, .llama3_1_8B: return "8B"
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen3_8B, .llama3_1_8B: return "8B"
+        case .qwen2_5_7B_Uncensored: return "7B"
         case .qwen3_14B: return "14B"
         case .deepseekR1, .aceReason7B, .falconH1_7B, .mimo7B, .qwen2_5_7B, .mistral7B, .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B, .olmo2_7B, .xlstm7B: return "7B"
         case .gemma2_9B, .yi1_5_9B, .recurrentGemma: return "9B"
@@ -270,6 +281,9 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return "Tier -1 draft model. O(1) memory, 86+ tok/s. Pre-screening, speculative decoding drafts, stream-of-consciousness capture. Fits on any device."
         case .mamba370m:      return "Mid-size Mamba draft. Better triage accuracy than 130M while still extremely fast. Good speculative acceptance rate."
         case .mamba790m:      return "Largest Mamba draft. Highest standalone quality for SSM-only generation. Best triage accuracy for prompt complexity routing."
+        case .qwen3_8B_Uncensored: return "Sem censura (abliterated). Escuta crua, debate médico/psiquiátrico, farmacologia, neurociência e ideias sem filtro moralista. Forte em PT-BR e raciocínio."
+        case .llama3_1_8B_Uncensored: return "Llama 3.1 8B abliterated (sem recusas). Excelente para brainstorming direto, hipóteses científicas radicais e escuta sem filtros."
+        case .qwen2_5_7B_Uncensored: return "Qwen 2.5 7B abliterated. Raciocínio técnico, código e clínica sem bloqueios de segurança artificiais."
         case .qwen3_8B:      return "Top-tier reasoning: math proofs, scientific analysis, multi-step logic. Best overall quality on-device."
         case .qwen3_14B:     return "O maior que cabe no aparelho. Raciocínio clínico e técnico mais longo, português mais firme. Custa RAM e o primeiro carregamento é lento."
         case .deepseekR1:    return "Chain-of-thought specialist. Shows its work step-by-step. Strongest at formal derivations."
@@ -318,6 +332,9 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return "Draft lightning"
         case .mamba370m:      return "Fast triage"
         case .mamba790m:      return "Best draft"
+        case .qwen3_8B_Uncensored: return "Sem censura · PT-BR"
+        case .llama3_1_8B_Uncensored: return "Sem censura · Direto"
+        case .qwen2_5_7B_Uncensored: return "Sem censura · Técnico"
         case .qwen3_8B:      return "Best overall"
         case .qwen3_14B:     return "O mais forte offline"
         case .deepseekR1:    return "Shows its work"
@@ -365,6 +382,8 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .qwen3_14B:
             return 11
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored:
+            return 8
         case .qwen3_8B, .deepseekR1, .aceReason7B, .llama3_1_8B, .gemma2_9B,
              .qwen2_5_7B, .falconH1_7B, .mimo7B, .mistral7B,
              .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B,
@@ -426,6 +445,8 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var personality: ModelPersonality {
         switch self {
         // Reasoning — analytical by nature
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored:
+            return .analytical
         case .qwen3_14B: fallthrough
         case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B:
             return .analytical
@@ -509,6 +530,9 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return ModelConfiguration(id: "state-spaces/mamba-130m-hf")
         case .mamba370m:      return ModelConfiguration(id: "state-spaces/mamba-370m-hf")
         case .mamba790m:      return ModelConfiguration(id: "state-spaces/mamba-790m-hf")
+        case .qwen3_8B_Uncensored: return ModelConfiguration(id: "mlx-community/Josiefied-Qwen3-8B-abliterated-v1-4bit")
+        case .llama3_1_8B_Uncensored: return ModelConfiguration(id: "mlx-community/Meta-Llama-3.1-8B-Instruct-abliterated-4bit")
+        case .qwen2_5_7B_Uncensored: return ModelConfiguration(id: "mlx-community/Qwen2.5-7B-Instruct-abliterated-v2-4bit")
         case .qwen3_8B:      return LLMRegistry.qwen3_8b_4bit
         case .qwen3_14B:     return ModelConfiguration(id: "mlx-community/Qwen3-14B-4bit")
         case .deepseekR1:    return LLMRegistry.deepSeekR1_7B_4bit

@@ -56,7 +56,7 @@ public final class ArrivalStore {
         carregando = true
         defer { carregando = false }
 
-        let r = await client.fetchArrivalSynthesis(windowDays: 3)
+        let r = await client.arrivalSynthesis(windowDays: 3)
         guard let s = r.value else { return }
         if s.insuficiente {
             insuficiente = true

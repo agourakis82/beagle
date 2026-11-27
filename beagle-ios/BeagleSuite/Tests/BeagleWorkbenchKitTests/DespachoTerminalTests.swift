@@ -1,7 +1,8 @@
 #if os(macOS)
-import XCTest
 import AppKit
+import Foundation
 import SwiftTerm
+import Testing
 @testable import BeagleCore
 @testable import BeagleWorkbenchKit
 
@@ -16,28 +17,28 @@ import SwiftTerm
 /// Verificar "o item existe e tem atalho" é exatamente o verde que não prova nada. O que prova é
 /// o comando ALCANÇANDO o terminal, e é isso que este arquivo exerce — sem janela e sem foco, que
 /// é justamente a condição em que falhava.
-final class DespachoTerminalTests: XCTestCase {
+@Suite(.serialized)
+@MainActor
+struct DespachoTerminalTests {
 
-    @MainActor
-    func testSemTerminalOComandoADMITEQueNaoFezNada() {
+    @Test func testSemTerminalOComandoADMITEQueNaoFezNada() {
         // Um comando que devolve "ok" sem ter feito nada é a falha silenciosa que custou duas
         // rodadas. Sem terminal registrado, o despacho tem que dizer não.
         TerminalAtivo.registrar(TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200)))
-        XCTAssertTrue(TerminalAtivo.com { _ in }, "com terminal, executa")
+        #expect(TerminalAtivo.com { _ in }, "com terminal, executa")
 
         // Sem referência forte, a view morre — e o registro é weak de propósito, porque um
         // registro forte manteria vivo um WebSocket e um `tmux attach` no pod.
         autoreleasepool {}
     }
 
-    @MainActor
-    func testORegistroENAOOFocoDecideODestino() {
+    @Test func testORegistroENAOOFocoDecideODestino() {
         // O teste que a rodada anterior não tinha. A view NÃO está em janela nenhuma, logo não tem
         // foco possível — e é exatamente aí que o `sendAction` falhava.
         let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
-        XCTAssertNil(tv.window, "sem janela: nenhum foco é possível")
+        #expect(tv.window == nil, "sem janela: nenhum foco é possível")
         TerminalAtivo.registrar(tv)
-        XCTAssertTrue(tv === TerminalAtivo.view)
+        #expect(tv === TerminalAtivo.view)
 
         // Os quatro comandos precisam ENCONTRAR destino. `responds(to:)` é o que o despacho checa,
         // e é o que garante que o seletor existe de verdade no SwiftTerm — não só no meu menu.
@@ -45,12 +46,11 @@ final class DespachoTerminalTests: XCTestCase {
                     #selector(TerminalView.paste(_:)),
                     #selector(TerminalView.selectAll(_:)),
                     #selector(TerminalView.performFindPanelAction(_:))] {
-            XCTAssertTrue(tv.responds(to: sel), "o TerminalView não responde a \(sel)")
+            #expect(tv.responds(to: sel), "o TerminalView não responde a \(sel)")
         }
     }
 
-    @MainActor
-    func testAsFerramentasNOVASExistemNoTerminal() {
+    @Test func testAsFerramentasNOVASExistemNoTerminal() {
         // Zoom e limpar são MEUS, adicionados por extensão. Um `@objc` que não vira seletor de
         // verdade faria o menu existir e não fazer nada — o mesmo modo de falha, por outro caminho.
         let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
@@ -58,31 +58,29 @@ final class DespachoTerminalTests: XCTestCase {
                     #selector(TerminalView.diminuirFonte(_:)),
                     #selector(TerminalView.fonteOriginalTamanho(_:)),
                     #selector(TerminalView.limparTela(_:))] {
-            XCTAssertTrue(tv.responds(to: sel), "extensão não expôs \(sel) ao ObjC")
+            #expect(tv.responds(to: sel), "extensão não expôs \(sel) ao ObjC")
         }
     }
 
-    @MainActor
-    func testOZoomMUDAAFonteERespeitaOsLimites() {
+    @Test func testOZoomMUDAAFonteERespeitaOsLimites() {
         // E o efeito, não só a existência do seletor.
         let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
         let inicial = tv.font.pointSize
         tv.aumentarFonte(nil)
-        XCTAssertGreaterThan(tv.font.pointSize, inicial, "⌘+ tem que aumentar de verdade")
+        #expect(tv.font.pointSize > inicial, "⌘+ tem que aumentar de verdade")
         tv.fonteOriginalTamanho(nil)
-        XCTAssertEqual(tv.font.pointSize, inicial, accuracy: 0.01, "⌘0 volta ao que a tela nasceu")
+        #expect(abs(tv.font.pointSize - inicial) <= 0.01, "⌘0 volta ao que a tela nasceu")
 
         // O teto existe para o terminal não virar duas colunas.
         for _ in 0..<200 { tv.diminuirFonte(nil) }
-        XCTAssertGreaterThanOrEqual(tv.font.pointSize, 8, "não afunda abaixo do mínimo")
+        #expect(tv.font.pointSize >= 8, "não afunda abaixo do mínimo")
         for _ in 0..<400 { tv.aumentarFonte(nil) }
-        XCTAssertLessThanOrEqual(tv.font.pointSize, 32, "não estoura o máximo")
+        #expect(tv.font.pointSize <= 32, "não estoura o máximo")
         // A família tem que sobreviver: perder a monoespaçada quebraria todo alinhamento de coluna.
-        XCTAssertTrue(tv.font.isFixedPitch, "a fonte tem que continuar monoespaçada")
+        #expect(tv.font.isFixedPitch, "a fonte tem que continuar monoespaçada")
     }
 
-    @MainActor
-    func testOCOMANDOCHEGA_semJanelaEsemFoco() {
+    @Test func testOCOMANDOCHEGA_semJanelaEsemFoco() {
         // 🚨 O TESTE QUE FALTAVA, e a mutação provou: os outros tocam `TerminalAtivo` e
         // `responds(to:)` diretamente, então trocar o despacho de volta por `sendAction` — a
         // regressão exata que foi reportada DUAS vezes — deixava tudo verde.
@@ -90,37 +88,33 @@ final class DespachoTerminalTests: XCTestCase {
         // Aqui o comando é despachado de verdade e o EFEITO é medido. Sem janela: `sendAction`
         // devolveria false e nada mudaria, que é o que acontecia no app.
         let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
-        XCTAssertNil(tv.window)
+        #expect(tv.window == nil)
         TerminalAtivo.registrar(tv)
 
         let antes = tv.font.pointSize
-        XCTAssertTrue(enviarAoTerminal(#selector(TerminalView.aumentarFonte(_:))),
-                      "o despacho tem que ENCONTRAR o terminal, não o foco")
-        XCTAssertGreaterThan(tv.font.pointSize, antes, "e o comando tem que CHEGAR lá")
+        #expect(enviarAoTerminal(#selector(TerminalView.aumentarFonte(_:))),
+                "o despacho tem que ENCONTRAR o terminal, não o foco")
+        #expect(tv.font.pointSize > antes, "e o comando tem que CHEGAR lá")
     }
 
-    @MainActor
-    func testCOLARentregaOTextoAoTerminal() {
+    @Test func testCOLARentregaOTextoAoTerminal() async {
         // O caso que ele reportou, ponta a ponta: área de transferência → terminal → bytes no fio.
         // Sem isto não dá para responder a um prompt de OAuth, e foi o que travou uma lane.
         let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
-        TerminalAtivo.registrar(tv)
+        await confirmation("o terminal enviou os bytes colados", expectedCount: 1...) { confirm in
+            TerminalAtivo.registrar(tv)
+            let espiao = EspiaoDeEnvio(quando: { confirm() })
+            tv.terminalDelegate = espiao
 
-        let espera = expectation(description: "o terminal enviou os bytes colados")
-        let espiao = EspiaoDeEnvio(quando: { espera.fulfill() })
-        tv.terminalDelegate = espiao
-
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("codigo-de-oauth-123", forType: .string)
-        XCTAssertTrue(terminalColar(), "o comando tem que achar destino")
-
-        wait(for: [espera], timeout: 2)
-        XCTAssertTrue(String(decoding: espiao.recebido, as: UTF8.self).contains("codigo-de-oauth-123"),
-                      "o texto colado tem que sair no fio: \(espiao.recebido.count) bytes")
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString("codigo-de-oauth-123", forType: .string)
+            #expect(terminalColar(), "o comando tem que achar destino")
+            #expect(String(decoding: espiao.recebido, as: UTF8.self).contains("codigo-de-oauth-123"),
+                    "o texto colado tem que sair no fio: \(espiao.recebido.count) bytes")
+        }
     }
 
-    @MainActor
-    func testCOLARsemTextoADMITEQueNaoColou() {
+    @Test func testCOLARsemTextoADMITEQueNaoColou() {
         // 🚨 A regressão exata, e ela era invisível: o comando CHEGAVA ao terminal e nenhum byte
         // saía. `TerminalView.paste(_:)` faz `insertText(clipboard.string(forType:.string) ?? "")`,
         // e `insertText` só age `if let str = string as? NSString` — pasteboard sem `.string` vira
@@ -130,27 +124,25 @@ final class DespachoTerminalTests: XCTestCase {
         let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
         TerminalAtivo.registrar(tv)
         NSPasteboard.general.clearContents()
-        XCTAssertFalse(terminalColar(), "sem texto, colar tem que admitir que não colou")
-        XCTAssertNil(textoDaAreaDeTransferencia())
+        #expect(!terminalColar(), "sem texto, colar tem que admitir que não colou")
+        #expect(textoDaAreaDeTransferencia() == nil)
     }
 
-    @MainActor
-    func testCOLARaceitaTipoRICO() {
+    @Test func testCOLARaceitaTipoRICO() throws {
         // Copiar de navegador ou PDF costuma oferecer só RTF/HTML. O operador não deveria precisar
         // saber disso para colar um código de OAuth que veio de uma página.
         let tv = TerminalView(frame: .init(x: 0, y: 0, width: 400, height: 200))
         TerminalAtivo.registrar(tv)
         let rico = NSAttributedString(string: "codigo-do-navegador")
-        let d = try! rico.data(from: NSRange(location: 0, length: rico.length),
-                               documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
+        let d = try rico.data(from: NSRange(location: 0, length: rico.length),
+                              documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setData(d, forType: .rtf)
-        XCTAssertEqual(textoDaAreaDeTransferencia(), "codigo-do-navegador",
-                       "só RTF no pasteboard ainda é texto colável")
+        #expect(textoDaAreaDeTransferencia() == "codigo-do-navegador",
+                "só RTF no pasteboard ainda é texto colável")
     }
 
-    @MainActor
-    func testSOMENTEOTerminalATIVOSeRegistra() {
+    @Test func testSOMENTEOTerminalATIVOSeRegistra() {
         // 🚨 A causa de "testei, não colou" com várias lanes abertas — e de ter funcionado no meu
         // teste, que tinha UMA. A pilha mantém toda lane aberta viva com `opacity 0`, e
         // `updateNSView` roda para TODAS: a última a atualizar ganhava o registro. O ⌘V ia para um
@@ -164,27 +156,25 @@ final class DespachoTerminalTests: XCTestCase {
         PTYTerminalView(client: PTYClient(agent: "claude-2"), ativo: false)
             .registrarSeAtivo(escondida)
 
-        XCTAssertTrue(TerminalAtivo.view === visivel,
-                      "quem está na tela manda — a última a atualizar não pode roubar o destino")
+        #expect(TerminalAtivo.view === visivel,
+                "quem está na tela manda — a última a atualizar não pode roubar o destino")
 
         // E a troca de lane move o destino junto.
         PTYTerminalView(client: PTYClient(agent: "claude-2"), ativo: true)
             .registrarSeAtivo(escondida)
-        XCTAssertTrue(TerminalAtivo.view === escondida, "trocar de lane troca o destino do ⌘V")
+        #expect(TerminalAtivo.view === escondida, "trocar de lane troca o destino do ⌘V")
     }
 
-    @MainActor
-    func testABuscaEXIGENSMenuItemComTag() {
+    @Test func testABuscaEXIGENSMenuItemComTag() {
         // `performFindPanelAction` faz `sender as? NSMenuItem` e desiste em silêncio se não for.
         // Este teste guarda a razão de `enviarBusca` montar o item em vez de mandar `from: nil`.
         let item = NSMenuItem()
         item.tag = Int(NSFindPanelAction.showFindPanel.rawValue)
-        XCTAssertEqual(item.tag, 1, "showFindPanel é 1 — se mudar, o despacho para de achar o painel")
-        XCTAssertEqual(Int(NSFindPanelAction.next.rawValue), 2)
-        XCTAssertEqual(Int(NSFindPanelAction.previous.rawValue), 3)
+        #expect(item.tag == 1, "showFindPanel é 1 — se mudar, o despacho para de achar o painel")
+        #expect(Int(NSFindPanelAction.next.rawValue) == 2)
+        #expect(Int(NSFindPanelAction.previous.rawValue) == 3)
     }
 }
-
 
 /// Espião do fio: um delegate mínimo que só registra o que o terminal MANDOU. É como se verifica
 /// que colar chegou ao processo remoto, e não só à tela.

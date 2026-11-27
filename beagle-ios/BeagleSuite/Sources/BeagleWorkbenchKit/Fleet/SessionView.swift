@@ -48,7 +48,7 @@ public struct SessionView: View {
     /// `nil` para sempre e a tela continuava dizendo "aguardando o servidor declarar…" como se
     /// fosse questão de segundos. Ver `SessionStore.razaoSemCapacidadeDeclarada`, que é onde a
     /// distinção vira texto — pura, testável sem esta view.
-    private let linkDaFrota: FleetStateClient.Link?
+    private let linkDaFrota: FleetStateStore.Link?
 
     /// O snapshot da Frota — MESMA fonte que alimenta o board, injetado pela cena (mesmo padrão
     /// de `roster`/`aceita`/`linkDaFrota` acima). Só serve o trilho da coluna esquerda: agrupa
@@ -65,7 +65,7 @@ public struct SessionView: View {
 
     public init(store: SessionStore, roster: [String] = FleetEndpoint.loomdLanes,
                 lanes: [LaneSnapshot] = [],
-                aceita: Aceita? = nil, linkDaFrota: FleetStateClient.Link? = nil,
+                aceita: Aceita? = nil, linkDaFrota: FleetStateStore.Link? = nil,
                 onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: store)
         self.roster = roster
@@ -77,7 +77,7 @@ public struct SessionView: View {
 
     public init(lane: String, roster: [String] = FleetEndpoint.loomdLanes,
                 lanes: [LaneSnapshot] = [],
-                aceita: Aceita? = nil, linkDaFrota: FleetStateClient.Link? = nil,
+                aceita: Aceita? = nil, linkDaFrota: FleetStateStore.Link? = nil,
                 onTrocarLane: ((String) -> Void)? = nil) {
         _store = State(initialValue: SessionStore(lane: lane))
         self.roster = roster
@@ -179,7 +179,7 @@ public struct SessionView: View {
     /// PATCH em si continua morando só na trilha, no `DiffView` de sempre — não um segundo
     /// renderizador de patch aqui, só um índice para o que já está desenhado.
     private var inspetorDeMudancas: some View {
-        let comDiff = store.turnos.filter(\.temDiff)
+        let comDiff = store.turns.filter(\.hasDiff)
         return VStack(alignment: .leading, spacing: 0) {
             Text("MUDANÇAS")
                 .font(.system(size: 9, weight: .semibold))
@@ -205,20 +205,20 @@ public struct SessionView: View {
         .background(BeagleTheme.surface1)
     }
 
-    private func linhaDoInspetor(_ turno: Turno) -> some View {
+    private func linhaDoInspetor(_ turno: SessionTurn) -> some View {
         Button { scrollAlvo = turno.id } label: {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Text("turno \(numeroDoTurno(turno))")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(BeagleTheme.textTertiary)
-                    if turno.pedePermissao {
+                    if turno.requiresApproval {
                         Image(systemName: "hand.raised.fill")
                             .font(.system(size: 8))
                             .foregroundStyle(BeagleTheme.accent)
                     }
                 }
-                if let pedido = turno.pedido {
+                if let pedido = turno.prompt {
                     Text(pedido)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(BeagleTheme.textPrimary)
@@ -240,18 +240,18 @@ public struct SessionView: View {
 
     /// A mesma numeração de `conteudo` — conta PEDIDOS, não blocos. Duplicar a fórmula em vez de
     /// expor o índice do `ForEach` porque o inspetor não tem acesso ao índice ali: é outra
-    /// coluna, olhando o mesmo `store.turnos`.
-    private func numeroDoTurno(_ turno: Turno) -> Int {
-        guard let i = store.turnos.firstIndex(where: { $0.id == turno.id }) else { return 0 }
-        return store.turnos.prefix(i + 1).filter { $0.pedido != nil }.count
+    /// coluna, olhando o mesmo `store.turns`.
+    private func numeroDoTurno(_ turno: SessionTurn) -> Int {
+        guard let i = store.turns.firstIndex(where: { $0.id == turno.id }) else { return 0 }
+        return store.turns.prefix(i + 1).filter { $0.prompt != nil }.count
     }
 
     /// Os arquivos que este turno tocou, sem abrir o `DiffView` — só o cabeçalho `+++ b/` de
     /// cada patch do turno. Mesmo parsing do `DiffView.arquivos`, sobre os patches deste turno
     /// em vez de um patch só; não vale extrair uma função compartilhada para três linhas.
-    private func arquivosMudados(_ turno: Turno) -> [String] {
+    private func arquivosMudados(_ turno: SessionTurn) -> [String] {
         var arquivos: [String] = []
-        for passo in turno.passos {
+        for passo in turno.steps {
             let patch: String?
             switch passo {
             case .diff(_, let p, _): patch = p
@@ -291,7 +291,7 @@ public struct SessionView: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(BeagleTheme.truthObserved)
                 .imageScale(.small)
-            if store.turnoEmCurso { controlesDoTurno }
+            if store.isTurnActive { controlesDoTurno }
             estadoDoFio
         }
         .padding(.horizontal, BeagleSpacing.md)
@@ -350,7 +350,7 @@ public struct SessionView: View {
             .foregroundStyle(BeagleTheme.stateError)
             .help("Encerra o turno. O trabalho já feito é descartado.")
         }
-        .disabled(store.sending)
+        .disabled(store.isSending)
     }
 
     // MARK: - A trilha
@@ -384,11 +384,11 @@ public struct SessionView: View {
             // primeiro turno com pedido sair como "turno 2" — o bloco "antes", que não tem pedido,
             // consumia o número 1. Apareceu no retrato, e é o tipo de erro que faz alguém procurar
             // um turno 1 que nunca existiu.
-            ForEach(Array(store.turnos.enumerated()), id: \.element.id) { i, turno in
+            ForEach(Array(store.turns.enumerated()), id: \.element.id) { i, turno in
                 TurnoView(turno: turno,
-                          numero: store.turnos.prefix(i + 1).filter { $0.pedido != nil }.count,
-                          emCurso: i == store.turnos.count - 1 && store.turnoEmCurso,
-                          enviando: store.sending,
+                          numero: store.turns.prefix(i + 1).filter { $0.prompt != nil }.count,
+                          emCurso: i == store.turns.count - 1 && store.isTurnActive,
+                          enviando: store.isSending,
                           onAprovar: { allow in Task { await store.approve(allow) } })
                     // Alvo do `scrollAlvo` que o inspetor de mudanças usa — sem isto o
                     // `scrollTo(turno.id)` não tem para onde ir.
@@ -556,7 +556,7 @@ public struct SessionView: View {
     }
 
     private var podeEnviar: Bool {
-        !store.sending && !rascunho.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !store.isSending && !rascunho.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func enviar() {
@@ -584,7 +584,7 @@ public struct SessionView: View {
 /// Não é um cartão: cartão dentro de cartão empilha borda sobre borda e a tela vira grade. É uma
 /// régua horizontal com um número, que é o mínimo para o olho achar onde um pedido começa.
 private struct TurnoView: View {
-    let turno: Turno
+    let turno: SessionTurn
     let numero: Int
     let emCurso: Bool
     let enviando: Bool
@@ -593,7 +593,7 @@ private struct TurnoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             cabecalho
-            ForEach(turno.passos.filter(\.desenhavel)) { passo in
+            ForEach(turno.steps.filter(\.isRenderable)) { passo in
                 PassoView(passo: passo, enviando: enviando, onAprovar: onAprovar)
             }
             rodape
@@ -602,14 +602,14 @@ private struct TurnoView: View {
 
     private var cabecalho: some View {
         HStack(spacing: BeagleSpacing.xs) {
-            Text(turno.pedido == nil ? "antes" : "turno \(numero)")
+            Text(turno.prompt == nil ? "antes" : "turno \(numero)")
                 .font(.system(size: 9, weight: .semibold))
                 .tracking(0.8)
                 .foregroundStyle(BeagleTheme.textTertiary)
             // Um turno sem pedido é sessão RETOMADA: o pedido está fora da janela do diário.
             // Fingir que aquele trabalho pertence ao próximo pedido seria atribuí-lo ao pedido
             // errado — e é o tipo de erro que faz alguém aprovar a coisa errada.
-            if turno.pedido == nil {
+            if turno.prompt == nil {
                 Text("sessão retomada — o pedido está fora do diário")
                     .font(.system(size: 9))
                     .foregroundStyle(BeagleTheme.textTertiary)
@@ -625,13 +625,13 @@ private struct TurnoView: View {
         .padding(.top, BeagleSpacing.xs)
     }
 
-    /// Duração · contexto · custo. O custo vem de `Turno.uso` — a MESMA fonte que o chip da
+    /// Duração · contexto · custo. O custo vem de `SessionTurn.usage` — a MESMA fonte que o chip da
     /// Frota soma (Task 6). Dois cálculos independentes divergem, e aí o operador não sabe em
-    /// qual acreditar — por isso a formatação mora em `SessionStore.rodapeDoTurno`, não aqui.
+    /// qual acreditar — por isso a formatação mora em `SessionStore.turnFooter`, não aqui.
     @ViewBuilder
     private var rodape: some View {
-        if let texto = SessionStore.rodapeDoTurno(duracao: turno.duracao(concluido: !emCurso),
-                                                    uso: turno.uso) {
+        if let texto = SessionStore.turnFooter(duration: turno.duration(completed: !emCurso),
+                                               usage: turno.usage) {
             Text(texto)
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.white.opacity(0.45))
@@ -642,7 +642,7 @@ private struct TurnoView: View {
     /// O que aconteceu dentro, em uma linha. Serve para decidir se vale abrir o turno com o olho.
     @ViewBuilder
     private var resumo: some View {
-        let ferramentas = turno.passos.filter { if case .tool = $0 { return true }; return false }.count
+        let ferramentas = turno.steps.filter { if case .tool = $0 { return true }; return false }.count
         HStack(spacing: 5) {
             if ferramentas > 0 {
                 Label("\(ferramentas)", systemImage: "gearshape")
@@ -650,12 +650,12 @@ private struct TurnoView: View {
                     .font(.system(size: 9))
                     .foregroundStyle(BeagleTheme.textTertiary)
             }
-            if turno.temDiff {
+            if turno.hasDiff {
                 Image(systemName: "plus.forwardslash.minus")
                     .font(.system(size: 9))
                     .foregroundStyle(BeagleTheme.truthObserved)
             }
-            if turno.pedePermissao {
+            if turno.requiresApproval {
                 Image(systemName: "hand.raised.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(BeagleTheme.accent)

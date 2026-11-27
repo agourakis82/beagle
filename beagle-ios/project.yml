@@ -15,6 +15,8 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_EMIT_LOC_STRINGS: YES
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     ENABLE_USER_SCRIPT_SANDBOXING: true
     MARKETING_VERSION: "1.2.0"
     CURRENT_PROJECT_VERSION: 50
@@ -69,12 +71,24 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSMicrophoneUsageDescription: "Para você falar com o companion em vez de digitar. O áudio é transcrito no próprio aparelho e descartado — nada de áudio bruto sai do iPhone."
+        NSCameraUsageDescription: "Para capturar fotos, exames, receitas, quadros ou páginas direto na conversa com o Beagle."
+        NSPhotoLibraryUsageDescription: "Para anexar fotos, capturas de tela, artigos ou gráficos na conversa com o Beagle."
+        NSCalendarsFullAccessUsageDescription: "Para consultar teus plantões, compromissos e agendar eventos reais no Calendário do iPhone quando você pedir."
+        NSCalendarsWriteOnlyAccessUsageDescription: "Para agendar plantões e compromissos no Calendário do iPhone quando você pedir."
+        NSRemindersFullAccessUsageDescription: "Para listar, concluir e criar lembretes reais no teu iPhone quando você pedir."
         NSHealthShareUsageDescription: "Beagle reads recovery signals like HRV, sleep, and workouts so the exocortex can adapt to your actual state."
         NSHealthUpdateUsageDescription: "Beagle records cognitive state snapshots alongside your thoughts so the exocortex can correlate insights with your physiological state."
         NSLocationWhenInUseUsageDescription: "Beagle records the weather (temperature, atmospheric pressure, humidity) at your current location so the exocortex can correlate your environment with how you feel."
         NSLocationAlwaysAndWhenInUseUsageDescription: "Beagle keeps the weather at your location current in the background so environmental shifts (pressure fronts, heat) line up with your physiological signals over time."
         NSMotionUsageDescription: "Beagle reads the device barometer to record the exact local atmospheric pressure where you are."
         NSSpeechRecognitionUsageDescription: "Para transformar a sua fala em texto aqui no aparelho, sem enviar áudio para nenhum servidor."
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        BGTaskSchedulerPermittedIdentifiers:
+          - dev.sounio.cockpit.dream
+        UIBackgroundModes:
+          - audio
+          - fetch
         ITSAppUsesNonExemptEncryption: false
         CFBundleURLTypes:
           - CFBundleURLSchemes:
@@ -110,6 +124,53 @@ targets:
         com.apple.security.application-groups:
           - group.dev.sounio.cockpit
         com.apple.developer.kernel.increased-memory-limit: true
+
+  # ── BeagleCockpitTests (Swift Testing unit tests) ─────────────
+  BeagleCockpitTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BeagleCockpitTests
+    dependencies:
+      - target: BeagleCockpit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sounio.cockpit.tests
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S9DPGW22A8
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/BeagleCockpit.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/BeagleCockpit"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/swift-numerics/Sources/_NumericsShims/include"
+          - "$(BUILD_DIR)/../../SourcePackages/checkouts/mlx-swift/Source/Cmlx/include"
+        OTHER_SWIFT_FLAGS:
+          - "$(inherited)"
+          - "-Xcc"
+          - "-fmodule-map-file=$(BUILD_DIR)/../../SourcePackages/checkouts/yyjson/Package.modulemap"
+        OTHER_LDFLAGS:
+          - "$(inherited)"
+          - "-Xlinker"
+          - "-undefined"
+          - "-Xlinker"
+          - "dynamic_lookup"
+
+  # ── BeagleCockpitUITests (XCUIAutomation UI tests) ────────────
+  BeagleCockpitUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: BeagleCockpitUITests
+    dependencies:
+      - target: BeagleCockpit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.sounio.cockpit.uitests
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: S9DPGW22A8
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: BeagleCockpit
 
   # ── BeagleWidgets (Widget Extension for BeagleCockpit) ────────
   BeagleWidgets:
@@ -228,5 +289,19 @@ schemes:
         BeagleCockpit: all
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - BeagleCockpitTests
+        - BeagleCockpitUITests
     archive:
       config: Release
+  BeagleCockpitUITests:
+    build:
+      targets:
+        BeagleCockpit: [test, run]
+        BeagleCockpitUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - BeagleCockpitUITests

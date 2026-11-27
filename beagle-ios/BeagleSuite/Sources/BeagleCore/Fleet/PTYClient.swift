@@ -15,8 +15,35 @@ import Observation
 @MainActor
 @Observable
 public final class PTYClient {
-    public enum State: Sendable, Equatable {
+    public enum State: ConnectionStateRepresentable {
         case idle, connecting, connected, reconnecting, failed(String)
+
+        public var isConnected: Bool { self == .connected }
+
+        public var isConnecting: Bool {
+            switch self {
+            case .connecting, .reconnecting:
+                return true
+            case .idle, .connected, .failed:
+                return false
+            }
+        }
+
+        public var failureMessage: String? {
+            if case .failed(let message) = self { return message }
+            return nil
+        }
+
+        public var truthMode: TruthMode {
+            switch self {
+            case .connected:
+                return .observed
+            case .idle:
+                return .declared
+            case .connecting, .reconnecting, .failed:
+                return .stale
+            }
+        }
     }
 
     /// Local error for a dead socket that never throws on its own — the ping watchdog
@@ -30,15 +57,29 @@ public final class PTYClient {
     /// Monotonic counter bumped on every output chunk — drives unread/activity badges.
     public private(set) var activity: Int = 0
 
-    /// O título que o processo remoto anunciou (OSC 0/2). O tmux publica ali o que a lane está
-    /// fazendo — informação que existia no fio e era descartada.
-    public var titulo: String?
-    /// Quantas vezes o sino tocou desde a última vez que ele olhou. Um agente que termina toca o
-    /// sino; contar é o que permite a aba mostrar "aconteceu algo aqui" sem roubar o foco.
-    public private(set) var sinos: Int = 0
+    /// Terminal title announced by the remote process (OSC 0/2).
+    public var title: String?
 
-    public func tocouSino() { sinos += 1 }
-    public func limparSinos() { sinos = 0 }
+    @available(*, deprecated, renamed: "title")
+    public var titulo: String? {
+        get { title }
+        set { title = newValue }
+    }
+
+    /// Number of terminal bell events since the last acknowledgement.
+    public private(set) var bellCount: Int = 0
+
+    @available(*, deprecated, renamed: "bellCount")
+    public var sinos: Int { bellCount }
+
+    public func recordBell() { bellCount += 1 }
+    public func clearBells() { bellCount = 0 }
+
+    @available(*, deprecated, renamed: "recordBell()")
+    public func tocouSino() { recordBell() }
+
+    @available(*, deprecated, renamed: "clearBells()")
+    public func limparSinos() { clearBells() }
     /// Set by the view: receives raw lane output bytes (already on the main actor).
     public var onBytes: (([UInt8]) -> Void)?
 

@@ -99,6 +99,7 @@ struct DreamInsightsView: View {
                 .font(BeagleFont.footnote.font)
                 .foregroundStyle(BeagleTheme.textPrimary)
                 .lineSpacing(2)
+                .textSelection(.enabled)
             HStack(spacing: BeagleSpacing.sm) {
                 Button {
                     Task {
@@ -154,6 +155,7 @@ struct DreamInsightsView: View {
     private func sleepStageBadge(_ stage: String) -> some View {
         let (label, icon): (String, String) = {
             switch stage {
+            case "afm3-dream": return ("AFM 3", "brain.head.profile")
             case "deep-rem-phase": return ("REM", "moon.zzz.fill")
             case "core-sleep": return ("Core", "moon.fill")
             case "light-sleep": return ("Light", "moon.haze.fill")

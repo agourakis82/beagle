@@ -1,3 +1,19 @@
+import Foundation
+
+public extension Notification.Name {
+    /// A gaveta de sessões, aberta pelo menu.
+    ///
+    /// Vive em `BeagleWorkbenchKit` e não na Scene por dependência: a Scene importa este módulo,
+    /// nunca o contrário. E é notificação, não estado compartilhado, porque o menu não deveria
+    /// guardar nada sobre uma tela que ele nem sabe se está aberta.
+    static let abrirGavetaDeSessoes = Notification.Name("abrirGavetaDeSessoes")
+    /// "Abre a lane ativa da aba Terminais numa janela própria" — publicada pelo comando ⌘T em
+    /// `SounioMissionControlApp` (a Scene é quem sabe `openWindow`) e consumida por
+    /// `FleetTerminalsView` (que é quem sabe qual lane está ativa). Mesma razão de existir da
+    /// notificação acima: nem o comando de menu nem a Scene deveriam guardar estado de tela.
+    static let abrirLaneEmJanela = Notification.Name("abrirLaneEmJanela")
+}
+
 #if os(macOS)
 import AppKit
 import SwiftTerm
@@ -45,20 +61,6 @@ public enum TerminalAtivo {
         acao(v)
         return true
     }
-}
-
-public extension Notification.Name {
-    /// A gaveta de sessões, aberta pelo menu.
-    ///
-    /// Vive em `BeagleWorkbenchKit` e não na Scene por dependência: a Scene importa este módulo,
-    /// nunca o contrário. E é notificação, não estado compartilhado, porque o menu não deveria
-    /// guardar nada sobre uma tela que ele nem sabe se está aberta.
-    static let abrirGavetaDeSessoes = Notification.Name("abrirGavetaDeSessoes")
-    /// "Abre a lane ativa da aba Terminais numa janela própria" — publicada pelo comando ⌘T em
-    /// `SounioMissionControlApp` (a Scene é quem sabe `openWindow`) e consumida por
-    /// `FleetTerminalsView` (que é quem sabe qual lane está ativa). Mesma razão de existir da
-    /// notificação acima: nem o comando de menu nem a Scene deveriam guardar estado de tela.
-    static let abrirLaneEmJanela = Notification.Name("abrirLaneEmJanela")
 }
 
 // MARK: - O que o SwiftTerm não tem

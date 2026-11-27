@@ -9,9 +9,14 @@ import Observation
 /// endpoint is read-only on the server side too.
 @MainActor
 @Observable
-public final class OficinaClient {
+public final class OficinaStore {
     public private(set) var state: OficinaState = .empty
-    public private(set) var loading = false
+    public private(set) var truthfulState: Truthful<OficinaState> = .declared(.empty)
+    public private(set) var isLoading = false
+
+    @available(*, deprecated, renamed: "isLoading")
+    public var loading: Bool { isLoading }
+
     /// Set when the fetch itself failed (as opposed to the server reporting a stale sweep).
     public private(set) var fetchError: String?
 
@@ -19,16 +24,20 @@ public final class OficinaClient {
     private let session: URLSession
     private var timer: Task<Void, Never>?
 
-    public init(endpoint: FleetEndpoint = FleetEndpoint()) {
+    public init(endpoint: FleetEndpoint = FleetEndpoint(), session: URLSession? = nil) {
         self.endpoint = endpoint
-        let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 12
-        #if !canImport(FoundationNetworking)
-        // Apple-only: wait for the network instead of failing instantly when the phone is
-        // between radios. (On swift-corelibs this property is read-only.)
-        cfg.waitsForConnectivity = true
-        #endif
-        self.session = URLSession(configuration: cfg)
+        if let session {
+            self.session = session
+        } else {
+            let cfg = URLSessionConfiguration.default
+            cfg.timeoutIntervalForRequest = 12
+            #if !canImport(FoundationNetworking)
+            // Apple-only: wait for the network instead of failing instantly when the phone is
+            // between radios. (On swift-corelibs this property is read-only.)
+            cfg.waitsForConnectivity = true
+            #endif
+            self.session = URLSession(configuration: cfg)
+        }
     }
 
     /// CI verdicts do not change by the second; a slow cadence keeps this honest AND cheap
@@ -46,22 +55,28 @@ public final class OficinaClient {
     public func stop() { timer?.cancel(); timer = nil }
 
     public func refresh() async {
-        guard CockpitToken.resolve() != nil else {
-            fetchError = CockpitToken.missingReason; return
+        guard CockpitToken.resolve(explicit: endpoint.token) != nil else {
+            fetchError = CockpitToken.missingReason
+            truthfulState = .staleError(CockpitToken.missingReason)
+            return
         }
         guard var req = endpoint.oficinaRequest() else {
-            fetchError = "endpoint inválido"; return
+            fetchError = "endpoint inválido"
+            truthfulState = .staleError("endpoint inválido")
+            return
         }
         req.httpMethod = "GET"
-        loading = true
-        defer { loading = false }
+        isLoading = true
+        defer { isLoading = false }
         do {
             let (data, response) = try await session.data(for: req)
-            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 // Actionable, not a bare code.
-                fetchError = http.statusCode == 401
+                let message = http.statusCode == 401
                     ? "Token do cockpit recusado (401). Refazer login da tailnet?"
                     : "O cockpit respondeu \(http.statusCode)."
+                fetchError = message
+                truthfulState = .staleError(message, source: req.url?.host)
                 return
             }
             guard
@@ -69,13 +84,20 @@ public final class OficinaClient {
                 let decoded = OficinaState(envelope: obj)
             else {
                 fetchError = "Resposta do cockpit ilegível."
+                truthfulState = .staleError("Resposta do cockpit ilegível.", source: req.url?.host)
                 return
             }
             fetchError = nil
             state = decoded
+            truthfulState = .observed(decoded, source: req.url?.host)
         } catch {
             // Keep the previous reading: stale-but-labelled beats an empty panel.
-            fetchError = "Cockpit não alcançável. Tailnet ativa? (\(error.localizedDescription))"
+            let message = "Cockpit não alcançável. Tailnet ativa? (\(error.localizedDescription))"
+            fetchError = message
+            truthfulState = .staleError(message, source: req.url?.host)
         }
     }
 }
+
+@available(*, deprecated, renamed: "OficinaStore")
+public typealias OficinaClient = OficinaStore

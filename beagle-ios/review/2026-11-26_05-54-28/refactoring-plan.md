@@ -1,0 +1,1 @@
+Plano proposto, não executado: 1. Confirmar deduplicação dos POSTs com servidor e cobrir perda de resposta. 2. Corrigir parsing/destino pendente de deep links com testes de cold start. 3. Condicionar autoscroll à proximidade do fim e verificar no simulador. 4. Redigir logs. Evitar reestruturação ampla antes destas correções.

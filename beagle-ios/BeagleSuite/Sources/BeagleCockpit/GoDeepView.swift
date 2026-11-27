@@ -18,6 +18,17 @@
 import SwiftUI
 import BeagleCore
 import Charts
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
+private struct ExportedDossierItem: Identifiable {
+    let id = UUID()
+    let url: URL
+    let label: String
+}
 
 struct GoDeepView: View {
     @Bindable var store: GoDeepStore
@@ -27,6 +38,13 @@ struct GoDeepView: View {
     @State private var promptExpanded = false
     @State private var quickTake: String?
     @State private var savedToExocortex = false
+    @State private var roundTable = RoundTableStore()
+    @State private var showRoundTable = false
+    @State private var showSimulationCard = false
+    @State private var simulationSteerText = ""
+    @State private var exportedItem: ExportedDossierItem?
+    @State private var isPreparingExport = false
+    @State private var copiedBibTeXFeedback = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(CognitiveStore.self) private var cognitive
@@ -37,6 +55,8 @@ struct GoDeepView: View {
                 VStack(alignment: .leading, spacing: pageSpacing) {
                     promptHeader
                         .padding(.top, BeagleSpacing.sm)
+
+                    lensSelectorStrip
 
                     // Quick-take: on-device instant insight while cloud runs
                     if let quickTake, store.synthesis == nil {
@@ -50,27 +70,55 @@ struct GoDeepView: View {
                     if store.isSynthesizing || store.synthesis != nil {
                         synthesisCard
                     }
+
+                    if showSimulationCard || store.isSimulating || (store.simulationOutput?.isEmpty == false) {
+                        simulationSandboxCard
+                    }
+
+                    if showRoundTable || roundTable.isRunning || roundTable.result != nil {
+                        roundTableSection
+                    }
                 }
                 .padding(.horizontal, pageHorizontalPadding)
                 .padding(.bottom, BeagleSpacing.jumbo + 20)
             }
             .background { depthGradient }
-            .navigationTitle("Go Deeper")
+            .navigationTitle("Modo Fundo")
             .navigationBarTitleDisplayModeIfAvailable(.inline)
             .toolbar { toolbarContent }
+            .sheet(item: $exportedItem) { item in
+                DossierShareSheet(url: item.url)
+            }
             .task {
                 guard !hasLaunched else { return }
                 hasLaunched = true
 
-                // Wire Live Activity callbacks
+                // Wire Live Activity callbacks (with active lens + live summary snippet)
                 store.onResearchStart = { runId, name, slug in
-                    LiveActivityManager.shared.startResearchActivity(runId: runId, campaign: name, slug: slug)
+                    let initialLens = store.modalityStates.first?.modality.shortBadge ?? "Astra xhigh"
+                    LiveActivityManager.shared.startResearchActivity(
+                        runId: runId,
+                        campaign: name,
+                        slug: slug,
+                        totalSteps: max(2, store.totalCount + 1),
+                        activeLens: initialLens
+                    )
                 }
-                store.onResearchUpdate = { step, total, eta in
-                    LiveActivityManager.shared.updateResearchActivity(step: step, total: total, eta: eta)
+                store.onResearchStateChange = { step, total, eta, activeLens, snippet, isCompleted in
+                    if isCompleted {
+                        LiveActivityManager.shared.endResearchActivity(finalSummary: snippet)
+                    } else {
+                        LiveActivityManager.shared.updateResearchActivity(
+                            step: step,
+                            total: total,
+                            eta: eta,
+                            activeLens: activeLens,
+                            summarySnippet: snippet
+                        )
+                    }
                 }
-                store.onResearchEnd = { _ in
-                    LiveActivityManager.shared.endResearchActivity()
+                store.onResearchEnd = { [weak store] _ in
+                    LiveActivityManager.shared.endResearchActivity(finalSummary: store?.synthesis)
                     #if os(iOS)
                     BeagleHaptics.goDeepComplete()
                     #endif
@@ -88,7 +136,7 @@ struct GoDeepView: View {
                 Task {
                     quickTake = await FoundationModelsAgent.shared.summarize(
                         "A researcher asks: \(prompt)\n\nGive a quick initial take in 2 sentences — what's the most interesting angle to explore here?",
-                        instructions: "You are an intellectual companion. Give a brief, sharp initial reaction to a research question. Be specific, not generic."
+                        instructions: "Você é o parceiro científico de Demetrios. Responda SEMPRE em português brasileiro com uma reação inicial curta, densa e específica em 2 frases, sem clichês."
                     )
                 }
             }
@@ -113,31 +161,95 @@ struct GoDeepView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: leadingToolbarPlacement) {
             Button { store.cancel(); dismiss() } label: {
-                Text(store.isRunning ? "Cancel" : "Close")
+                Text(store.isRunning ? "Cancelar" : "Fechar")
                     .foregroundStyle(BeagleTheme.textSecondary)
             }
         }
         ToolbarItem(placement: trailingToolbarPlacement) {
+            Button {
+                showSimulationCard = true
+                if !store.isSimulating && (store.simulationOutput ?? "").isEmpty {
+                    Task { await store.runSimulation(prompt: prompt) }
+                }
+            } label: {
+                Label("Simular", systemImage: "terminal.fill")
+            }
+            .tint(BeagleTheme.truthObserved)
+            .disabled(store.isSimulating)
+        }
+        ToolbarItem(placement: trailingToolbarPlacement) {
+            Button {
+                showRoundTable = true
+                if !roundTable.isRunning && roundTable.result == nil {
+                    Task { await roundTable.debate(prompt: prompt) }
+                }
+            } label: {
+                Label("Mesa", systemImage: "person.3.sequence.fill")
+            }
+            .tint(BeagleTheme.postureWarm)
+            .disabled(roundTable.isRunning)
+        }
+        ToolbarItem(placement: trailingToolbarPlacement) {
             Toggle(isOn: $store.quantumMode) {
-                Label("Quantum", systemImage: "atom")
+                Label("Quântico", systemImage: "atom")
             }
             .toggleStyle(.button)
             .tint(BeagleTheme.truthRemembered)
             .disabled(store.isRunning)
-        }
-        ToolbarItem(placement: trailingToolbarPlacement) {
-            if !store.isRunning && store.hasAnyResult {
-                ShareLink(
-                    item: store.exportText,
-                    subject: Text("Go Deeper: \(String(prompt.prefix(40)))"),
-                    message: Text("Research exploration results")
-                ) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 14))
-                        .foregroundStyle(BeagleTheme.textSecondary)
-                }
+            .onChange(of: store.quantumMode) { _, _ in
+                guard !store.isRunning else { return }
+                store.goDeeper(prompt: prompt)
             }
         }
+        ToolbarItem(placement: trailingToolbarPlacement) {
+            if !store.isRunning && (store.hasAnyResult || roundTable.result != nil) {
+                dossierExportMenu
+            }
+        }
+    }
+
+    private var dossierExportMenu: some View {
+        Menu {
+            Button {
+                exportPDFDossier()
+            } label: {
+                Label("Exportar PDF Científico (.pdf)", systemImage: "doc.richtext.fill")
+            }
+
+            Button {
+                exportMarkdownDossier()
+            } label: {
+                Label("Exportar Dossiê Markdown (.md)", systemImage: "doc.text.fill")
+            }
+
+            Button {
+                Task { await exportBibTeXDossier() }
+            } label: {
+                Label("Exportar BibTeX Verificado (.bib)", systemImage: "books.vertical.fill")
+            }
+
+            Divider()
+
+            Button {
+                Task { await copyBibTeXToClipboard() }
+            } label: {
+                Label(
+                    copiedBibTeXFeedback ? "BibTeX Copiado!" : "Copiar BibTeX (DOI/PMID/arXiv)",
+                    systemImage: copiedBibTeXFeedback ? "checkmark.circle.fill" : "doc.on.doc"
+                )
+            }
+        } label: {
+            if isPreparingExport {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(BeagleTheme.truthObserved)
+            } else {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(BeagleTheme.truthObserved)
+            }
+        }
+        .accessibilityIdentifier("godeep.toolbar.exportMenu")
     }
 
     private var leadingToolbarPlacement: ToolbarItemPlacement {
@@ -159,7 +271,8 @@ struct GoDeepView: View {
     // MARK: - Prompt Header
 
     private var promptHeader: some View {
-        Button {
+        let citationCount = currentHarvestedCitations().count
+        return Button {
             withAnimation(BeagleMotion.snappy) { promptExpanded.toggle() }
         } label: {
             VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
@@ -167,11 +280,19 @@ struct GoDeepView: View {
                     Image(systemName: "scope")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(BeagleTheme.truthRemembered)
-                    Text("Exploring")
+                    Text(store.isRunning ? "Explorando em paralelo" : "Questão Investigada")
                         .font(BeagleFont.caption.font)
                         .fontWeight(.medium)
                         .foregroundStyle(BeagleTheme.textTertiary)
                     Spacer()
+                    if citationCount > 0 {
+                        Text("\(citationCount) ref\(citationCount == 1 ? "" : "s")")
+                            .font(BeagleFont.dataSmall.font)
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(BeagleTheme.truthObserved.opacity(0.12)))
+                    }
                     if !promptExpanded {
                         Image(systemName: "chevron.down")
                             .font(.system(size: 9, weight: .medium))
@@ -197,6 +318,146 @@ struct GoDeepView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Interactive Lens Selector Strip
+
+    private var lensSelectorStrip: some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.xxs + 2) {
+            HStack(spacing: BeagleSpacing.xs) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: BeagleSpacing.xs) {
+                        ForEach(GoDeepModality.allCases) { modality in
+                            let selected = store.enabledModalities.contains(modality)
+                            Button {
+                                guard !store.isRunning else { return }
+                                if selected && store.enabledModalities.count > 1 {
+                                    store.enabledModalities.remove(modality)
+                                } else {
+                                    store.enabledModalities.insert(modality)
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: modality.icon)
+                                        .font(.system(size: 10, weight: .semibold))
+                                    Text(modality.shortBadge)
+                                        .font(BeagleFont.caption2.font)
+                                        .fontWeight(.medium)
+                                }
+                                .foregroundStyle(selected ? BeagleTheme.textPrimary : BeagleTheme.textTertiary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule()
+                                        .fill(selected ? modality.themeColor.opacity(0.18) : Color.white.opacity(0.04))
+                                )
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(selected ? modality.themeColor.opacity(0.45) : Color.white.opacity(0.08), lineWidth: 0.75)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(store.isRunning)
+                        }
+                    }
+                }
+
+                if !store.isRunning && store.hasAnyResult {
+                    Button {
+                        store.goDeeper(prompt: prompt)
+                    } label: {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                            .frame(width: 28, height: 28)
+                            .background(BeagleTheme.truthObserved.opacity(0.15), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Reexecutar com lentes selecionadas")
+                }
+            }
+        }
+    }
+
+    // MARK: - Agentic Quantitative Simulation Card (`OpenAIAgentsSessionClient`)
+
+    private var simulationSandboxCard: some View {
+        GlassPanel(elevation: .raised, truth: store.isSimulating ? nil : .observed) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "terminal.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(BeagleTheme.truthObserved)
+
+                    Text("Simulação & Execução Agêntica")
+                        .font(BeagleFont.headline.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+
+                    Spacer()
+
+                    if store.isSimulating {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(BeagleTheme.truthObserved)
+                    } else {
+                        TruthBadge(.observed, compact: true)
+                    }
+                }
+
+                if let status = store.simulationStatusLine, !status.isEmpty {
+                    Text(status)
+                        .font(BeagleFont.caption2.font)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                }
+
+                if let simOut = store.simulationOutput, !simOut.isEmpty {
+                    Text(LocalizedStringKey(simOut))
+                        .font(BeagleFont.body.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                        .textSelection(.enabled)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if store.isSimulating {
+                    Text("Executando verificação quantitativa (PBPK / EDO / sensibilidade paramétrica) no sandbox agêntico…")
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .italic()
+                }
+
+                if !store.isSimulating {
+                    HStack(spacing: BeagleSpacing.xs) {
+                        TextField("Ajustar parâmetros ou testar cenário (ex.: ClCr 30 mL/min)…", text: $simulationSteerText)
+                            .font(BeagleFont.footnote.font)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(
+                                RoundedRectangle(cornerRadius: BeagleRadius.sm)
+                                    .fill(Color.white.opacity(0.05))
+                            )
+
+                        Button {
+                            let steer = simulationSteerText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            simulationSteerText = ""
+                            Task {
+                                await store.runSimulation(
+                                    prompt: prompt,
+                                    steeringInstruction: steer.isEmpty ? nil : steer
+                                )
+                            }
+                        } label: {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(BeagleTheme.truthObserved)
+                                .frame(width: 32, height: 32)
+                                .background(BeagleTheme.truthObserved.opacity(0.14), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     // MARK: - Modality Stream (all slots always visible)
@@ -246,7 +507,7 @@ struct GoDeepView: View {
                             )
                         )
 
-                    Text("Synthesis")
+                    Text("Síntese Executiva")
                         .font(BeagleFont.headline.font)
                         .foregroundStyle(BeagleTheme.textPrimary)
 
@@ -261,51 +522,93 @@ struct GoDeepView: View {
                     }
                 }
 
-                if store.isSynthesizing {
-                    Text("Integrating insights across \(store.completedCount) modalities...")
-                        .font(BeagleFont.footnote.font)
-                        .foregroundStyle(BeagleTheme.textSecondary)
-                        .italic()
-                } else if let synthesis = store.synthesis {
-                    Text(synthesis)
+                if let synthesis = store.synthesis, !synthesis.isEmpty {
+                    Text(LocalizedStringKey(synthesis))
                         .font(BeagleFont.body.font)
                         .foregroundStyle(BeagleTheme.textPrimary)
+                        .tint(BeagleTheme.truthObserved)
                         .textSelection(.enabled)
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
 
-                    // Save to Exocortex
-                    HStack(spacing: BeagleSpacing.sm) {
-                        Button {
-                            Task {
-                                savedToExocortex = true
-                                _ = await cognitive.captureThought(
-                                    text: synthesis,
-                                    source: "go-deeper"
+                    if !store.isSynthesizing {
+                        HStack(spacing: BeagleSpacing.sm) {
+                            Button {
+                                Task {
+                                    savedToExocortex = true
+                                    _ = await cognitive.captureThought(
+                                        text: synthesis,
+                                        source: "go-deeper"
+                                    )
+                                }
+                            } label: {
+                                HStack(spacing: BeagleSpacing.xxs + 1) {
+                                    Image(systemName: savedToExocortex ? "checkmark.circle.fill" : "brain")
+                                        .font(.system(size: 12))
+                                    Text(savedToExocortex ? "Salvo no Exocórtex" : "Salvar no Exocórtex")
+                                        .font(BeagleFont.caption.font)
+                                        .fontWeight(.medium)
+                                }
+                                .foregroundStyle(savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered)
+                                .padding(.horizontal, BeagleSpacing.sm + 2)
+                                .padding(.vertical, BeagleSpacing.xs)
+                                .background(
+                                    Capsule()
+                                        .fill((savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered).opacity(0.08))
                                 )
                             }
-                        } label: {
-                            HStack(spacing: BeagleSpacing.xxs + 1) {
-                                Image(systemName: savedToExocortex ? "checkmark.circle.fill" : "brain")
-                                    .font(.system(size: 12))
-                                Text(savedToExocortex ? "Saved" : "Save to Exocortex")
-                                    .font(BeagleFont.caption.font)
-                                    .fontWeight(.medium)
-                            }
-                            .foregroundStyle(savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered)
-                            .padding(.horizontal, BeagleSpacing.sm + 2)
-                            .padding(.vertical, BeagleSpacing.xs)
-                            .background(
-                                Capsule()
-                                    .fill((savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered).opacity(0.08))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(savedToExocortex)
-                        .sensoryFeedback(.success, trigger: savedToExocortex)
+                            .buttonStyle(.plain)
+                            .disabled(savedToExocortex)
+                            .sensoryFeedback(.success, trigger: savedToExocortex)
 
-                        Spacer()
+                            Spacer()
+
+                            Menu {
+                                Button {
+                                    exportPDFDossier()
+                                } label: {
+                                    Label("PDF Científico (.pdf)", systemImage: "doc.richtext.fill")
+                                }
+                                Button {
+                                    exportMarkdownDossier()
+                                } label: {
+                                    Label("Dossiê Markdown (.md)", systemImage: "doc.text.fill")
+                                }
+                                Button {
+                                    Task { await exportBibTeXDossier() }
+                                } label: {
+                                    Label("BibTeX Verificado (.bib)", systemImage: "books.vertical.fill")
+                                }
+                                Divider()
+                                Button {
+                                    Task { await copyBibTeXToClipboard() }
+                                } label: {
+                                    Label("Copiar BibTeX", systemImage: "doc.on.doc")
+                                }
+                            } label: {
+                                HStack(spacing: BeagleSpacing.xxs + 1) {
+                                    Image(systemName: "arrow.down.doc.fill")
+                                        .font(.system(size: 12))
+                                    Text("Exportar (.pdf / .md / .bib)")
+                                        .font(BeagleFont.caption.font)
+                                        .fontWeight(.medium)
+                                }
+                                .foregroundStyle(BeagleTheme.truthObserved)
+                                .padding(.horizontal, BeagleSpacing.sm + 2)
+                                .padding(.vertical, BeagleSpacing.xs)
+                                .background(
+                                    Capsule()
+                                        .fill(BeagleTheme.truthObserved.opacity(0.08))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
+                } else if store.isSynthesizing {
+                    Text("Integrando evidências das \(store.completedCount) lentes em paralelo...")
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .italic()
                 }
             }
         }
@@ -314,6 +617,141 @@ struct GoDeepView: View {
             removal: .opacity
         ))
         .sensoryFeedback(.success, trigger: store.synthesis != nil)
+    }
+
+    // MARK: - Mesa-Redonda Section (RoundTableStore)
+
+    private var roundTableSection: some View {
+        GlassPanel(elevation: .raised, truth: roundTable.result != nil ? .observed : nil) {
+            VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "person.3.sequence.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(BeagleTheme.postureWarm)
+
+                    Text("Mesa-Redonda Epistêmica")
+                        .font(BeagleFont.headline.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+
+                    Spacer()
+
+                    if let pci = roundTable.result?.pciScore {
+                        Text(String(format: "Φ %.2f", pci))
+                            .font(BeagleFont.dataSmall.font)
+                            .foregroundStyle(BeagleTheme.postureWarm)
+                            .padding(.horizontal, BeagleSpacing.xs + 2)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(BeagleTheme.postureWarm.opacity(0.12)))
+                    }
+
+                    if roundTable.isRunning {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(BeagleTheme.postureWarm)
+                    }
+                }
+
+                // Voice selector pills
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: BeagleSpacing.xs) {
+                        ForEach(RoundTableVoiceId.allCases) { voice in
+                            let selected = roundTable.selectedVoices.contains(voice)
+                            Button {
+                                guard !roundTable.isRunning else { return }
+                                if selected && roundTable.selectedVoices.count > 1 {
+                                    roundTable.selectedVoices.remove(voice)
+                                } else {
+                                    roundTable.selectedVoices.insert(voice)
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: voice.icon)
+                                        .font(.system(size: 10))
+                                    Text(voice.displayName)
+                                        .font(BeagleFont.caption2.font)
+                                        .fontWeight(.medium)
+                                }
+                                .foregroundStyle(selected ? BeagleTheme.textPrimary : BeagleTheme.textTertiary)
+                                .padding(.horizontal, BeagleSpacing.sm)
+                                .padding(.vertical, 5)
+                                .background(
+                                    Capsule()
+                                        .fill(selected ? BeagleTheme.postureWarm.opacity(0.18) : Color.white.opacity(0.04))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                if roundTable.isRunning {
+                    Text("Deliberando em paralelo entre \(roundTable.selectedVoices.count) vozes (Astra · Rosalind · Sol · Opus)...")
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textSecondary)
+                        .italic()
+                } else if let error = roundTable.error {
+                    HStack {
+                        Text(error)
+                            .font(BeagleFont.caption.font)
+                            .foregroundStyle(BeagleTheme.stateError)
+                        Spacer()
+                        Button("Repetir") {
+                            Task { await roundTable.debate(prompt: prompt) }
+                        }
+                        .font(BeagleFont.caption.font)
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                    }
+                } else if let result = roundTable.result {
+                    if let voices = result.voices {
+                        ForEach(voices) { voice in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(voice.name)
+                                    .font(BeagleFont.caption.font)
+                                    .fontWeight(.semibold)
+                                    .foregroundStyle(BeagleTheme.postureWarm)
+                                Text(LocalizedStringKey(voice.content))
+                                    .font(BeagleFont.footnote.font)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .textSelection(.enabled)
+                                    .lineSpacing(2)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    if let synthesis = result.synthesis, !synthesis.isEmpty {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.08))
+                            .frame(height: 1)
+
+                        Text("Síntese de Interferência")
+                            .font(BeagleFont.caption.font)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BeagleTheme.truthObserved)
+                            .textCase(.uppercase)
+
+                        Text(LocalizedStringKey(synthesis))
+                            .font(BeagleFont.body.font)
+                            .foregroundStyle(BeagleTheme.textPrimary)
+                            .textSelection(.enabled)
+                            .lineSpacing(2)
+                    }
+
+                    HStack {
+                        Button {
+                            Task { await roundTable.debate(prompt: prompt) }
+                        } label: {
+                            Label("Debater novamente", systemImage: "arrow.clockwise")
+                                .font(BeagleFont.caption.font)
+                                .foregroundStyle(BeagleTheme.postureWarm)
+                        }
+                        .buttonStyle(.plain)
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
     // MARK: - Quick Take (on-device, instant)
@@ -326,7 +764,7 @@ struct GoDeepView: View {
                 .padding(.top, 2)
 
             VStack(alignment: .leading, spacing: BeagleSpacing.xxs) {
-                Text("Quick Take")
+                Text("Leitura Inicial (On-Device)")
                     .font(BeagleFont.caption.font)
                     .fontWeight(.medium)
                     .foregroundStyle(BeagleTheme.textTertiary)
@@ -363,7 +801,7 @@ struct GoDeepView: View {
                 HStack(spacing: BeagleSpacing.xs) {
                     Image(systemName: "waveform.path.ecg")
                         .foregroundStyle(BeagleTheme.truthRemembered)
-                    Text("Hypothesis Superposition")
+                    Text("Superposição de Hipóteses")
                         .font(BeagleFont.headline.font)
                         .foregroundStyle(BeagleTheme.textPrimary)
                 }
@@ -393,7 +831,7 @@ struct GoDeepView: View {
                             .frame(height: 6)
 
                             // Hypothesis text (collapsed or full)
-                            if !hyp.text.contains("[awaiting") {
+                            if !hyp.text.contains("[awaiting") && !hyp.text.contains("[aguardando") {
                                 Text(hyp.text)
                                     .font(BeagleFont.caption.font)
                                     .foregroundStyle(BeagleTheme.textSecondary)
@@ -411,7 +849,7 @@ struct GoDeepView: View {
                             VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
                                 HStack(spacing: BeagleSpacing.xs) {
                                     Image(systemName: "sparkles")
-                                    Text("Emergent Insights")
+                                    Text("Insights Emergentes")
                                         .font(BeagleFont.footnote.font)
                                         .fontWeight(.semibold)
                                 }
@@ -442,6 +880,99 @@ struct GoDeepView: View {
 
     private var depthGradient: some View {
         DepthMeshGradient(progress: store.progress, completedCount: store.completedCount)
+    }
+
+    // MARK: - Scientific Dossier Export (.pdf · .md · .bib)
+
+    private func currentHarvestedCitations() -> [ScientificDossierExporter.HarvestedCitation] {
+        ScientificDossierExporter.harvestCitations(
+            prompt: prompt,
+            modalityStates: store.modalityStates,
+            synthesis: store.synthesis,
+            roundTable: roundTable.result
+        )
+    }
+
+    private func currentDossierMarkdown() -> String {
+        ScientificDossierExporter.buildMarkdown(
+            prompt: prompt,
+            startedAt: store.activeSession?.startedAt,
+            completedAt: store.activeSession?.completedAt ?? .now,
+            modalityStates: store.modalityStates,
+            hypotheses: store.hypotheses,
+            interference: store.interferenceResult,
+            synthesis: store.synthesis,
+            roundTable: roundTable.result,
+            simulationOutput: store.simulationOutput
+        )
+    }
+
+    private func exportMarkdownDossier() {
+        let md = currentDossierMarkdown()
+        guard let data = md.data(using: .utf8),
+              let url = try? ScientificDossierExporter.writeTemporaryExportFile(
+                  prompt: prompt,
+                  fileExtension: "md",
+                  data: data
+              ) else { return }
+        exportedItem = ExportedDossierItem(url: url, label: "Dossiê Markdown")
+    }
+
+    private func exportPDFDossier() {
+        let citations = currentHarvestedCitations()
+        let md = currentDossierMarkdown()
+        let subtitle = "Questão: \(prompt) · \(citations.count) referência(s) verificada(s)"
+        let pdfData = ScientificDossierExporter.renderPDFData(
+            title: "Dossiê Científico — Beagle Modo Fundo",
+            subtitle: subtitle,
+            markdownBody: md,
+            citations: citations
+        )
+        guard !pdfData.isEmpty,
+              let url = try? ScientificDossierExporter.writeTemporaryExportFile(
+                  prompt: prompt,
+                  fileExtension: "pdf",
+                  data: pdfData
+              ) else { return }
+        exportedItem = ExportedDossierItem(url: url, label: "Dossiê PDF")
+    }
+
+    private func exportBibTeXDossier() async {
+        isPreparingExport = true
+        defer { isPreparingExport = false }
+        let citations = currentHarvestedCitations()
+        let bib = await ScientificDossierExporter.buildEnrichedBibTeX(
+            prompt: prompt,
+            citations: citations
+        )
+        guard let data = bib.data(using: .utf8),
+              let url = try? ScientificDossierExporter.writeTemporaryExportFile(
+                  prompt: prompt,
+                  fileExtension: "bib",
+                  data: data
+              ) else { return }
+        exportedItem = ExportedDossierItem(url: url, label: "BibTeX")
+    }
+
+    private func copyBibTeXToClipboard() async {
+        isPreparingExport = true
+        let citations = currentHarvestedCitations()
+        let bib = await ScientificDossierExporter.buildEnrichedBibTeX(
+            prompt: prompt,
+            citations: citations
+        )
+        isPreparingExport = false
+        #if canImport(UIKit)
+        UIPasteboard.general.string = bib
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bib, forType: .string)
+        #endif
+        copiedBibTeXFeedback = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            copiedBibTeXFeedback = false
+        }
     }
 }
 
@@ -768,6 +1299,8 @@ private struct ExpandedDetail: View {
 
     var body: some View {
         switch result {
+        case .astraDeep(let t):     frontierView(t, accent: GoDeepModality.astraDeep.themeColor)
+        case .rosalindBio(let t):   frontierView(t, accent: GoDeepModality.rosalindBio.themeColor)
         case .deepResearch(let t):  deepResearchView(t)
         case .quantum(let t):       quantumView(t)
         case .swarm(let t):         swarmView(t)
@@ -776,6 +1309,74 @@ private struct ExpandedDetail: View {
         case .neurosymbolic(let t): genericView(t.value?.summary, fallback: t.value?.result)
         case .adversarial(let t):   adversarialView(t)
         case .serendipity(let t):   serendipityView(t)
+        }
+    }
+
+    // MARK: - Frontier Research (GPT-6.2 Astra xhigh & GPT-Rosalind Bio/PBPK)
+
+    private func frontierView(_ t: Truthful<FrontierResearchResult>, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+            if let v = t.value {
+                HStack(spacing: BeagleSpacing.md) {
+                    metric("Modelo", v.model)
+                    metric("Esforço", v.reasoningEffort.uppercased())
+                    if !v.executedTools.isEmpty {
+                        metric("Ferramentas", "\(v.executedTools.count)")
+                    }
+                }
+
+                if !v.executedTools.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: BeagleSpacing.xs) {
+                            ForEach(v.executedTools, id: \.self) { tool in
+                                Text(tool)
+                                    .font(BeagleFont.caption2.font)
+                                    .foregroundStyle(accent)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Capsule().fill(accent.opacity(0.10)))
+                            }
+                        }
+                    }
+                }
+
+                sectionLabel("Análise Completa")
+                Text(LocalizedStringKey(v.analysisMarkdown))
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .tint(accent)
+                    .textSelection(.enabled)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !v.citations.isEmpty {
+                    sectionLabel("Fontes Verificadas (\(v.citations.count))")
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(v.citations) { cite in
+                            if let url = URL(string: cite.url) {
+                                Link(destination: url) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "arrow.up.right.square")
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(accent)
+                                        Text(cite.title)
+                                            .font(BeagleFont.caption.font)
+                                            .foregroundStyle(BeagleTheme.textPrimary)
+                                            .lineLimit(1)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, BeagleSpacing.sm)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: BeagleRadius.sm)
+                                            .fill(accent.opacity(0.07))
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1072,3 +1673,38 @@ private struct ShimmerBar: View {
             }
     }
 }
+
+// MARK: - Native File Share Sheet (.pdf / .md / .bib)
+
+#if canImport(UIKit)
+private struct DossierShareSheet: UIViewControllerRepresentable {
+    let url: URL
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+#else
+private struct DossierShareSheet: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: BeagleSpacing.md) {
+            Image(systemName: "doc.badge.arrow.up.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(BeagleTheme.truthObserved)
+            Text(url.lastPathComponent)
+                .font(BeagleFont.headline.font)
+            ShareLink(item: url) {
+                Label("Compartilhar arquivo", systemImage: "square.and.arrow.up")
+            }
+            Button("Fechar") { dismiss() }
+        }
+        .padding(BeagleSpacing.xl)
+    }
+}
+#endif
+

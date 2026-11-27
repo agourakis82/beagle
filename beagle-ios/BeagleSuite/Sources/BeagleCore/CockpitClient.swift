@@ -33,27 +33,35 @@ public actor CockpitClient {
 
     private let session: URLSession
     private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
 
     /// URL resolution order — tried in sequence until one responds.
-    /// Override via `configure(baseURLs:)` from the app.
-    private var baseURLs: [URL] = [
-        URL(string: "https://beagle.chiuratto.ai")!,                     // Public HTTPS mobile gateway
-        URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,         // Tailnet FQDN
-        URL(string: "http://100.107.208.198")!,                          // Tailnet direct IP (DNS fallback)
-        URL(string: "http://project-cockpit.beagle.svc.cluster.local")!  // In-cluster (pod network only)
-    ]
+    /// Override via `init(session:baseURLs:)` or `configure(baseURLs:)` from the app/tests.
+    private var baseURLs: [URL] = BeagleEndpoints.cockpitURLs
 
-    private init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 12  // Leave room for edge or tailnet fallback
-        config.timeoutIntervalForResource = 30
-        config.waitsForConnectivity = true
-        config.httpAdditionalHeaders = [
-            "Accept": "application/json",
-            "User-Agent": "BeagleCockpit/1.0 (iOS/macOS native)"
-        ]
-        self.session = URLSession(configuration: config)
+    public init(session: URLSession? = nil, baseURLs: [URL]? = nil) {
+        if let baseURLs {
+            self.baseURLs = baseURLs
+        }
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 12  // Leave room for edge or tailnet fallback
+            config.timeoutIntervalForResource = 30
+            config.waitsForConnectivity = true
+            config.httpAdditionalHeaders = [
+                "Accept": "application/json",
+                "User-Agent": "BeagleCockpit/1.0 (iOS/macOS native)"
+            ]
+            self.session = URLSession(configuration: config)
+        }
         self.decoder = JSONDecoder()
+        self.encoder = JSONEncoder()
+    }
+
+    private static func seg(_ value: String) -> String {
+        BeagleEndpoints.pathComponent(value)
     }
 
     /// Configure the URL resolution order.
@@ -76,7 +84,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
-                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                BeagleEndpoints.applyCockpitAuth(to: &request)
                 request.timeoutInterval = timeout
                 let (data, response) = try await session.data(for: request)
 
@@ -116,7 +124,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
-                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                BeagleEndpoints.applyCockpitAuth(to: &request)
                 request.timeoutInterval = timeout
                 let (data, response) = try await session.data(for: request)
 
@@ -176,7 +184,7 @@ public actor CockpitClient {
     public func projectOverview(slug: String, depth: String = "fast") async -> Truthful<MobileProjectOverview> {
         await fetchMobile(
             MobileProjectOverview.self,
-            path: "/api/mobile/v1/projects/\(slug)/overview?depth=\(depth)"
+            path: "/api/mobile/v1/projects/\(Self.seg(slug))/overview?depth=\(Self.seg(depth))"
         )
     }
 
@@ -185,84 +193,41 @@ public actor CockpitClient {
     }
 
     public func missionControl(slug: String) async -> Truthful<MissionControl> {
-        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
-        if let payload = overview.value?.missionControl {
-            return Truthful(
-                value: payload,
-                mode: overview.mode,
-                observedAt: overview.observedAt,
-                source: overview.source,
-                error: overview.error
-            )
-        }
-        return await fetch(MissionControl.self, path: "/api/projects/\(slug)/mission-control")
+        let s = Self.seg(slug)
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(s)/overview")
+        if let projected = overview.compactMap(\.missionControl) { return projected }
+        return await fetch(MissionControl.self, path: "/api/projects/\(s)/mission-control")
     }
 
     public func clusterLaneTruth(slug: String) async -> Truthful<ClusterLaneTruth> {
-        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
-        if let payload = overview.value?.clusterLaneTruth {
-            return Truthful(
-                value: payload,
-                mode: overview.mode,
-                observedAt: overview.observedAt,
-                source: overview.source,
-                error: overview.error
-            )
-        }
-        return await fetch(ClusterLaneTruth.self, path: "/api/projects/\(slug)/cluster/lane-truth")
+        let s = Self.seg(slug)
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(s)/overview")
+        if let projected = overview.compactMap(\.clusterLaneTruth) { return projected }
+        return await fetch(ClusterLaneTruth.self, path: "/api/projects/\(s)/cluster/lane-truth")
     }
 
     public func researchOperations(slug: String) async -> Truthful<ResearchOperations> {
-        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
-        if let payload = overview.value?.researchOperations {
-            return Truthful(
-                value: payload,
-                mode: overview.mode,
-                observedAt: overview.observedAt,
-                source: overview.source,
-                error: overview.error
-            )
-        }
-        return await fetch(ResearchOperations.self, path: "/api/projects/\(slug)/research/operations")
+        let s = Self.seg(slug)
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(s)/overview")
+        if let projected = overview.compactMap(\.researchOperations) { return projected }
+        return await fetch(ResearchOperations.self, path: "/api/projects/\(s)/research/operations")
     }
 
     public func inferenceRuntime(slug: String) async -> Truthful<InferenceRuntime> {
-        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
-        if let payload = overview.value?.inferenceRuntime {
-            return Truthful(
-                value: payload,
-                mode: overview.mode,
-                observedAt: overview.observedAt,
-                source: overview.source,
-                error: overview.error
-            )
-        }
-        let wrapped = await fetch(InferenceRuntimeResponse.self, path: "/api/projects/\(slug)/inference/runtime")
+        let s = Self.seg(slug)
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(s)/overview")
+        if let projected = overview.compactMap(\.inferenceRuntime) { return projected }
+        let wrapped = await fetch(InferenceRuntimeResponse.self, path: "/api/projects/\(s)/inference/runtime")
         // Unwrap nested runtime object
-        guard let runtime = wrapped.value?.runtime else {
-            return .staleError(wrapped.error ?? "no runtime payload", source: wrapped.source)
-        }
-        return Truthful(
-            value: runtime,
-            mode: wrapped.mode,
-            observedAt: wrapped.observedAt,
-            source: wrapped.source,
-            error: wrapped.error
-        )
+        if let projected = wrapped.compactMap(\.runtime) { return projected }
+        return .staleError(wrapped.error ?? "no runtime payload", source: wrapped.source)
     }
 
     public func viewerRuntime(slug: String) async -> Truthful<ViewerRuntimeResponse> {
-        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(slug)/overview")
-        if let payload = overview.value?.viewerRuntime {
-            return Truthful(
-                value: payload,
-                mode: overview.mode,
-                observedAt: overview.observedAt,
-                source: overview.source,
-                error: overview.error
-            )
-        }
-        return await fetch(ViewerRuntimeResponse.self, path: "/api/projects/\(slug)/viewer/runtime")
+        let s = Self.seg(slug)
+        let overview = await fetchMobile(MobileProjectOverview.self, path: "/api/mobile/v1/projects/\(s)/overview")
+        if let projected = overview.compactMap(\.viewerRuntime) { return projected }
+        return await fetch(ViewerRuntimeResponse.self, path: "/api/projects/\(s)/viewer/runtime")
     }
 
     // MARK: - POST helper
@@ -279,7 +244,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
-                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                BeagleEndpoints.applyCockpitAuth(to: &request)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = timeout
@@ -321,7 +286,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
-                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                BeagleEndpoints.applyCockpitAuth(to: &request)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = timeout
@@ -366,6 +331,112 @@ public actor CockpitClient {
         return .staleError(lastError)
     }
 
+    public func postEncoded<T: Decodable & Sendable, Body: Encodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        body: Body,
+        timeout: TimeInterval = 15
+    ) async -> Truthful<T> {
+        let payload: Data
+        do {
+            payload = try encoder.encode(body)
+        } catch {
+            return .staleError("Failed to encode request: \(error.localizedDescription)")
+        }
+
+        var lastError = "no base URL reachable"
+        for base in baseURLs {
+            guard let url = URL(string: path, relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                BeagleEndpoints.applyCockpitAuth(to: &request)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = timeout
+                request.httpBody = payload
+
+                let (data, response) = try await session.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200..<300).contains(httpResponse.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = formatError(
+                        statusCode: statusCode,
+                        data: data,
+                        fallback: "HTTP \(statusCode)"
+                    )
+                    continue
+                }
+
+                let decoded = try decoder.decode(T.self, from: data)
+                return .observed(decoded, source: url.host)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        return .staleError(lastError)
+    }
+
+    public func postMobileEncoded<T: Decodable & Sendable, Body: Encodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        body: Body,
+        timeout: TimeInterval = 15
+    ) async -> Truthful<T> {
+        let payload: Data
+        do {
+            payload = try encoder.encode(body)
+        } catch {
+            return .staleError("Failed to encode request: \(error.localizedDescription)")
+        }
+
+        var lastError = "no base URL reachable"
+        for base in baseURLs {
+            guard let url = URL(string: path, relativeTo: base) else { continue }
+            do {
+                var request = URLRequest(url: url)
+                BeagleEndpoints.applyCockpitAuth(to: &request)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.timeoutInterval = timeout
+                request.httpBody = payload
+
+                let (data, response) = try await session.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200..<300).contains(httpResponse.statusCode) else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    lastError = formatError(
+                        statusCode: statusCode,
+                        data: data,
+                        fallback: "HTTP \(statusCode)"
+                    )
+                    continue
+                }
+
+                if let envelope = try? decoder.decode(MobileEnvelope<T>.self, from: data),
+                   envelope.ok != false, let unwrapped = envelope.data {
+                    let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
+                    return Truthful(
+                        value: unwrapped,
+                        mode: mode,
+                        observedAt: .now,
+                        source: url.host,
+                        error: nil
+                    )
+                }
+
+                let decoded = try decoder.decode(T.self, from: data)
+                return .observed(decoded, source: url.host)
+            } catch {
+                lastError = error.localizedDescription
+                continue
+            }
+        }
+        return .staleError(lastError)
+    }
+
     public func deleteMobile<T: Decodable & Sendable>(
         _ type: T.Type,
         path: String,
@@ -377,7 +448,7 @@ public actor CockpitClient {
             guard let url = URL(string: path, relativeTo: base) else { continue }
             do {
                 var request = URLRequest(url: url)
-                request.setValue(BeagleClient.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                BeagleEndpoints.applyCockpitAuth(to: &request)
                 request.httpMethod = "DELETE"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.timeoutInterval = 15
@@ -459,88 +530,58 @@ public actor CockpitClient {
     // MARK: - Agent Sessions
 
     public func agentSessions(slug: String) async -> Truthful<AgentSessionListResponse> {
-        let mobile = await fetchMobile(AgentSessionListResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions")
+        let s = Self.seg(slug)
+        let mobile = await fetchMobile(AgentSessionListResponse.self, path: "/api/mobile/v1/projects/\(s)/agent-sessions")
         if mobile.value != nil { return mobile }
-        return await fetch(AgentSessionListResponse.self, path: "/api/projects/\(slug)/agent/sessions")
+        return await fetch(AgentSessionListResponse.self, path: "/api/projects/\(s)/agent/sessions")
     }
 
     public func agentSession(slug: String, kind: String) async -> Truthful<AgentSession> {
-        let mobile = await fetchMobile(AgentSessionDetailResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions/\(kind)")
-        if let session = mobile.value?.session {
-            return Truthful(
-                value: session,
-                mode: mobile.mode,
-                observedAt: mobile.observedAt,
-                source: mobile.source,
-                error: mobile.error
-            )
-        }
-        return await fetch(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)")
+        let s = Self.seg(slug)
+        let k = Self.seg(kind)
+        let mobile = await fetchMobile(AgentSessionDetailResponse.self, path: "/api/mobile/v1/projects/\(s)/agent-sessions/\(k)")
+        if let session = mobile.compactMap(\.session) { return session }
+        return await fetch(AgentSession.self, path: "/api/projects/\(s)/agent/session/\(k)")
     }
 
     public func startAgentSession(slug: String, kind: String = "claude-code") async -> Truthful<AgentSession> {
-        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions", body: [
+        let s = Self.seg(slug)
+        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(s)/agent-sessions", body: [
             "kind": kind,
             "confirmed": true
         ], timeout: 60)
-        if let session = mobile.value?.session {
-            return Truthful(
-                value: session,
-                mode: mobile.mode,
-                observedAt: mobile.observedAt,
-                source: mobile.source,
-                error: mobile.error
-            )
-        }
-        return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/start", body: ["kind": kind], timeout: 60)
+        if let session = mobile.compactMap(\.session) { return session }
+        return await post(AgentSession.self, path: "/api/projects/\(s)/agent/session/start", body: ["kind": kind], timeout: 60)
     }
 
     public func pauseAgentSession(slug: String, kind: String) async -> Truthful<AgentSession> {
-        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions/\(kind)/pause", body: [
+        let s = Self.seg(slug)
+        let k = Self.seg(kind)
+        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(s)/agent-sessions/\(k)/pause", body: [
             "confirmed": true
         ])
-        if let session = mobile.value?.session {
-            return Truthful(
-                value: session,
-                mode: mobile.mode,
-                observedAt: mobile.observedAt,
-                source: mobile.source,
-                error: mobile.error
-            )
-        }
-        return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/pause")
+        if let session = mobile.compactMap(\.session) { return session }
+        return await post(AgentSession.self, path: "/api/projects/\(s)/agent/session/\(k)/pause")
     }
 
     public func resumeAgentSession(slug: String, kind: String) async -> Truthful<AgentSession> {
-        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions/\(kind)/resume", body: [
+        let s = Self.seg(slug)
+        let k = Self.seg(kind)
+        let mobile = await postMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(s)/agent-sessions/\(k)/resume", body: [
             "confirmed": true
         ])
-        if let session = mobile.value?.session {
-            return Truthful(
-                value: session,
-                mode: mobile.mode,
-                observedAt: mobile.observedAt,
-                source: mobile.source,
-                error: mobile.error
-            )
-        }
-        return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/resume")
+        if let session = mobile.compactMap(\.session) { return session }
+        return await post(AgentSession.self, path: "/api/projects/\(s)/agent/session/\(k)/resume")
     }
 
     public func stopAgentSession(slug: String, kind: String) async -> Truthful<AgentSession> {
-        let mobile = await deleteMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/agent-sessions/\(kind)", body: [
+        let s = Self.seg(slug)
+        let k = Self.seg(kind)
+        let mobile = await deleteMobile(AgentSessionActionResponse.self, path: "/api/mobile/v1/projects/\(s)/agent-sessions/\(k)", body: [
             "confirmed": true
         ])
-        if let session = mobile.value?.session {
-            return Truthful(
-                value: session,
-                mode: mobile.mode,
-                observedAt: mobile.observedAt,
-                source: mobile.source,
-                error: mobile.error
-            )
-        }
-        return await post(AgentSession.self, path: "/api/projects/\(slug)/agent/session/\(kind)/stop")
+        if let session = mobile.compactMap(\.session) { return session }
+        return await post(AgentSession.self, path: "/api/projects/\(s)/agent/session/\(k)/stop")
     }
 
     // MARK: - Workspace / Notebook Terminal
@@ -552,7 +593,7 @@ public actor CockpitClient {
     public func workspaceSessions(slug: String) async -> Truthful<WorkspaceSessionListResponse> {
         await fetch(
             WorkspaceSessionListResponse.self,
-            path: "/api/workspaces/\(slug)/sessions"
+            path: "/api/workspaces/\(Self.seg(slug))/sessions"
         )
     }
 
@@ -563,7 +604,7 @@ public actor CockpitClient {
     ) async -> Truthful<WorkspaceSessionResponse> {
         await post(
             WorkspaceSessionResponse.self,
-            path: "/api/workspaces/\(slug)/sessions",
+            path: "/api/workspaces/\(Self.seg(slug))/sessions",
             body: [
                 "title": title,
                 "layout": layout.rawValue
@@ -574,14 +615,14 @@ public actor CockpitClient {
     public func workspaceSession(slug: String, sessionId: String) async -> Truthful<WorkspaceSessionResponse> {
         await fetch(
             WorkspaceSessionResponse.self,
-            path: "/api/workspaces/\(slug)/sessions/\(sessionId)"
+            path: "/api/workspaces/\(Self.seg(slug))/sessions/\(Self.seg(sessionId))"
         )
     }
 
     public func agentRegistry(slug: String) async -> Truthful<AgentRegistryResponse> {
         await fetch(
             AgentRegistryResponse.self,
-            path: "/api/workspaces/\(slug)/agents/registry"
+            path: "/api/workspaces/\(Self.seg(slug))/agents/registry"
         )
     }
 
@@ -592,7 +633,7 @@ public actor CockpitClient {
     ) async -> Truthful<AgentRouteResponse> {
         await post(
             AgentRouteResponse.self,
-            path: "/api/workspaces/\(slug)/agents/route",
+            path: "/api/workspaces/\(Self.seg(slug))/agents/route",
             body: [
                 "task": task,
                 "privacy_class": privacyClass
@@ -618,7 +659,7 @@ public actor CockpitClient {
         }
         return await post(
             AgentStartResponse.self,
-            path: "/api/workspaces/\(slug)/agents/\(roleOrKind)/start",
+            path: "/api/workspaces/\(Self.seg(slug))/agents/\(Self.seg(roleOrKind))/start",
             body: body
         )
     }
@@ -647,7 +688,7 @@ public actor CockpitClient {
         }
         return await post(
             AgentProviderConfigResponse.self,
-            path: "/api/workspaces/\(slug)/agents/\(role)/provider-config",
+            path: "/api/workspaces/\(Self.seg(slug))/agents/\(Self.seg(role))/provider-config",
             body: body,
             timeout: 30
         )
@@ -661,7 +702,7 @@ public actor CockpitClient {
     ) async -> Truthful<WorkspacePaneResponse> {
         await post(
             WorkspacePaneResponse.self,
-            path: "/api/workspaces/\(slug)/sessions/\(sessionId)/panes",
+            path: "/api/workspaces/\(Self.seg(slug))/sessions/\(Self.seg(sessionId))/panes",
             body: [
                 "kind": kind,
                 "title": title
@@ -672,7 +713,7 @@ public actor CockpitClient {
     public func workspaceBlocks(slug: String, sessionId: String) async -> Truthful<WorkspaceBlocksResponse> {
         await fetch(
             WorkspaceBlocksResponse.self,
-            path: "/api/workspaces/\(slug)/sessions/\(sessionId)/blocks"
+            path: "/api/workspaces/\(Self.seg(slug))/sessions/\(Self.seg(sessionId))/blocks"
         )
     }
 
@@ -688,7 +729,7 @@ public actor CockpitClient {
         }
         return await post(
             WorkspaceRememberBlockResponse.self,
-            path: "/api/workspaces/\(slug)/sessions/\(sessionId)/blocks/\(blockId)/remember",
+            path: "/api/workspaces/\(Self.seg(slug))/sessions/\(Self.seg(sessionId))/blocks/\(Self.seg(blockId))/remember",
             body: body,
             timeout: 30
         )
@@ -697,67 +738,73 @@ public actor CockpitClient {
     // MARK: - Habitat Actions
 
     public func executeAction(slug: String, actionId: String) async -> Truthful<ActionResponse> {
-        let mobile = await postMobile(ActionResponse.self, path: "/api/mobile/v1/projects/\(slug)/actions/\(actionId)", body: [
+        let s = Self.seg(slug)
+        let a = Self.seg(actionId)
+        let mobile = await postMobile(ActionResponse.self, path: "/api/mobile/v1/projects/\(s)/actions/\(a)", body: [
             "confirmed": true
         ])
         if mobile.value != nil { return mobile }
-        return await post(ActionResponse.self, path: "/api/projects/\(slug)/go-work-now/actions/\(actionId)", body: [
+        return await post(ActionResponse.self, path: "/api/projects/\(s)/go-work-now/actions/\(a)", body: [
             "confirm": true
         ])
     }
 
-    // MARK: - Cluster
+    // MARK: - Cluster & HPC
 
     public func clusterSummary(slug: String) async -> Truthful<ClusterSummary> {
-        await fetch(ClusterSummary.self, path: "/api/projects/\(slug)/cluster/summary")
+        await fetch(ClusterSummary.self, path: "/api/projects/\(Self.seg(slug))/cluster/summary")
+    }
+
+    public func hpcJobQueue() async -> Truthful<HPCJobQueue> {
+        await fetch(HPCJobQueue.self, path: "/api/jobs/queue")
     }
 
     public func goWorkNow(slug: String) async -> Truthful<GoWorkNow> {
-        await fetch(GoWorkNow.self, path: "/api/projects/\(slug)/go-work-now")
+        await fetch(GoWorkNow.self, path: "/api/projects/\(Self.seg(slug))/go-work-now")
     }
 
     // MARK: - Project Memory
 
     public func fastMemory(slug: String) async -> Truthful<ProjectMemory> {
-        await fetch(ProjectMemory.self, path: "/api/projects/\(slug)/memory/fast")
+        await fetch(ProjectMemory.self, path: "/api/projects/\(Self.seg(slug))/memory/fast")
     }
 
     public func deepMemory(slug: String) async -> Truthful<ProjectMemory> {
-        await fetch(ProjectMemory.self, path: "/api/projects/\(slug)/memory/deep", timeout: 15)
+        await fetch(ProjectMemory.self, path: "/api/projects/\(Self.seg(slug))/memory/deep", timeout: 15)
     }
 
     // MARK: - Sovereign Surface
 
     public func sovereignSurface(slug: String) async -> Truthful<SovereignSurface> {
-        await fetch(SovereignSurface.self, path: "/api/projects/\(slug)/sovereign-surface")
+        await fetch(SovereignSurface.self, path: "/api/projects/\(Self.seg(slug))/sovereign-surface")
     }
 
     public func truthSummary(slug: String) async -> Truthful<ProjectTruthSummary> {
-        await fetch(ProjectTruthSummary.self, path: "/api/projects/\(slug)/truth/summary")
+        await fetch(ProjectTruthSummary.self, path: "/api/projects/\(Self.seg(slug))/truth/summary")
     }
 
     // MARK: - Git Operations
 
     public func gitStatus(slug: String) async -> Truthful<GitStatusResponse> {
-        await fetch(GitStatusResponse.self, path: "/api/projects/\(slug)/git/status")
+        await fetch(GitStatusResponse.self, path: "/api/projects/\(Self.seg(slug))/git/status")
     }
 
     public func gitDiff(slug: String) async -> Truthful<GitDiffResponse> {
-        await fetch(GitDiffResponse.self, path: "/api/projects/\(slug)/git/diff")
+        await fetch(GitDiffResponse.self, path: "/api/projects/\(Self.seg(slug))/git/diff")
     }
 
     // MARK: - Execution & Workflows
 
     public func executionPackets(slug: String) async -> Truthful<ExecutionPacketsResponse> {
-        await fetch(ExecutionPacketsResponse.self, path: "/api/projects/\(slug)/execution/packets")
+        await fetch(ExecutionPacketsResponse.self, path: "/api/projects/\(Self.seg(slug))/execution/packets")
     }
 
     public func scientificWorkflows(slug: String) async -> Truthful<ScientificWorkflowsResponse> {
-        await fetch(ScientificWorkflowsResponse.self, path: "/api/projects/\(slug)/workflows/scientific")
+        await fetch(ScientificWorkflowsResponse.self, path: "/api/projects/\(Self.seg(slug))/workflows/scientific")
     }
 
     public func datasetCatalog(slug: String) async -> Truthful<DatasetCatalogResponse> {
-        await fetch(DatasetCatalogResponse.self, path: "/api/projects/\(slug)/datasets/catalog")
+        await fetch(DatasetCatalogResponse.self, path: "/api/projects/\(Self.seg(slug))/datasets/catalog")
     }
 
     // MARK: - Session
@@ -768,20 +815,21 @@ public actor CockpitClient {
         projectFamily: ProjectFamily? = nil,
         publicationScope: PublicationScope? = nil
     ) async -> Truthful<SessionHeartbeatResponse> {
+        let s = Self.seg(slug)
         let family = derivedProjectFamily(slug: slug, override: projectFamily)
         let scope = derivedPublicationScope(
             slug: slug,
             projectFamily: family,
             override: publicationScope
         )
-        let mobile = await postMobile(SessionHeartbeatResponse.self, path: "/api/mobile/v1/projects/\(slug)/heartbeat", body: [
+        let mobile = await postMobile(SessionHeartbeatResponse.self, path: "/api/mobile/v1/projects/\(s)/heartbeat", body: [
             "clientSessionId": clientSessionId,
             "projectFamily": family.rawValue,
             "publicationScope": scope.rawValue,
             "confirmed": true
         ])
         if mobile.value != nil { return mobile }
-        return await post(SessionHeartbeatResponse.self, path: "/api/projects/\(slug)/session/heartbeat", body: [
+        return await post(SessionHeartbeatResponse.self, path: "/api/projects/\(s)/session/heartbeat", body: [
             "clientSessionId": clientSessionId,
             "projectFamily": family.rawValue,
             "publicationScope": scope.rawValue
@@ -816,7 +864,7 @@ public actor CockpitClient {
         }
         return await postMobile(
             IdeaSaveResponse.self,
-            path: "/api/mobile/v1/projects/\(slug)/ideas",
+            path: "/api/mobile/v1/projects/\(Self.seg(slug))/ideas",
             body: body
         )
     }
@@ -848,7 +896,7 @@ public actor CockpitClient {
         }
         return await postMobile(
             DelegationResponse.self,
-            path: "/api/mobile/v1/projects/\(slug)/delegations",
+            path: "/api/mobile/v1/projects/\(Self.seg(slug))/delegations",
             body: body
         )
     }
@@ -863,10 +911,39 @@ public actor CockpitClient {
         await fetch(ControlRoomVisionResponse.self, path: "/api/public/vision/control-room")
     }
 
+    // MARK: - Mobile Companion & Telemetry Routes
+
+    /// Recent sky + ambient + HRV series for the Agora detail screen's trends.
+    public func agoraHistory(hours: Int = 48) async -> Truthful<AgoraHistory> {
+        await fetch(AgoraHistory.self, path: "/api/mobile/v1/agora-history?hours=\(hours)", timeout: 20)
+    }
+
+    /// Body × sky × ambient correlations (Spearman + lag scan) proxied through the cockpit.
+    public func correlations(days: Int = 30) async -> Truthful<PhysioCorrelations> {
+        await fetch(PhysioCorrelations.self, path: "/api/mobile/v1/correlations?days=\(days)", timeout: 20)
+    }
+
+    /// Flush one queued offline companion turn to the cockpit's memory-spine ingest endpoint.
+    public func ingestTurn(_ request: IngestTurnRequest) async -> Truthful<IngestTurnResult> {
+        let mobile = await postMobileEncoded(
+            IngestTurnResult.self,
+            path: "/api/mobile/v1/ingest",
+            body: request,
+            timeout: 30
+        )
+        if mobile.value != nil { return mobile }
+        return await postEncoded(
+            IngestTurnResult.self,
+            path: "/api/mobile/v1/ingest",
+            body: request,
+            timeout: 30
+        )
+    }
+
     // MARK: - Agent Scratchpad (inter-agent communication)
 
     public func agentScratchpad(slug: String) async -> Truthful<ScratchpadResponse> {
-        await fetch(ScratchpadResponse.self, path: "/api/projects/\(slug)/agents/scratchpad")
+        await fetch(ScratchpadResponse.self, path: "/api/projects/\(Self.seg(slug))/agents/scratchpad")
     }
 
     public func postAgentMessage(slug: String, agent: String, text: String, consciousnessState: ConsciousnessState? = nil) async -> Truthful<AgentMessageAck> {
@@ -882,7 +959,7 @@ public actor CockpitClient {
             if let cp = cs.circadianPhase { csDict["circadian_phase"] = cp }
             body["consciousness_state"] = csDict
         }
-        return await post(AgentMessageAck.self, path: "/api/projects/\(slug)/agents/scratchpad", body: body)
+        return await post(AgentMessageAck.self, path: "/api/projects/\(Self.seg(slug))/agents/scratchpad", body: body)
     }
 }
 

@@ -1,0 +1,1 @@
+Build passou. Testes encontrados no pacote; não executados. Adicionar testes de contrato de navegação e repetição de mutações.

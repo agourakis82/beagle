@@ -44,7 +44,13 @@ public struct FleetEndpoint: Sendable {
     /// Enquanto o servidor não publicar o roster de protocolo num frame, isto tem que ser
     /// atualizado junto com o launcher. É dívida DECLARADA, não descuido: as duas listas precisam
     /// virar uma, vinda do servidor.
-    public static let loomdLanes: [String] = ["loom-1", "codex-4"]
+    ///
+    /// 🚨 15-ago-2026: media ao vivo em `curl 127.0.0.1:4400/v2/state` (dentro do pod) — o loomd
+    /// está de pé e observa `claude-1/2/3/4`, `codex-4` e `loom-1` de verdade, com turno e título
+    /// reais. A semente antiga (`["loom-1", "codex-4"]`) tinha as duas ÚNICAS lanes que sobraram
+    /// certas por acidente; as outras quatro caíam no allowlist só quando o roster do SERVIDOR
+    /// chegava — e a Sessão ficava com o trilho vazio até esse frame aparecer.
+    public static let loomdLanes: [String] = ["claude-1", "claude-2", "claude-3", "claude-4", "codex-4", "loom-1"]
 
     /// Tudo em que o board pode agir: terminais + lanes do loomd. É o allowlist consultado
     /// antes de montar um POST de tecla/isolamento — sem estar aqui, a lane chega no frame e é

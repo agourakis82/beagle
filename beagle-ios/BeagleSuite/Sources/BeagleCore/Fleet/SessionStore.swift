@@ -80,88 +80,172 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
         }
     }
 
+    /// Factory for a usage step with English parameter labels.
+    public static func usage(
+        id: Int,
+        contextUsed: Int,
+        contextLimit: Int,
+        usd: Double,
+        at: Date
+    ) -> SessionStep {
+        .uso(id: id, contextoUsado: contextUsed, contextoTeto: contextLimit, usd: usd, at: at)
+    }
+
+    /// Extracted usage metrics when this step is a `.uso` event.
+    public var usageMetrics: TurnUsage? {
+        guard case .uso(_, let used, let limit, let usd, _) = self else { return nil }
+        return TurnUsage(contextUsed: used, contextLimit: limit, usd: usd)
+    }
+
     /// Quem falou. A tela alinha e colore por isto — e é a pergunta que o olho faz primeiro.
     public var isOperator: Bool { if case .prompt = self { return true }; return false }
 
-    /// Custo não é fala: não se desenha na linha do diálogo, vira rodapé do turno.
-    /// 🚨 Filtrado ANTES do ForEach — um braço que devolve EmptyView() ainda ocupa
-    /// posição no VStack e o `spacing` fixo abre um buraco por evento.
-    public var desenhavel: Bool {
+    /// Whether this step renders as a conversation item (usage steps fold into the turn footer).
+    public var isRenderable: Bool {
         if case .uso = self { return false }
         return true
     }
+
+    @available(*, deprecated, renamed: "isRenderable")
+    public var desenhavel: Bool { isRenderable }
 }
 
-/// Um TURNO: o pedido, e tudo que o agente fez por causa dele.
-///
-/// 🚨 Por que agrupar. No primeiro retrato a trilha corria reta — prompt, mensagem, ferramenta,
-/// diff, prompt, mensagem — e não havia como ver onde um pedido acabava e o próximo começava. Uma
-/// sessão de trabalho de verdade tem dez turnos, e sem fronteira a tela deixa de ser legível
-/// exatamente quando fica útil.
-public struct UsoDoTurno: Sendable, Equatable {
-    public let contextoUsado: Int
-    public let contextoTeto: Int
+/// Token context and USD cost snapshot for a session turn.
+public struct TurnUsage: Sendable, Equatable {
+    public let contextUsed: Int
+    public let contextLimit: Int
     public let usd: Double
-    public var proporcao: Double {
-        contextoTeto > 0 ? Double(contextoUsado) / Double(contextoTeto) : 0
+
+    public var ratio: Double {
+        contextLimit > 0 ? Double(contextUsed) / Double(contextLimit) : 0
+    }
+
+    public init(contextUsed: Int, contextLimit: Int, usd: Double) {
+        self.contextUsed = contextUsed
+        self.contextLimit = contextLimit
+        self.usd = usd
+    }
+
+    @available(*, deprecated, renamed: "contextUsed")
+    public var contextoUsado: Int { contextUsed }
+
+    @available(*, deprecated, renamed: "contextLimit")
+    public var contextoTeto: Int { contextLimit }
+
+    @available(*, deprecated, renamed: "ratio")
+    public var proporcao: Double { ratio }
+
+    @available(*, deprecated, renamed: "init(contextUsed:contextLimit:usd:)")
+    public init(contextoUsado: Int, contextoTeto: Int, usd: Double) {
+        self.init(contextUsed: contextoUsado, contextLimit: contextoTeto, usd: usd)
     }
 }
 
-public struct Turno: Identifiable, Sendable {
-    /// O `seq` do primeiro passo — estável e monotônico, então a lista não se reordena sozinha.
-    public let id: Int
-    public let passos: [SessionStep]
+@available(*, deprecated, renamed: "TurnUsage")
+public typealias UsoDoTurno = TurnUsage
 
-    public var pedido: String? {
-        for p in passos { if case .prompt(_, let t, _) = p { return t } }
+/// A grouped conversation turn: one operator prompt and all agent steps produced for it.
+public struct SessionTurn: Identifiable, Sendable {
+    /// Sequence ID of the first step — stable and monotonic.
+    public let id: Int
+    public let steps: [SessionStep]
+
+    public init(id: Int, steps: [SessionStep]) {
+        self.id = id
+        self.steps = steps
+    }
+
+    @available(*, deprecated, renamed: "init(id:steps:)")
+    public init(id: Int, passos: [SessionStep]) {
+        self.init(id: id, steps: passos)
+    }
+
+    public var prompt: String? {
+        for step in steps { if case .prompt(_, let text, _) = step { return text } }
         return nil
     }
-    public var comecouEm: Date { passos.first?.at ?? Date() }
-    public var terminouEm: Date { passos.last?.at ?? Date() }
-    /// Quanto durou. `nil` enquanto é o último turno e pode ainda estar correndo — afirmar duração
-    /// de algo em curso seria dizer que acabou.
-    public func duracao(concluido: Bool) -> TimeInterval? {
-        concluido ? terminouEm.timeIntervalSince(comecouEm) : nil
-    }
-    public var temDiff: Bool { passos.contains { if case .diff = $0 { return true }; return false } }
-    public var pedePermissao: Bool {
-        passos.contains { if case .approval = $0 { return true }; return false }
+
+    public var startedAt: Date { steps.first?.at ?? Date() }
+    public var endedAt: Date { steps.last?.at ?? Date() }
+
+    /// Elapsed turn duration, or `nil` while the turn is still in progress.
+    public func duration(completed: Bool) -> TimeInterval? {
+        completed ? endedAt.timeIntervalSince(startedAt) : nil
     }
 
-    /// O uso do turno. **O último passo com custo**, não a soma — medido: `cost.amount` vem nulo
-    /// em 15 dos 16 eventos, e somar funciona por acidente até o protocolo preencher os outros.
-    public var uso: UsoDoTurno? {
-        var ultimo: UsoDoTurno?
-        for p in passos {
-            if case .uso(_, let usado, let teto, let usd, _) = p {
-                // contexto é absoluto e monotônico: o último sempre vale.
-                // custo: só sobrescreve quando o evento realmente trouxe número.
-                let usdFinal = usd > 0 ? usd : (ultimo?.usd ?? 0)
-                ultimo = UsoDoTurno(contextoUsado: usado, contextoTeto: teto, usd: usdFinal)
-            }
-        }
-        return ultimo
+    public var hasDiff: Bool {
+        steps.contains { if case .diff = $0 { return true }; return false }
     }
 
-    /// Quebra a trilha em turnos. Um turno começa em cada `prompt` do operador.
-    ///
-    /// O que vem ANTES do primeiro prompt (uma sessão retomada, cujo pedido está fora da janela do
-    /// diário) forma um turno sem pedido — e a tela diz isso, em vez de fingir que aquilo pertence
-    /// ao próximo pedido, que seria atribuir trabalho ao pedido errado.
-    public static func agrupar(_ passos: [SessionStep]) -> [Turno] {
-        var fora: [Turno] = []
-        var atual: [SessionStep] = []
-        for p in passos {
-            if p.isOperator, !atual.isEmpty {
-                fora.append(Turno(id: atual[0].id, passos: atual))
-                atual = []
-            }
-            atual.append(p)
-        }
-        if !atual.isEmpty { fora.append(Turno(id: atual[0].id, passos: atual)) }
-        return fora
+    public var requiresApproval: Bool {
+        steps.contains { if case .approval = $0 { return true }; return false }
     }
+
+    /// Latest usage snapshot for this turn (monotonic context, last non-zero USD).
+    public var usage: TurnUsage? {
+        var latest: TurnUsage?
+        for step in steps {
+            if let metrics = step.usageMetrics {
+                let finalUsd = metrics.usd > 0 ? metrics.usd : (latest?.usd ?? 0)
+                latest = TurnUsage(
+                    contextUsed: metrics.contextUsed,
+                    contextLimit: metrics.contextLimit,
+                    usd: finalUsd
+                )
+            }
+        }
+        return latest
+    }
+
+    /// Groups a flat list of `SessionStep`s into turns delimited by operator prompts.
+    public static func group(_ steps: [SessionStep]) -> [SessionTurn] {
+        var turns: [SessionTurn] = []
+        var current: [SessionStep] = []
+        for step in steps {
+            if step.isOperator, !current.isEmpty {
+                turns.append(SessionTurn(id: current[0].id, steps: current))
+                current = []
+            }
+            current.append(step)
+        }
+        if !current.isEmpty {
+            turns.append(SessionTurn(id: current[0].id, steps: current))
+        }
+        return turns
+    }
+
+    // MARK: - Deprecated Portuguese compatibility shims
+
+    @available(*, deprecated, renamed: "steps")
+    public var passos: [SessionStep] { steps }
+
+    @available(*, deprecated, renamed: "prompt")
+    public var pedido: String? { prompt }
+
+    @available(*, deprecated, renamed: "startedAt")
+    public var comecouEm: Date { startedAt }
+
+    @available(*, deprecated, renamed: "endedAt")
+    public var terminouEm: Date { endedAt }
+
+    @available(*, deprecated, renamed: "duration(completed:)")
+    public func duracao(concluido: Bool) -> TimeInterval? { duration(completed: concluido) }
+
+    @available(*, deprecated, renamed: "hasDiff")
+    public var temDiff: Bool { hasDiff }
+
+    @available(*, deprecated, renamed: "requiresApproval")
+    public var pedePermissao: Bool { requiresApproval }
+
+    @available(*, deprecated, renamed: "usage")
+    public var uso: TurnUsage? { usage }
+
+    @available(*, deprecated, renamed: "group(_:)")
+    public static func agrupar(_ passos: [SessionStep]) -> [SessionTurn] { group(passos) }
 }
+
+@available(*, deprecated, renamed: "SessionTurn")
+public typealias Turno = SessionTurn
 
 /// Um evento cru da trama, como o cockpit o devolve em `/turns`.
 public struct TramaEvent: Decodable, Sendable {
@@ -187,18 +271,40 @@ public struct TramaEvent: Decodable, Sendable {
 @MainActor
 @Observable
 public final class SessionStore {
-    public enum Link: Sendable, Equatable { case idle, live, failed(String) }
+    public enum Link: ConnectionStateRepresentable {
+        case idle, live, failed(String)
+
+        public var isConnected: Bool { self == .live }
+        public var isConnecting: Bool { false }
+        public var failureMessage: String? {
+            if case .failed(let message) = self { return message }
+            return nil
+        }
+        public var truthMode: TruthMode {
+            switch self {
+            case .live: return .observed
+            case .idle: return .declared
+            case .failed: return .stale
+            }
+        }
+    }
 
     public private(set) var lane: String
     public private(set) var steps: [SessionStep] = []
-    /// A trilha agrupada. Derivada, nunca guardada em paralelo — dois lugares com a mesma verdade
-    /// divergem, e a lição já foi paga no `detail`/`text`.
-    public var turnos: [Turno] { Turno.agrupar(steps) }
+    /// Grouped conversation turns derived from `steps`.
+    public var turns: [SessionTurn] { SessionTurn.group(steps) }
+
+    @available(*, deprecated, renamed: "turns")
+    public var turnos: [SessionTurn] { turns }
+
     /// A mensagem SENDO ESCRITA agora — os deltas coalescidos do outro lado. Não é um passo:
     /// vira um quando fecha, e mostrá-la como passo faria a lista piscar a cada volta do poll.
     public private(set) var streaming: String?
     public private(set) var link: Link = .idle
-    public private(set) var sending = false
+    public private(set) var isSending = false
+
+    @available(*, deprecated, renamed: "isSending")
+    public var sending: Bool { isSending }
     /// A recusa do servidor, nas palavras dele. Ele sabe o motivo; nós inventaríamos um pior.
     public private(set) var note: String?
     public private(set) var lastPollAt: Date?
@@ -280,47 +386,51 @@ public final class SessionStore {
         // novidade — e o cliente voltaria ao começo do diário a cada volta silenciosa.
         cursor = max(cursor, page.cursor)
         streaming = page.streaming
-        turnoEmCurso = page.turnoEmCurso ?? (page.streaming != nil)
+        isTurnActive = page.turnoEmCurso ?? (page.streaming != nil)
         for e in page.events {
-            guard let passo = Self.passo(de: e) else { continue }
+            guard let step = Self.step(from: e) else { continue }
             // A trama é append-only e o cursor é monotônico, então repetição só acontece se um
             // poll for reaplicado. Guardar por `seq` é barato e evita a lista duplicar na tela.
-            if steps.contains(where: { $0.id == passo.id }) { continue }
-            steps.append(passo)
+            if steps.contains(where: { $0.id == step.id }) { continue }
+            steps.append(step)
         }
     }
 
-    /// A tradução. `Delta` nunca chega aqui — ele é coalescido no loomd e vem em `streaming`.
-    public static func passo(de e: TramaEvent) -> SessionStep? {
-        let corpo = e.text ?? e.detail ?? ""
-        switch e.kind {
+    /// Translates a raw `TramaEvent` into a renderable or usage `SessionStep`.
+    public static func step(from event: TramaEvent) -> SessionStep? {
+        let body = event.text ?? event.detail ?? ""
+        switch event.kind {
         case "user_prompt":
-            return .prompt(id: e.seq, text: corpo, at: e.at)
+            return .prompt(id: event.seq, text: body, at: event.at)
         case "agent_message":
-            return .message(id: e.seq, text: corpo, at: e.at)
+            return .message(id: event.seq, text: body, at: event.at)
         case "diff_proposed":
-            guard let d = e.diff, !d.isEmpty else { return nil }
-            return .diff(id: e.seq, patch: d, at: e.at)
+            guard let d = event.diff, !d.isEmpty else { return nil }
+            return .diff(id: event.seq, patch: d, at: event.at)
         case "awaiting_approval":
             // 🚨 A lane ACP embute o diff AQUI — ela não emite `diff_proposed`. Descartar
-            // `e.diff` neste braço era o operador aprovando uma mudança que nunca viu.
-            return .approval(id: e.seq, kind: e.approvalKind ?? .other, detail: corpo,
-                              diff: e.diff, at: e.at)
+            // `event.diff` neste braço era o operador aprovando uma mudança que nunca viu.
+            return .approval(id: event.seq, kind: event.approvalKind ?? .other, detail: body,
+                              diff: event.diff, at: event.at)
         case "error":
-            return .failure(id: e.seq, text: corpo.isEmpty ? "erro sem descrição" : corpo, at: e.at)
+            return .failure(id: event.seq, text: body.isEmpty ? "erro sem descrição" : body, at: event.at)
         case "tool_call", "tool_result":
-            return .tool(id: e.seq, name: e.tool ?? "ferramenta", detail: corpo, at: e.at)
-        // Ruído de ciclo de vida: existe na trama porque é verdade, e não vira linha na tela
-        // porque não é decisão nem conteúdo. Um turno que começa não é notícia.
+            return .tool(id: event.seq, name: event.tool ?? "ferramenta", detail: body, at: event.at)
         case "usage":
-            guard let u = Self.uso(de: e.detail ?? "") else { return nil }
-            return .uso(id: e.seq, contextoUsado: u.usado, contextoTeto: u.teto, usd: u.usd, at: e.at)
+            guard let u = Self.uso(de: event.detail ?? "") else { return nil }
+            return .usage(id: event.seq, contextUsed: u.usado, contextLimit: u.teto, usd: u.usd, at: event.at)
         case "turn_started", "turn_ended", "session_started", "session_ended",
              "idle", "approval_answered", "unknown", "delta":
             return nil
         default:
             return nil
         }
+    }
+
+    /// A tradução. `Delta` nunca chega aqui — ele é coalescido no loomd e vem em `streaming`.
+    @available(*, deprecated, renamed: "step(from:)")
+    public static func passo(de e: TramaEvent) -> SessionStep? {
+        step(from: e)
     }
 
     /// "contexto 38718/1000000 · USD 0.3728" → os três números.
@@ -398,17 +508,13 @@ public final class SessionStore {
         case linkCaido(String)
     }
 
-    public static func razaoSemCapacidadeDeclarada(link: FleetStateClient.Link?) -> RazaoSemCapacidadeDeclarada {
+    public static func razaoSemCapacidadeDeclarada(link: FleetStateStore.Link?) -> RazaoSemCapacidadeDeclarada {
         guard let link else { return .transitorio }
         switch link {
         case .idle, .connecting, .live:
-            // `.idle`/`.connecting` são o arranque, antes de qualquer queda — dizer "o broker
-            // caiu" aí seria alarmar sobre uma queda que nunca aconteceu. `.live` é a fonte de
-            // pé; se `aceita` ainda é `nil` com o link vivo, é porque o quadro desta lane
-            // específica não chegou, não porque o transporte está mudo.
             return .transitorio
-        case .reconnecting, .insistindo, .failed:
-            return .linkCaido(FleetStateClient.explicacaoDoLink(link))
+        case .reconnecting, .retrying, .failed:
+            return .linkCaido(FleetStateStore.linkDescription(link))
         }
     }
 
@@ -508,15 +614,20 @@ public final class SessionStore {
         }
     }
 
-    public static func rodapeDoTurno(duracao: TimeInterval?, uso: UsoDoTurno?) -> String? {
-        var partes: [String] = []
-        if let d = duracao { partes.append(rodapeDur(d)) }
-        if let u = uso {
-            partes.append(contextoDoRodape(u.proporcao))
+    public static func turnFooter(duration: TimeInterval?, usage: TurnUsage?) -> String? {
+        var parts: [String] = []
+        if let d = duration { parts.append(rodapeDur(d)) }
+        if let u = usage {
+            parts.append(contextoDoRodape(u.ratio))
             // Quatro casas: o rodapé mede UM turno, e a quarta casa É o dado. Ver `moeda`.
-            if u.usd > 0 { partes.append(moeda(u.usd, casas: 4)) }
+            if u.usd > 0 { parts.append(moeda(u.usd, casas: 4)) }
         }
-        return partes.isEmpty ? nil : partes.joined(separator: " · ")
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    @available(*, deprecated, renamed: "turnFooter(duration:usage:)")
+    public static func rodapeDoTurno(duracao: TimeInterval?, uso: TurnUsage?) -> String? {
+        turnFooter(duration: duracao, usage: uso)
     }
 
     /// A porcentagem de contexto usado, para o rodapé. O 5º "arredonda para zero" desta fatia:
@@ -879,14 +990,14 @@ public final class SessionStore {
     @discardableResult
     public func send(_ text: String) async -> Bool {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, !sending else { return false }
+        guard !t.isEmpty, !isSending else { return false }
         guard let req = endpoint.lanePromptRequest(sid: lane, text: t) else {
             note = "lane inválida: \(lane)"
             return false
         }
-        sending = true
+        isSending = true
         note = nil
-        defer { sending = false }
+        defer { isSending = false }
         do {
             let (data, resp) = try await session.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -902,17 +1013,19 @@ public final class SessionStore {
         }
     }
 
-    /// Há um turno correndo? É o que decide se a tela oferece parar/guiar — e a resposta vem do
-    /// servidor (a trama), nunca de um palpite do cliente sobre o último passo visto.
-    public private(set) var turnoEmCurso = false
+    /// Whether a turn is actively running according to the server.
+    public private(set) var isTurnActive = false
+
+    @available(*, deprecated, renamed: "isTurnActive")
+    public var turnoEmCurso: Bool { isTurnActive }
 
     /// Parar o turno, ou guiá-lo. `texto` vazio = interromper.
     @discardableResult
     public func turno(interromper: Bool, texto: String = "") async -> Bool {
         guard let req = endpoint.laneTurnRequest(sid: lane, interromper: interromper, text: texto) else { return false }
-        sending = true
+        isSending = true
         note = nil
-        defer { sending = false }
+        defer { isSending = false }
         do {
             let (data, resp) = try await session.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
@@ -933,9 +1046,9 @@ public final class SessionStore {
     @discardableResult
     public func approve(_ allow: Bool) async -> Bool {
         guard let req = endpoint.laneApproveRequest(sid: lane, allow: allow) else { return false }
-        sending = true
+        isSending = true
         note = nil
-        defer { sending = false }
+        defer { isSending = false }
         do {
             let (data, resp) = try await session.data(for: req)
             let code = (resp as? HTTPURLResponse)?.statusCode ?? 0

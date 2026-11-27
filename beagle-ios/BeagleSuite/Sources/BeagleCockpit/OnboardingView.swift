@@ -15,7 +15,7 @@ struct OnboardingView: View {
     @State private var page = 0
     @State private var firstThought = ""
     @State private var selectedModel: OnDeviceModel = .recommended
-    @State private var hasAppeared = false
+    @State private var hasAppeared = ProcessInfo.processInfo.arguments.contains("--ui-testing")
 
     var body: some View {
         TabView(selection: $page) {
@@ -54,6 +54,7 @@ struct OnboardingView: View {
                 Text("Beagle")
                     .font(BeagleFont.title1.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
+                    .accessibilityIdentifier("onboarding.welcomeTitle")
 
                 Text("A private mind in your hand that can interface with a larger living intelligence when you want more reach.")
                     .font(BeagleFont.body.font)
@@ -83,7 +84,7 @@ struct OnboardingView: View {
 
             VStack(spacing: BeagleSpacing.md) {
                 pageIndicator
-                nextButton("Get Started") { page = 1 }
+                nextButton("Get Started", identifier: "onboarding.getStartedButton") { page = 1 }
             }
         }
         .padding(BeagleSpacing.lg)
@@ -103,6 +104,7 @@ struct OnboardingView: View {
                 Text("On-Device Intelligence")
                     .font(BeagleFont.title2.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
+                    .accessibilityIdentifier("onboarding.modelTitle")
 
                 Text("Choose a model that runs entirely on your \(deviceName). No cloud required.")
                     .font(BeagleFont.subheadline.font)
@@ -147,7 +149,7 @@ struct OnboardingView: View {
 
             VStack(spacing: BeagleSpacing.md) {
                 pageIndicator
-                nextButton("Continue") { page = 2 }
+                nextButton("Continue", identifier: "onboarding.continueButton") { page = 2 }
             }
         }
         .padding(BeagleSpacing.lg)
@@ -167,6 +169,7 @@ struct OnboardingView: View {
                 Text("Your First Thought")
                     .font(BeagleFont.title2.font)
                     .foregroundStyle(BeagleTheme.textPrimary)
+                    .accessibilityIdentifier("onboarding.captureTitle")
 
                 Text("What's on your mind right now? Anything at all. This is the beginning of your first thread with Beagle.")
                     .font(BeagleFont.subheadline.font)
@@ -190,6 +193,7 @@ struct OnboardingView: View {
                         .strokeBorder(BeagleTheme.truthRemembered.opacity(0.12), lineWidth: 1)
                 )
                 .padding(.horizontal, BeagleSpacing.md)
+                .accessibilityIdentifier("onboarding.thoughtField")
 
             Spacer()
 
@@ -199,7 +203,7 @@ struct OnboardingView: View {
                 Button {
                     completeOnboarding()
                 } label: {
-                    Text(firstThought.isEmpty ? "Skip for now" : "Begin")
+                    Text(firstThought.isEmpty ? LocalizedStringKey("Skip for now") : LocalizedStringKey("Begin"))
                         .font(BeagleFont.body.font)
                         .fontWeight(.semibold)
                         .foregroundStyle(.white)
@@ -215,6 +219,7 @@ struct OnboardingView: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("onboarding.completeButton")
                 .sensoryFeedback(.success, trigger: isComplete)
             }
         }
@@ -223,7 +228,7 @@ struct OnboardingView: View {
 
     // MARK: - Helpers
 
-    private func featureRow(icon: String, text: String, color: Color) -> some View {
+    private func featureRow(icon: String, text: LocalizedStringKey, color: Color) -> some View {
         HStack(spacing: BeagleSpacing.sm) {
             Image(systemName: icon)
                 .font(.system(size: 14))
@@ -236,7 +241,11 @@ struct OnboardingView: View {
         }
     }
 
-    private func nextButton(_ label: String, action: @escaping () -> Void) -> some View {
+    private func nextButton(
+        _ label: LocalizedStringKey,
+        identifier: String,
+        action: @escaping () -> Void
+    ) -> some View {
         Button {
             withAnimation(BeagleMotion.snappy) { action() }
         } label: {
@@ -252,6 +261,7 @@ struct OnboardingView: View {
                 )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 
     private var pageIndicator: some View {

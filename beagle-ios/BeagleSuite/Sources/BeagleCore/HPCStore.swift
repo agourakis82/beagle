@@ -13,42 +13,58 @@ import Observation
 @MainActor
 public final class HPCStore {
 
-    public var gpuMetrics: [GPUNodeMetric] = []
-    public var jobQueue: Truthful<HPCJobQueue> = .declared(HPCJobQueue(jobs: nil, totalGPUs: nil, allocatedGPUs: nil, generatedAt: nil))
-    public var isLoading = false
+    public private(set) var gpuMetrics: [GPUNodeMetric] = []
+    public private(set) var jobQueue: Truthful<HPCJobQueue> = .declared(HPCJobQueue(jobs: nil, totalGPUs: nil, allocatedGPUs: nil, generatedAt: nil))
+    public private(set) var isLoading = false
+    public private(set) var lastSubmissionError: String?
 
-    public init() {}
+    private let cockpitClient: CockpitClient
+    private let beagleClient: BeagleClient
+
+    public init(
+        cockpitClient: CockpitClient = .shared,
+        beagleClient: BeagleClient = .shared
+    ) {
+        self.cockpitClient = cockpitClient
+        self.beagleClient = beagleClient
+    }
 
     // MARK: - Refresh
 
     public func refresh() async {
         isLoading = true
-        async let queueTask = CockpitClient.shared.fetch(HPCJobQueue.self, path: "/api/jobs/queue")
-        jobQueue = await queueTask
-        isLoading = false
+        defer { isLoading = false }
+        jobQueue = await cockpitClient.hpcJobQueue()
     }
 
     // MARK: - Job submission via beagle-server
 
-    public func submitJob(kind: String) async -> HPCJob? {
-        let result = await BeagleClient.shared.post(
+    /// Submits an HPC job and preserves full epistemic provenance / error details.
+    public func submitJobResult(kind: String) async -> Truthful<HPCJob> {
+        let result = await beagleClient.post(
             HPCJob.self,
             path: "/api/darwin/hpc/jobs/submit",
             body: ["kind": kind]
         )
-        if let job = result.value {
-            // Refresh queue to include new job
+        if result.value != nil {
+            lastSubmissionError = nil
             await refresh()
-            return job
+        } else {
+            lastSubmissionError = result.error ?? "Job submission failed"
         }
-        return nil
+        return result
+    }
+
+    public func submitJob(kind: String) async -> HPCJob? {
+        await submitJobResult(kind: kind).value
     }
 
     /// Get stdout from a running/completed job.
     public func jobStdout(jobId: String) async -> String? {
-        let result = await BeagleClient.shared.fetch(
+        let encodedId = BeagleEndpoints.pathComponent(jobId)
+        let result = await beagleClient.fetch(
             ChatResponse.self,  // reuse — has response field
-            path: "/api/darwin/hpc/jobs/\(jobId)/stdout"
+            path: "/api/darwin/hpc/jobs/\(encodedId)/stdout"
         )
         return result.value?.response
     }

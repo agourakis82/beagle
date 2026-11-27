@@ -47,6 +47,8 @@ struct BeagleSurface: View {
         case memory  // "o que eu lembro de ti" — warm biography read, NOT the memoryLens debug console
         case dreamInsights  // overnight Dream Synthesis reader — only surfaced consumer of DreamSynthesisEngine
         case work  // agent deck (WorkView) — was iPad-sidebar-only until this session's audit
+        case dailySynthesis  // Síntese Matinal Diária (GPT-6.2 Astra × Fisioma × Céu × Agenda)
+        case deepExploration // Modo Fundo (DeepExplorationView) — target for beagle://fundo Live Activity tap
 
         var id: String { rawValue }
     }
@@ -54,9 +56,27 @@ struct BeagleSurface: View {
     var body: some View {
         surfaceRoot
             .onChange(of: deepLink.pending) { _, _ in
-                // The Companion honours only its own destination; Frota/Oficina belong to the
-                // macOS Mission Control and are left parked for it.
-                if case .work = deepLink.pending { _ = deepLink.consume(); activeSheet = .work }
+                // The Companion honours its own destinations (.work, .chat, .fundo, .sintese); Frota/Oficina belong
+                // to the macOS Mission Control / iPad sidebar and are left parked for them.
+                switch deepLink.pending {
+                case .work:
+                    _ = deepLink.consume()
+                    activeSheet = .work
+                case .capture:
+                    _ = deepLink.consume()
+                    activeSheet = .capture
+                case .fundo:
+                    _ = deepLink.consume()
+                    activeSheet = .deepExploration
+                case .sintese:
+                    _ = deepLink.consume()
+                    activeSheet = .dailySynthesis
+                case .chat:
+                    _ = deepLink.consume()
+                    activeSheet = nil
+                default:
+                    break
+                }
             }
             .task { deepLink.applyLaunchArgumentIfPresent() }
             .task {
@@ -73,6 +93,15 @@ struct BeagleSurface: View {
             }
             .onChange(of: latestSurfaceWriteHapticKey) { oldValue, newValue in
                 markSurfaceWriteTransition(from: oldValue, to: newValue)
+            }
+            .onChange(of: physio.summary.observedAt) { _, _ in
+                syncConversationLiveContext()
+            }
+            .onChange(of: physio.cognitivePosture.observedAt) { _, _ in
+                syncConversationLiveContext()
+            }
+            .onChange(of: spaceWeather.latest?.ts) { _, _ in
+                syncConversationLiveContext()
             }
     }
 
@@ -117,7 +146,9 @@ struct BeagleSurface: View {
                 onOpenMemory: { activeSheet = .memory },
                 onOpenDreamInsights: { activeSheet = .dreamInsights },
                 unreadDreamInsightCount: DreamSynthesisEngine.shared.unreadCount,
-                onOpenWork: { activeSheet = .work }
+                onOpenWork: { activeSheet = .work },
+                onOpenDailySynthesis: { activeSheet = .dailySynthesis },
+                onOpenDeepExploration: { activeSheet = .deepExploration }
             )
         }
     }
@@ -177,6 +208,26 @@ struct BeagleSurface: View {
             dreamInsightsSheet
         case .work:
             workSheet
+        case .dailySynthesis:
+            DailySynthesisView(
+                captureLines: cognitive.todaysCaptureLines(),
+                physioSummary: physio.summary,
+                sky: spaceWeather.latest
+            )
+        case .deepExploration:
+            deepExplorationSheet
+        }
+    }
+
+    private var deepExplorationSheet: some View {
+        NavigationStack {
+            DeepExplorationView()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Fechar") { activeSheet = nil }
+                            .accessibilityIdentifier("surface.deepExploration.closeButton")
+                    }
+                }
         }
     }
 
@@ -186,6 +237,7 @@ struct BeagleSurface: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { activeSheet = nil }
+                            .accessibilityIdentifier("surface.dreamInsights.doneButton")
                     }
                 }
         }
@@ -197,6 +249,7 @@ struct BeagleSurface: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Fechar") { activeSheet = nil }
+                            .accessibilityIdentifier("surface.work.closeButton")
                     }
                 }
         }
@@ -208,6 +261,7 @@ struct BeagleSurface: View {
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Done") { activeSheet = nil }
+                            .accessibilityIdentifier("surface.settings.doneButton")
                     }
                 }
         }
@@ -892,17 +946,27 @@ struct BeagleSurface: View {
             sounioMomentsRefresh,
             bodyRefresh
         )
+        syncConversationLiveContext()
     }
 
     private func bootstrapSurface() async {
         wireConversation()
         exocortex.modelContext = modelContext
         exocortex.loadCachedHome()
-        // Cold-start: refresh the project catalog so slugs/projects survive a fresh launch
-        // (previously catalog only refreshed from the error-banner retry).
+        if ProcessInfo.processInfo.arguments.contains("--ui-testing") {
+            syncConversationLiveContext()
+            return
+        }
+        // Cold-start: refresh the project catalog + companion grounding + Beagle MCP tools + flush any offline outbox
         async let catalogTask: () = catalog.refresh()
+        async let groundingTask: () = conversation.refreshGroundingIfStale()
+        async let outboxTask: () = conversation.flushOutbox()
+        Task {
+            _ = await BeagleMCPClient.shared.availableTools()
+        }
         await refreshLivingHome()
-        _ = await catalogTask
+        _ = await (catalogTask, groundingTask, outboxTask)
+        syncConversationLiveContext()
     }
 
     private func performNextMove(_ move: HomeNextMove) {
@@ -1022,6 +1086,20 @@ struct BeagleSurface: View {
 
     // MARK: - Wire conversation on appear
 
+    private func syncConversationLiveContext() {
+        if let r = physio.cognitivePosture.readiness {
+            if r >= 0.7 { conversation.flowState = "FLOW" }
+            else if r < 0.3 { conversation.flowState = "STRESS" }
+            else { conversation.flowState = "NORMAL" }
+        }
+        conversation.sleepQuality01 = physio.cognitivePosture.sleepQuality
+        conversation.physioSummary = physio.summary
+        if physio.summary.isMeaningful {
+            conversation.physioContext = physio.summary.detailLine
+        }
+        conversation.currentSky = spaceWeather.latest
+    }
+
     private func wireConversation() {
         let slug = cognitive.activeProjectSlug ?? catalog.primaryProject?.projectSlug ?? "sounio"
         conversation.modelContext = modelContext
@@ -1030,19 +1108,43 @@ struct BeagleSurface: View {
         conversation.publicationScope = PublicationScope.forProjectFamily(
             ProjectFamily.fromProjectSlug(slug)
         )
-        // Derive flow state from readiness
-        if let r = physio.cognitivePosture.readiness {
-            if r >= 0.7 { conversation.flowState = "FLOW" }
-            else if r < 0.3 { conversation.flowState = "STRESS" }
-            else { conversation.flowState = "NORMAL" }
-        }
-        // Real sleep → the attuned body-as-story greeting (no metrics surfaced).
-        conversation.sleepQuality01 = physio.cognitivePosture.sleepQuality
-        // Live body + sky → sent raw in the chat so the server's `## Agora` matches the screen.
-        // (If the sky hasn't fetched yet, the server fills in céu from its own fetch.)
-        conversation.physioSummary = physio.summary
-        conversation.currentSky = spaceWeather.latest
+        syncConversationLiveContext()
         conversation.loadPersistedConversation()
+        if ProcessInfo.processInfo.arguments.contains("--demo-chat") {
+            conversation.seedDemoConversation()
+        }
+
+        let physioStore = physio
+        let skyStore = spaceWeather
+        AppleDeviceToolsBridge.shared.registerLivePhysioProvider { shouldRefresh in
+            await Task { @MainActor in
+                if shouldRefresh || !physioStore.summary.isMeaningful {
+                    await physioStore.refresh(requestAuthorization: false)
+                }
+                let s = physioStore.summary
+                let p = physioStore.cognitivePosture
+                var lines: [String] = ["## Fisioma ao Vivo (Apple Watch / HealthKit)"]
+                lines.append("- Prontidão autonômica: \(s.readiness.rawValue) (\(s.detailLine))")
+                if let hrv = s.hrvMs { lines.append(String(format: "- HRV (SDNN): %.1f ms", hrv)) }
+                if let rhr = s.restingHeartRate { lines.append(String(format: "- FC de repouso: %.0f bpm", rhr)) }
+                if let sleep = s.sleepHours { lines.append(String(format: "- Sono total: %.1f h", sleep)) }
+                if let sq = p.sleepQuality { lines.append(String(format: "- Fração Sono Profundo + REM: %.0f%%", sq * 100)) }
+                if let resp = p.respiratoryRate { lines.append(String(format: "- Frequência respiratória: %.1f irpm", resp)) }
+                if let temp = p.wristTemperature { lines.append(String(format: "- Delta de temperatura noturna do punho: %+.2f °C", temp)) }
+                if let som = p.stateOfMind { lines.append(String(format: "- Estado da Mente (valência -1..+1): %+.2f", som)) }
+                if let r = p.readiness { lines.append(String(format: "- Índice composto de prontidão cognitiva (5 sinais): %.0f%%", r * 100)) }
+                let mindful = Int((s.mindfulMinutes ?? 0).rounded())
+                lines.append("- Treinos recentes: \(s.workoutCount) · Minutos de atenção plena: \(mindful)")
+                if let sky = skyStore.latest {
+                    var skyLine = String(format: "- Clima espacial / geomagnético: Kp %.1f (%@), F10.7 %.0f sfu", sky.kp, sky.band.rawValue, sky.f107)
+                    if let dst = sky.dst { skyLine += String(format: ", Dst %.0f nT", dst) }
+                    if let sw = sky.solarWindSpeed { skyLine += String(format: ", vento solar %.0f km/s", sw) }
+                    if let bz = sky.bz { skyLine += String(format: ", Bz %+.1f nT", bz) }
+                    lines.append(skyLine)
+                }
+                return lines.joined(separator: "\n")
+            }.value
+        }
 
         // Configure Foundation Models with stores
         #if canImport(FoundationModels)
@@ -3832,7 +3934,7 @@ private struct ShellPresenceGradient: View {
         )
         .ignoresSafeArea()
         .onAppear {
-            guard !reduceMotion else { return }
+            guard !reduceMotion, !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { return }
             withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) {
                 phase = 1
             }

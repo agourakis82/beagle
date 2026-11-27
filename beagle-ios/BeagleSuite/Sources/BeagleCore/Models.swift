@@ -1075,11 +1075,24 @@ public struct ResearchRunAttributes: ActivityAttributes {
         public var stepCurrent: Int
         public var stepTotal: Int
         public var etaSeconds: Int
+        public var activeLens: String?
+        public var summarySnippet: String?
+        public var isCompleted: Bool?
 
-        public init(stepCurrent: Int, stepTotal: Int, etaSeconds: Int) {
+        public init(
+            stepCurrent: Int,
+            stepTotal: Int,
+            etaSeconds: Int,
+            activeLens: String? = nil,
+            summarySnippet: String? = nil,
+            isCompleted: Bool? = nil
+        ) {
             self.stepCurrent = stepCurrent
             self.stepTotal = stepTotal
             self.etaSeconds = etaSeconds
+            self.activeLens = activeLens
+            self.summarySnippet = summarySnippet
+            self.isCompleted = isCompleted
         }
     }
 
@@ -2404,6 +2417,18 @@ public struct RoundTableResult: Codable, Sendable {
     public let pciScore: Double?
     public let synthesis: String?
 
+    public init(
+        voices: [RoundTableVoice]? = nil,
+        interference: RoundTableInterference? = nil,
+        pciScore: Double? = nil,
+        synthesis: String? = nil
+    ) {
+        self.voices = voices
+        self.interference = interference
+        self.pciScore = pciScore
+        self.synthesis = synthesis
+    }
+
     enum CodingKeys: String, CodingKey {
         case voices, interference, synthesis
         case pciScore = "pci_score"
@@ -2415,12 +2440,28 @@ public struct RoundTableVoice: Codable, Sendable, Identifiable {
     public let name: String
     public let perspective: String?
     public let content: String
+
+    public init(name: String, perspective: String? = nil, content: String) {
+        self.name = name
+        self.perspective = perspective
+        self.content = content
+    }
 }
 
 public struct RoundTableInterference: Codable, Sendable {
     public let constructive: [String]?
     public let destructive: [String]?
     public let emergentInsights: [String]?
+
+    public init(
+        constructive: [String]? = nil,
+        destructive: [String]? = nil,
+        emergentInsights: [String]? = nil
+    ) {
+        self.constructive = constructive
+        self.destructive = destructive
+        self.emergentInsights = emergentInsights
+    }
 }
 
 // MARK: - Thought Capture

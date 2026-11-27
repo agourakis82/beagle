@@ -29,6 +29,8 @@ struct AuroraPresence: View {
     let isStreaming: Bool
     let size: Size
     enum Size { case greeter, header }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private static let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
 
     /// Height of the aurora band relative to the available height.
     private var bandHeightFraction: CGFloat { size == .greeter ? 0.55 : 0.45 }
@@ -63,9 +65,17 @@ struct AuroraPresence: View {
     private var streamingBoost: Double { isStreaming ? 1.6 : 1.0 }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: false)) { context in
-            Canvas(rendersAsynchronously: true) { ctx, sz in
-                draw(ctx: ctx, sz: sz, time: context.date.timeIntervalSinceReferenceDate)
+        Group {
+            if reduceMotion || Self.isUITesting {
+                Canvas(rendersAsynchronously: true) { ctx, sz in
+                    draw(ctx: ctx, sz: sz, time: 0)
+                }
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { context in
+                    Canvas(rendersAsynchronously: true) { ctx, sz in
+                        draw(ctx: ctx, sz: sz, time: context.date.timeIntervalSinceReferenceDate)
+                    }
+                }
             }
         }
         .compositingGroup()

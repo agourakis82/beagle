@@ -28,20 +28,43 @@ public final class OutboxStore {
     }
 }
 
-/// Body for POST /api/mobile/v1/ingest. Field names match what the cockpit handler reads
-/// (session_id, userText, assistantText, clientTime, timezone).
-public struct IngestTurnRequest: Encodable, Sendable {
-    public let session_id: String
+/// Body for POST /api/mobile/v1/ingest. Wire keys match what the cockpit handler reads
+/// (`session_id`, `userText`, `assistantText`, `clientTime`, `timezone`).
+public struct IngestTurnRequest: Encodable, Sendable, Equatable {
+    public let sessionId: String
     public let userText: String
     public let assistantText: String
     public let clientTime: String
     public let timezone: String
-    public init(session_id: String, userText: String, assistantText: String, clientTime: String, timezone: String) {
-        self.session_id = session_id
+
+    @available(*, deprecated, renamed: "sessionId")
+    public var session_id: String { sessionId }
+
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case userText
+        case assistantText
+        case clientTime
+        case timezone
+    }
+
+    public init(sessionId: String, userText: String, assistantText: String, clientTime: String, timezone: String) {
+        self.sessionId = sessionId
         self.userText = userText
         self.assistantText = assistantText
         self.clientTime = clientTime
         self.timezone = timezone
+    }
+
+    @available(*, deprecated, renamed: "init(sessionId:userText:assistantText:clientTime:timezone:)")
+    public init(session_id: String, userText: String, assistantText: String, clientTime: String, timezone: String) {
+        self.init(
+            sessionId: session_id,
+            userText: userText,
+            assistantText: assistantText,
+            clientTime: clientTime,
+            timezone: timezone
+        )
     }
 }
 

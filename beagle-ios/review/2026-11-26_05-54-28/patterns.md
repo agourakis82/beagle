@@ -1,0 +1,1 @@
+Nenhum novo framework ou padrão proposto; manter arquitetura existente.

@@ -21,34 +21,34 @@ public final class CognitiveStore {
     private static let isoFormatter = ISO8601DateFormatter()
     private let assistedImportEncoder = JSONEncoder()
 
-    public var state: Truthful<CognitiveState> = .declared(
+    public private(set) var state: Truthful<CognitiveState> = .declared(
         CognitiveState(hrv: nil, recentDrafts: nil, triadLatest: nil, agentSessions: nil, recentVoidJourneys: nil, recentFractalTrees: nil, recentPhiMeasurements: nil)
     )
-    public var recentThoughts: [ThoughtCapture] = []
-    public var activeJobs: [ScienceJob] = []
-    public var lastTriad: Truthful<TriadResult>?
+    public private(set) var recentThoughts: [ThoughtCapture] = []
+    public private(set) var activeJobs: [ScienceJob] = []
+    public private(set) var lastTriad: Truthful<TriadResult>?
 
     /// Latest PCI consciousness score from a Triad review.
     public private(set) var lastConsciousnessScore: ConsciousnessScore?
 
-    public var isLoading = false
-    public var isCapturing = false
-    public var isReviewingTriad = false
+    public private(set) var isLoading = false
+    public private(set) var isCapturing = false
+    public private(set) var isReviewingTriad = false
 
     /// Live, incrementally-streamed debate transcript (SSE). Cleared on each new review.
-    public var triadStreamText = ""
+    public private(set) var triadStreamText = ""
 
     /// Whether beagle-server is reachable.
-    public var serverReachable = false
+    public private(set) var serverReachable = false
 
     /// SwiftData context for persisting thoughts.
     public var modelContext: ModelContext?
 
     /// Total thoughts ever captured (persisted count).
-    public var totalThoughtCount: Int = 0
+    public private(set) var totalThoughtCount: Int = 0
 
     /// Somatic snapshots taken at thought capture time (body state context).
-    public var somaticSnapshots: [SomaticSnapshot] = []
+    public private(set) var somaticSnapshots: [SomaticSnapshot] = []
 
     /// The project that should receive idea writes on the mobile boundary.
     public var activeProjectSlug: String?
@@ -56,7 +56,11 @@ public final class CognitiveStore {
     /// Reference to the physio store for somatic snapshot capture.
     public weak var physioStore: PhysioStore?
 
-    public init() {}
+    private let client: BeagleClient
+
+    public init(client: BeagleClient = .shared) {
+        self.client = client
+    }
 
     /// Load persisted thoughts from SwiftData on launch.
     public func loadPersistedThoughts() {
@@ -107,10 +111,10 @@ public final class CognitiveStore {
 
     public func refresh() async {
         isLoading = true
-        serverReachable = await BeagleClient.shared.isReachable()
+        serverReachable = await client.isReachable()
 
         if serverReachable {
-            state = await BeagleClient.shared.cognitiveState()
+            state = await client.cognitiveState()
         }
         isLoading = false
     }
@@ -151,7 +155,7 @@ public final class CognitiveStore {
             persisted.refinedText = thought.refinedText
             persisted.syncedToServer = false
         } else {
-            let result = await BeagleClient.shared.assistedImportBatch(request)
+            let result = await client.assistedImportBatch(request)
             if let importResult = result.value, importResult.status == "imported" {
                 let atoms = importResult.projection?.atomsCreated ?? 0
                 let episodes = importResult.projection?.episodesCreated ?? 0
@@ -160,7 +164,7 @@ public final class CognitiveStore {
                 // Detect the source language up-front and pass it as a preserve-language
                 // hint so Portuguese thoughts stay in Portuguese after refinement.
                 let sourceLanguageHint = TranslationEngine.shared.detectLanguage(text)
-                let refined = await BeagleClient.shared.refineThought(
+                let refined = await client.refineThought(
                     text: text,
                     projectSlug: projectSlug,
                     source: source,
@@ -260,7 +264,7 @@ public final class CognitiveStore {
                 modelContext.delete(item)
                 continue
             }
-            let result = await BeagleClient.shared.assistedImportBatch(request)
+            let result = await client.assistedImportBatch(request)
             if result.value?.status == "imported" {
                 modelContext.delete(item)
                 drained += 1
@@ -336,7 +340,7 @@ public final class CognitiveStore {
         isReviewingTriad = true
         defer { isReviewingTriad = false }
 
-        let result = await BeagleClient.shared.runTriad(prompt: draft)
+        let result = await client.runTriad(prompt: draft)
         lastTriad = result
         if let triadResult = result.value {
             lastConsciousnessScore = ConsciousnessMetrics.shared.computePCI(from: triadResult)
@@ -352,7 +356,7 @@ public final class CognitiveStore {
         defer { isReviewingTriad = false }
 
         var finalResult: TriadResult?
-        for await event in BeagleClient.shared.streamTriad(prompt: draft) {
+        for await event in client.streamTriad(prompt: draft) {
             switch event {
             case .delta(let agent, let text):
                 if let agent, !agent.isEmpty {
@@ -376,7 +380,7 @@ public final class CognitiveStore {
         }
         // Stream produced text but no structured final frame — fall back to the
         // non-streaming endpoint so the scores/opinions UI still resolves.
-        let result = await BeagleClient.shared.runTriad(prompt: draft)
+        let result = await client.runTriad(prompt: draft)
         lastTriad = result
         if let triadResult = result.value {
             lastConsciousnessScore = ConsciousnessMetrics.shared.computePCI(from: triadResult)
@@ -387,7 +391,7 @@ public final class CognitiveStore {
     // MARK: - Science jobs
 
     public func launchJob(kind: String) async -> ScienceJob? {
-        let result = await BeagleClient.shared.startScienceJob(kind: kind)
+        let result = await client.startScienceJob(kind: kind)
         if let job = result.value {
             activeJobs.insert(job, at: 0)
             return job
@@ -396,7 +400,7 @@ public final class CognitiveStore {
     }
 
     public func refreshJobStatus(jobId: String) async {
-        let result = await BeagleClient.shared.scienceJobStatus(jobId: jobId)
+        let result = await client.scienceJobStatus(jobId: jobId)
         if let updated = result.value, let idx = activeJobs.firstIndex(where: { $0.jobId == updated.jobId }) {
             activeJobs[idx] = updated
         }
@@ -421,7 +425,7 @@ public final class CognitiveStore {
             adequacy: adequacy,
             notes: notes
         )
-        let result = await BeagleClient.shared.postFeedback(event: event)
+        let result = await client.postFeedback(event: event)
         return result.value?.ok == true
     }
 

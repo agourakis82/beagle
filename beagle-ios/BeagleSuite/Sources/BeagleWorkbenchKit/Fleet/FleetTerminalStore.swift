@@ -40,24 +40,22 @@ public final class FleetTerminalStore {
         return c
     }
 
-    /// Adota um cliente PARADO, sem rede — a costura de teste.
-    ///
-    /// 🚨 Existe porque a mutação provou que sem ela os testes eram teatro: `chamou()` e
-    /// `titulo()` só podem ser exercidos com um cliente ABERTO, e criar um cliente abria
-    /// WebSocket. Os testes acabaram tocando o `PTYClient` direto e passavam com a regra do store
-    /// invertida — sino virando atividade, título repetindo o nome da lane. Decisão que só se
-    /// alcança abrindo socket não é decisão testável; é a mesma lição que já custou o
-    /// `FleetStateClient.approveTransport` e o `SessionStore.apply`.
-    public func adotar(_ agent: String, _ c: PTYClient) {
-        clients[agent] = c
+    /// Adopts an offline/mock `PTYClient` without opening a socket (test seam).
+    public func adopt(_ agent: String, client: PTYClient) {
+        clients[agent] = client
         if !opened.contains(agent) { opened.append(agent) }
+    }
+
+    @available(*, deprecated, renamed: "adopt(_:client:)")
+    public func adotar(_ agent: String, _ c: PTYClient) {
+        adopt(agent, client: c)
     }
 
     public func open(_ agent: String) {
         guard FleetEndpoint.hasTerminal(agent) else { return }
         let c = client(for: agent)
         seen[agent] = c.activity        // opening = caught up (clears unread)
-        sinosVistos[agent] = c.sinos     // e reconhece o chamado: você foi ver
+        sinosVistos[agent] = c.bellCount // e reconhece o chamado: você foi ver
         activeAgent = agent
     }
 
@@ -74,28 +72,27 @@ public final class FleetTerminalStore {
         clients[agent]?.state ?? .idle
     }
 
-    /// True when a non-active, opened agent produced output since it was last active.
-    /// O TÍTULO que o processo remoto anunciou (OSC 0/2) — o tmux publica ali o que a lane está
-    /// fazendo. `nil` quando ele não anunciou nada, e aí o chip mostra só o nome: inventar um
-    /// título seria pior que não ter, porque pareceria informação.
-    ///
-    /// Só para lane ABERTA: sem cliente não há fio, e um título de memória de uma lane fechada
-    /// seria uma afirmação sobre o presente feita com dado velho.
-    public func titulo(_ agent: String) -> String? {
-        guard let t = clients[agent]?.titulo?.trimmingCharacters(in: .whitespacesAndNewlines),
+    /// Terminal title announced by an open lane (OSC 0/2), or `nil` when empty or identical to the agent name.
+    public func title(for agent: String) -> String? {
+        guard let t = clients[agent]?.title?.trimmingCharacters(in: .whitespacesAndNewlines),
               !t.isEmpty, t != agent else { return nil }
         return t
     }
 
-    /// 🔔 O sino tocou desde a última vez que ele olhou esta lane?
-    ///
-    /// Separado de `hasUnread` de propósito, e a diferença é o que importa: saída nova é a lane
-    /// TRABALHANDO — acontece o tempo todo e não pede nada. O sino é a lane CHAMANDO: um agente que
-    /// termina, ou que travou esperando decisão. Misturar os dois num badge só transformaria o
-    /// pedido de atenção em ruído de fundo, que é como um alarme morre.
-    public func chamou(_ agent: String) -> Bool {
+    @available(*, deprecated, renamed: "title(for:)")
+    public func titulo(_ agent: String) -> String? {
+        title(for: agent)
+    }
+
+    /// Whether a terminal bell fired for this lane since it was last viewed.
+    public func hasPendingBell(for agent: String) -> Bool {
         guard let c = clients[agent] else { return false }
-        return c.sinos > (sinosVistos[agent] ?? 0)
+        return c.bellCount > (sinosVistos[agent] ?? 0)
+    }
+
+    @available(*, deprecated, renamed: "hasPendingBell(for:)")
+    public func chamou(_ agent: String) -> Bool {
+        hasPendingBell(for: agent)
     }
     private var sinosVistos: [String: Int] = [:]
 

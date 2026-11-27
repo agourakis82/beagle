@@ -27,6 +27,7 @@ struct AgoraDetailView: View {
     @State private var appeared = false
     @State private var isExploringFractal = false
     @State private var isMeasuringPhi = false
+    @State private var showDailySynthesis = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(CognitiveStore.self) private var cognitive
@@ -86,23 +87,39 @@ struct AgoraDetailView: View {
             .navigationTitle("Agora")
             .navigationBarTitleDisplayModeIfAvailable(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        showDailySynthesis = true
+                    } label: {
+                        Label("Síntese", systemImage: "sun.horizon.fill")
+                            .font(BeagleFont.caption.font)
+                    }
+                    .tint(BeagleTheme.postureWarm)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Fechar") { dismiss() }
                         .font(BeagleFont.caption.font)
                         .foregroundStyle(BeagleTheme.textSecondary)
                 }
             }
+            .sheet(isPresented: $showDailySynthesis) {
+                DailySynthesisView(
+                    captureLines: cognitive.todaysCaptureLines(),
+                    physioSummary: summary,
+                    sky: sky
+                )
+            }
         }
         .preferredColorScheme(.dark)
         .opacity(appeared ? 1 : 0)
         .scaleEffect(appeared ? 1 : 0.98, anchor: .top)
         .task {
-            async let h = BeagleClient.shared.agoraHistory()
-            async let c = BeagleClient.shared.correlations()
-            async let f = BeagleClient.shared.agoraForecast()
-            history = await h
-            corr = await c
-            forecast = await f
+            async let h = CockpitClient.shared.agoraHistory()
+            async let c = CockpitClient.shared.correlations()
+            async let f = BeagleClient.shared.physiomeForecast()
+            history = await h.value
+            corr = await c.value
+            forecast = await f.value
             loading = false
         }
         .onAppear { withAnimation(.easeOut(duration: 0.5)) { appeared = true } }

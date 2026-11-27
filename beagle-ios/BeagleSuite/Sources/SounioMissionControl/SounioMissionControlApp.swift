@@ -226,32 +226,25 @@ struct MissionControlWindow: View {
     /// inicial, ou tirar a Frota, deixaria `aceita` `nil` para sempre — em silêncio. `connect()`
     /// é idempotente (`guard link != .live && link != .connecting`), então não há risco de abrir
     /// um segundo socket com a Frota também tentando conectar seu próprio `fleet` injetado.
-    @State private var fleet = FleetStateClient()
+    @State private var fleet = FleetStateStore()
     @Environment(\.scenePhase) private var scenePhase
 
     private static let canvas = Color(red: 0.043, green: 0.055, blue: 0.086)
 
     var body: some View {
         NavigationSplitView {
-            // `List(data, selection:)` binds the DATA'S ID (a String here), so binding it to a
-            // `Section?` silently mismatched and the sidebar drove nothing. The ForEach + .tag
-            // form is the one that selects by value.
-            List(selection: $section) {
-                ForEach(Section.allCases) { s in
-                    Label {
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(s.title).font(.body)
-                            Text(s.question)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: s.icon)
-                    }
-                    .tag(s)
-                }
-            }
-            .navigationSplitViewColumnWidth(min: 210, ideal: 230, max: 300)
+            // 🚨 `List(selection:)` funcionava na PRIMEIRA troca e depois parava — medido ao
+            // vivo: `AXPress`/clique numa linha nem chegava a mudar `AXSelected` do outline
+            // interno do AppKit depois da primeira seleção. Uma primeira tentativa trocou por um
+            // `Button` SwiftUI puro (mesmo padrão dos chips da aba Terminais) — não bastou: ele
+            // relatou que a trava só aparece DEPOIS de mexer num terminal/lane, o que aponta pra
+            // MESMA regressão de macOS 26.2 (`NSHostingView` empilhado engolindo evento de
+            // mouse) que já forçou `TerminalDaFrota` a existir — só que vazando pra fora do
+            // terminal. Nenhuma composição SwiftUI escapa dela; só sair pra AppKit de verdade
+            // resolve, e é isso que `SidebarNativeView` faz (própria `NSView`, próprio
+            // `mouseDown`, sem passar pela ponte de hospedagem do SwiftUI nenhuma vez).
+            SidebarNative(sections: Section.allCases, selection: $section)
+                .navigationSplitViewColumnWidth(min: 210, ideal: 230, max: 300)
         } detail: {
             Group {
                 switch section {
@@ -289,7 +282,7 @@ struct MissionControlWindow: View {
                     let lane = SessaoLane.exibida(roster: fleet.loomdRoster,
                                                   escolha: sessionLaneEscolhida)
                     SessionView(lane: lane, roster: fleet.loomdRoster, lanes: fleet.lanes,
-                                aceita: fleet.aceita(de: lane), linkDaFrota: fleet.link,
+                                aceita: fleet.acceptedCapability(for: lane), linkDaFrota: fleet.link,
                                 onTrocarLane: { sessionLaneEscolhida = $0 })
                         .id(lane)
                 case .terminals:

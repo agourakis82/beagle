@@ -100,19 +100,25 @@ public struct CoordState: Sendable, Equatable {
 /// agent's behalf — a claim is a declaration by whoever is doing the work.
 @MainActor
 @Observable
-public final class CoordClient {
+public final class CoordStore {
     public private(set) var state: CoordState = .empty
+    public private(set) var truthfulState: Truthful<CoordState> = .declared(.empty)
+    public private(set) var isLoading = false
     public private(set) var fetchError: String?
 
     private let endpoint: FleetEndpoint
     private let session: URLSession
     private var timer: Task<Void, Never>?
 
-    public init(endpoint: FleetEndpoint = FleetEndpoint()) {
+    public init(endpoint: FleetEndpoint = FleetEndpoint(), session: URLSession? = nil) {
         self.endpoint = endpoint
-        let cfg = URLSessionConfiguration.default
-        cfg.timeoutIntervalForRequest = 12
-        self.session = URLSession(configuration: cfg)
+        if let session {
+            self.session = session
+        } else {
+            let cfg = URLSessionConfiguration.default
+            cfg.timeoutIntervalForRequest = 12
+            self.session = URLSession(configuration: cfg)
+        }
     }
 
     public func start(intervalSeconds: UInt64 = 45) {
@@ -127,18 +133,45 @@ public final class CoordClient {
     public func stop() { timer?.cancel(); timer = nil }
 
     public func refresh() async {
-        guard let req = endpoint.coordRequest() else { fetchError = "endpoint inválido"; return }
+        guard CockpitToken.resolve(explicit: endpoint.token) != nil else {
+            fetchError = CockpitToken.missingReason
+            truthfulState = .staleError(CockpitToken.missingReason)
+            return
+        }
+        guard let req = endpoint.coordRequest() else {
+            fetchError = "endpoint inválido"
+            truthfulState = .staleError("endpoint inválido")
+            return
+        }
+        isLoading = true
+        defer { isLoading = false }
         do {
-            let (data, _) = try await session.data(for: req)
+            let (data, response) = try await session.data(for: req)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                let message = http.statusCode == 401
+                    ? "Token do cockpit recusado (401). Refazer login da tailnet?"
+                    : "O cockpit respondeu \(http.statusCode)."
+                fetchError = message
+                truthfulState = .staleError(message, source: req.url?.host)
+                return
+            }
             guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let decoded = CoordState(envelope: obj) else {
-                fetchError = "Resposta de coordenação ilegível."; return
+                fetchError = "Resposta de coordenação ilegível."
+                truthfulState = .staleError("Resposta de coordenação ilegível.", source: req.url?.host)
+                return
             }
             fetchError = nil
             state = decoded
+            truthfulState = .observed(decoded, source: req.url?.host)
         } catch {
             // Keep the last reading: a missed poll must not read as "all clear".
-            fetchError = "Coordenação não alcançável (\(error.localizedDescription))."
+            let message = "Coordenação não alcançável (\(error.localizedDescription))."
+            fetchError = message
+            truthfulState = .staleError(message, source: req.url?.host)
         }
     }
 }
+
+@available(*, deprecated, renamed: "CoordStore")
+public typealias CoordClient = CoordStore

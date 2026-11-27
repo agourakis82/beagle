@@ -1,0 +1,1 @@
+BeagleSurface.swift: 3883 linhas; mistura apresentação e orquestração. ConversationStore.swift: 1812 linhas; roteamento, persistência, grounding e memória. BeagleClient.swift: 2283 linhas; transporte e muitos contratos. Tamanho é sinal de concentração, não prova de defeito. Extrair apenas ao tocar fluxos com testes de comportamento. Refactorability estimada: 60/100.

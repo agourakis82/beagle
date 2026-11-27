@@ -1,8 +1,10 @@
-import XCTest
+import Foundation
+import Testing
 @testable import BeagleCore
 
 /// The Oficina's reading. Fixtures mirror the live endpoint's shape (real Sounio PRs).
-final class OficinaStateTests: XCTestCase {
+@Suite
+struct OficinaStateTests {
     private func envelope() -> [String: Any] {
         [
             "ok": true,
@@ -31,45 +33,45 @@ final class OficinaStateTests: XCTestCase {
         ]
     }
 
-    func testRedSortsFirstAndFailingChecksAreNamed() throws {
-        let s = try XCTUnwrap(OficinaState(envelope: envelope()))
-        XCTAssertEqual(s.ordered.map(\.number), [1681, 1684, 1672])
-        XCTAssertEqual(s.red.count, 1)
-        XCTAssertEqual(s.prs[0].failing.map(\.name), ["Contracts", "CI Decision"])
-        XCTAssertEqual(s.mainVerdict, .red)
+    @Test func testRedSortsFirstAndFailingChecksAreNamed() throws {
+        let s = try #require(OficinaState(envelope: envelope()))
+        #expect(s.ordered.map(\.number) == [1681, 1684, 1672])
+        #expect(s.red.count == 1)
+        #expect(s.prs[0].failing.map(\.name) == ["Contracts", "CI Decision"])
+        #expect(s.mainVerdict == .red)
     }
 
-    func testChecksSummaryExposesHowMuchActuallyRan() throws {
-        let s = try XCTUnwrap(OficinaState(envelope: envelope()))
+    @Test func testChecksSummaryExposesHowMuchActuallyRan() throws {
+        let s = try #require(OficinaState(envelope: envelope()))
         // Green over 1/4 checks means something very different from green over 12/15.
-        XCTAssertEqual(s.prs[0].checksSummary, "8/15")
-        XCTAssertEqual(s.prs[2].checksSummary, "1/4")
+        #expect(s.prs[0].checksSummary == "8/15")
+        #expect(s.prs[2].checksSummary == "1/4")
     }
 
-    func testHeadDecodes() throws {
-        let s = try XCTUnwrap(OficinaState(envelope: envelope()))
-        XCTAssertEqual(s.head?.dirtyFiles, 52)
-        XCTAssertTrue(s.head?.branch.hasPrefix("research/zd-fiber") ?? false)
-        XCTAssertNotNil(s.head?.committedAt)
+    @Test func testHeadDecodes() throws {
+        let s = try #require(OficinaState(envelope: envelope()))
+        #expect(s.head?.dirtyFiles == 52)
+        #expect(s.head?.branch.hasPrefix("research/zd-fiber") == true)
+        #expect(s.head?.committedAt != nil)
     }
 
-    func testDegradesToUnknownNeverToAConfidentGreen() throws {
-        let thin = try XCTUnwrap(OficinaState(envelope: ["data": [:]]))
-        XCTAssertEqual(thin.mainVerdict, .unknown)
-        XCTAssertTrue(thin.prs.isEmpty)
-        XCTAssertTrue(thin.isStale())
-        XCTAssertNil(OficinaState(envelope: ["meta": [:]]))
-        let bogus = try XCTUnwrap(OficinaState(envelope: ["data": ["prs": [["number": 9, "verdict": "sparkling"]]]]))
-        XCTAssertEqual(bogus.prs.first?.verdict, .unknown)
-        let ghost = try XCTUnwrap(OficinaState(envelope: ["data": ["prs": [["title": "no number"]]]]))
-        XCTAssertTrue(ghost.prs.isEmpty)
+    @Test func testDegradesToUnknownNeverToAConfidentGreen() throws {
+        let thin = try #require(OficinaState(envelope: ["data": [:]]))
+        #expect(thin.mainVerdict == .unknown)
+        #expect(thin.prs.isEmpty)
+        #expect(thin.isStale())
+        #expect(OficinaState(envelope: ["meta": [:]]) == nil)
+        let bogus = try #require(OficinaState(envelope: ["data": ["prs": [["number": 9, "verdict": "sparkling"]]]]))
+        #expect(bogus.prs.first?.verdict == .unknown)
+        let ghost = try #require(OficinaState(envelope: ["data": ["prs": [["title": "no number"]]]]))
+        #expect(ghost.prs.isEmpty)
     }
 
-    func testAnErroredSweepIsStaleEvenWithAFreshTimestamp() {
+    @Test func testAnErroredSweepIsStaleEvenWithAFreshTimestamp() {
         let failed = OficinaState(prs: [], mainVerdict: .green, head: nil,
                                   observedAt: Date(), error: "workspace unreachable")
-        XCTAssertTrue(failed.isStale())
-        XCTAssertFalse(OficinaState(prs: [], mainVerdict: .green, head: nil,
-                                    observedAt: Date(), error: nil).isStale())
+        #expect(failed.isStale())
+        #expect(!OficinaState(prs: [], mainVerdict: .green, head: nil,
+                              observedAt: Date(), error: nil).isStale())
     }
 }

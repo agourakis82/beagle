@@ -42,18 +42,12 @@ public actor BeagleClient {
     ///
     /// Vazio quando o arquivo falta: o app compila e as chamadas falham com 401,
     /// que é ruído honesto — melhor que um token de exemplo parecendo funcionar.
-    public static let cockpitMobileToken: String = {
-        guard let url = Bundle.main.url(forResource: "Secrets", withExtension: "plist"),
-              let dados = try? Data(contentsOf: url),
-              let dict = try? PropertyListSerialization.propertyList(from: dados, format: nil) as? [String: Any],
-              let token = dict["COCKPIT_MOBILE_TOKEN"] as? String,
-              !token.isEmpty, !token.hasPrefix("COLE-AQUI")
-        else {
-            print("[BeagleClient] Secrets.plist ausente ou vazio — as chamadas ao cockpit vão dar 401.")
-            return ""
-        }
-        return token
-    }()
+    /// Resolved cockpit mobile token, delegating to `CockpitToken.resolve()`
+    /// (bundle `Secrets.plist` → `BEAGLE_COCKPIT_TOKEN` → `~/.beagle/cockpit-token`).
+    /// Returns `""` when unconfigured so requests fail honestly with HTTP 401.
+    public static var cockpitMobileToken: String {
+        CockpitToken.resolve() ?? ""
+    }
 
     public static let shared = BeagleClient()
 
@@ -62,11 +56,7 @@ public actor BeagleClient {
     private let encoder: JSONEncoder
 
     /// beagle-server URLs — tried in sequence.
-    private var baseURLs: [URL] = [
-        URL(string: "https://beagle.chiuratto.ai")!,                      // Public gateway (works from any device)
-        URL(string: "http://beagle-core.tail21cbc4.ts.net")!,             // Tailnet (when on VPN)
-        URL(string: "http://beagle-core.beagle.svc.cluster.local:8080")!  // In-cluster pod network
-    ]
+    private var baseURLs: [URL] = BeagleEndpoints.beagleServerURLs
 
     /// Auth token for beagle-core consumer API.
     /// Obtained via cockpit auth bridge: GET /api/auth/beagle-token
@@ -75,16 +65,23 @@ public actor BeagleClient {
     private var tokenFetched = false
     private var authBootstrapError: String?
 
-    private init() {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 120 // Triad can be slow
-        config.waitsForConnectivity = true
-        config.httpAdditionalHeaders = [
-            "Accept": "application/json",
-            "User-Agent": "BeagleCockpit/1.0 (iOS exocortex)"
-        ]
-        self.session = URLSession(configuration: config)
+    public init(session: URLSession? = nil, baseURLs: [URL]? = nil) {
+        if let baseURLs {
+            self.baseURLs = baseURLs
+        }
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 15
+            config.timeoutIntervalForResource = 120 // Triad can be slow
+            config.waitsForConnectivity = true
+            config.httpAdditionalHeaders = [
+                "Accept": "application/json",
+                "User-Agent": "BeagleCockpit/1.0 (iOS exocortex)"
+            ]
+            self.session = URLSession(configuration: config)
+        }
         self.decoder = JSONDecoder()
         self.encoder = JSONEncoder()
     }
@@ -96,7 +93,7 @@ public actor BeagleClient {
     }
 
     private static func pathComponent(_ value: String) -> String {
-        value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value
+        BeagleEndpoints.pathComponent(value)
     }
 
     /// Whether beagle-server is reachable (quick health check).
@@ -335,12 +332,7 @@ public actor BeagleClient {
         print("[BeagleClient] ensureAuth starting...")
         // GET /api/auth/beagle-token from the public Cockpit boundary first,
         // with older private paths left as fallback during transition.
-        let cockpitURLs = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!,
-            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-        ]
+        let cockpitURLs = BeagleEndpoints.cockpitURLs
         var lastFailure = "Auth bridge unreachable"
         for base in cockpitURLs {
             guard let url = URL(string: "/api/auth/beagle-token", relativeTo: base) else {
@@ -350,7 +342,7 @@ public actor BeagleClient {
             }
             do {
                 var request = URLRequest(url: url)
-                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                BeagleEndpoints.applyCockpitAuth(to: &request)
                 print("[BeagleClient] ensureAuth requesting: \(url)")
                 let (data, response) = try await session.data(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -574,7 +566,7 @@ public actor BeagleClient {
                 // JSONDecoder(); a local one is equivalent and avoids crossing a
                 // non-Sendable JSONDecoder across the actor boundary per frame.
                 let bases = await self.baseURLs
-                let session = await self.session
+                let session = self.session
                 let decoder = JSONDecoder()
 
                 for base in bases {
@@ -991,16 +983,11 @@ public actor BeagleClient {
     }
 
     /// Flush one queued offline companion turn to the cockpit's memory-spine ingest endpoint.
-    /// Mirrors assistedImportBatch — postEncoded handles base URLs + auth + the {data} envelope.
+    @available(*, deprecated, message: "Use CockpitClient.shared.ingestTurn(_:) directly.")
     public func ingestTurn(
         _ request: IngestTurnRequest
     ) async -> Truthful<IngestTurnResult> {
-        await postEncoded(
-            IngestTurnResult.self,
-            path: "/api/mobile/v1/ingest",
-            body: request,
-            timeout: 30
-        )
+        await CockpitClient.shared.ingestTurn(request)
     }
 
     public func captureSessionStart(
@@ -1296,7 +1283,9 @@ public actor BeagleClient {
         dst: Double? = nil,
         solarWind: Double? = nil,
         bz: Double? = nil,
-        voiceModel: String? = nil
+        voiceModel: String? = nil,
+        imageBase64: String? = nil,
+        imageMimeType: String? = nil
     ) async -> Truthful<ChatResponse> {
         let effectivePrompt: String
         if let system, !system.isEmpty {
@@ -1340,6 +1329,10 @@ public actor BeagleClient {
         }
         if let voiceModel, !voiceModel.isEmpty {
             body["voiceModel"] = voiceModel
+        }
+        if let imageBase64, !imageBase64.isEmpty {
+            body["imageBase64"] = imageBase64
+            body["imageMimeType"] = imageMimeType ?? "image/jpeg"
         }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
@@ -1415,11 +1408,6 @@ public actor BeagleClient {
         await fetch(ChatResponse.self, path: "/api/v1/cognitive/meta_phi")
     }
 
-    /// Chained deep-think: fractal + void + phi in sequence.
-    public func deepThink(prompt: String) async -> Truthful<ChatResponse> {
-        await deepThink(prompt: prompt, depth: 3)
-    }
-
     // MARK: - Hypergraph
 
     public func queryHyperedges(nodeId: String? = nil) async -> Truthful<[Hyperedge]> {
@@ -1470,7 +1458,9 @@ public actor BeagleClient {
         dst: Double? = nil,
         solarWind: Double? = nil,
         bz: Double? = nil,
-        voiceModel: String? = nil
+        voiceModel: String? = nil,
+        imageBase64: String? = nil,
+        imageMimeType: String? = nil
     ) async -> Truthful<ChatResponse> {
         await llmComplete(
             prompt: prompt,
@@ -1486,7 +1476,9 @@ public actor BeagleClient {
             hrvMs: hrvMs, voiceWpm: voiceWpm, voicePausa: voicePausa,
             readiness: readiness, sleepHours: sleepHours,
             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
-            voiceModel: voiceModel
+            voiceModel: voiceModel,
+            imageBase64: imageBase64,
+            imageMimeType: imageMimeType
         )
     }
 
@@ -1518,13 +1510,8 @@ public actor BeagleClient {
     /// 422 do servidor NÃO é falha a mascarar: é o guarda tendo reprovado a boca
     /// (ela falou outra coisa) ou a voz indisponível. Nos dois casos o certo é
     /// cair para texto — a carta já está na tela.
-    public func fetchCompanionVoice(text: String) async -> Truthful<Data> {
-        let cockpitURLs = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!,
-            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-        ]
+    public func companionVoice(text: String) async -> Truthful<Data> {
+        let cockpitURLs = BeagleEndpoints.cockpitURLs
         let debugLabel = "[CompanionVoice] POST /api/mobile/v1/companion/voice"
         var lastError: String?
         for base in cockpitURLs {
@@ -1533,7 +1520,7 @@ public actor BeagleClient {
             request.httpMethod = "POST"
             request.timeoutInterval = 60
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            BeagleEndpoints.applyCockpitAuth(to: &request)
             request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text])
             do {
                 let (data, response) = try await session.data(for: request)
@@ -1562,6 +1549,11 @@ public actor BeagleClient {
         return Truthful(value: nil, mode: .stale, observedAt: nil, source: nil, error: lastError)
     }
 
+    @available(*, deprecated, renamed: "companionVoice(text:)")
+    public func fetchCompanionVoice(text: String) async -> Truthful<Data> {
+        await companionVoice(text: text)
+    }
+
     // MARK: - A chegada (síntese proativa)
 
     public struct ArrivalSynthesis: Sendable {
@@ -1574,16 +1566,9 @@ public actor BeagleClient {
     /// Busca o que ele deixou. Acumula o SSE inteiro em vez de transmitir: isto
     /// não é fala ao vivo, é algo que já estava dito quando ele abriu o app —
     /// mostrar aparecendo letra a letra mentiria sobre o tempo.
-    public func fetchArrivalSynthesis(windowDays: Int = 3) async -> Truthful<ArrivalSynthesis> {
+    public func arrivalSynthesis(windowDays: Int = 3) async -> Truthful<ArrivalSynthesis> {
         let debugLabel = "[ArrivalSynthesis] POST /api/mobile/v1/synthesize"
-        // Mesma sequência de gateways do chat: público primeiro, tailnet depois,
-        // cluster por último.
-        let cockpitURLs = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!,
-            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-        ]
+        let cockpitURLs = BeagleEndpoints.cockpitURLs
         var lastError: String?
         for base in cockpitURLs {
             guard let url = URL(string: "/api/mobile/v1/synthesize", relativeTo: base) else { continue }
@@ -1592,7 +1577,7 @@ public actor BeagleClient {
             request.timeoutInterval = 120
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-            request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+            BeagleEndpoints.applyCockpitAuth(to: &request)
             request.httpBody = try? JSONSerialization.data(withJSONObject: ["windowDays": windowDays])
             do {
                 let (bytes, response) = try await session.bytes(for: request)
@@ -1625,13 +1610,13 @@ public actor BeagleClient {
         return Truthful(value: nil, mode: .stale, observedAt: nil, source: nil, error: lastError)
     }
 
+    @available(*, deprecated, renamed: "arrivalSynthesis(windowDays:)")
+    public func fetchArrivalSynthesis(windowDays: Int = 3) async -> Truthful<ArrivalSynthesis> {
+        await arrivalSynthesis(windowDays: windowDays)
+    }
+
     private func postPublicMobileChat(body: [String: any Sendable]) async -> Truthful<ChatResponse> {
-        let cockpitURLs = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!,
-            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-        ]
+        let cockpitURLs = BeagleEndpoints.cockpitURLs
 
         var lastError = "mobile chat gateway unreachable"
         let debugLabel = "[\(ChatResponse.self)] POST /api/mobile/v1/chat"
@@ -1643,7 +1628,7 @@ public actor BeagleClient {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                BeagleEndpoints.applyCockpitAuth(to: &request)
                 request.timeoutInterval = 60
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -1705,14 +1690,9 @@ public actor BeagleClient {
 
     /// Busca o grounding para o app guardar em disco. Existe por um motivo concreto:
     /// dentro do hospital a rede cai, e sem isto o modelo no aparelho responde como um
-    /// estranho educado usando o nome dele — justamente quando ele está mais sozinho.
-    public func fetchCompanionGrounding() async -> Truthful<CompanionGrounding> {
-        let cockpitURLs = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!,
-            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-        ]
+    /// estranho educado usando o nome dele - justamente quando ele está mais sozinho.
+    public func companionGrounding() async -> Truthful<CompanionGrounding> {
+        let cockpitURLs = BeagleEndpoints.cockpitURLs
         let body: [String: any Sendable] = ["space": "personal", "prompt": "grounding"]
         var lastError = "grounding gateway unreachable"
         let debugLabel = "[CompanionGrounding] POST /api/mobile/v1/companion/grounding"
@@ -1723,7 +1703,7 @@ public actor BeagleClient {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                BeagleEndpoints.applyCockpitAuth(to: &request)
                 request.timeoutInterval = 60
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
@@ -1749,6 +1729,11 @@ public actor BeagleClient {
         }
         print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
         return .staleError(lastError, source: "cockpit-mobile-gateway")
+    }
+
+    @available(*, deprecated, renamed: "companionGrounding()")
+    public func fetchCompanionGrounding() async -> Truthful<CompanionGrounding> {
+        await companionGrounding()
     }
 
     // MARK: - Streaming chat (SSE: /api/mobile/v1/chat/stream)
@@ -1779,6 +1764,8 @@ public actor BeagleClient {
         bz: Double? = nil,
         voiceModel: String? = nil,
         deepThink: Bool = false,
+        imageBase64: String? = nil,
+        imageMimeType: String? = nil,
         // Presence channel (2026-08-02-companion-presence-design.md §5): the server writes
         // {"event":"presence"|"phase", ...} at t≈0 and while it waits. Optional callback
         // instead of widening the stream element type, so the other call-site
@@ -1825,16 +1812,15 @@ public actor BeagleClient {
         if deepThink {
             body["deepThink"] = true
         }
+        if let imageBase64, !imageBase64.isEmpty {
+            body["imageBase64"] = imageBase64
+            body["imageMimeType"] = imageMimeType ?? "image/jpeg"
+        }
         Self.addLiveContext(&body, hrvMs: hrvMs, readiness: readiness, sleepHours: sleepHours,
                             kp: kp, dst: dst, solarWind: solarWind, bz: bz,
                             voiceWpm: voiceWpm, voicePausa: voicePausa)
 
-        let cockpitURLs: [URL] = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!,
-            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-        ]
+        let cockpitURLs: [URL] = BeagleEndpoints.cockpitURLs
 
         // Use an ephemeral session for the stream (long-lived, SSE) — avoids needing
         // to reach into actor-isolated self.session from this nonisolated method.
@@ -1854,7 +1840,7 @@ public actor BeagleClient {
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
+                    BeagleEndpoints.applyCockpitAuth(to: &request)
                     request.timeoutInterval = 120
                     request.httpBody = payload
                     do {
@@ -1916,20 +1902,16 @@ public actor BeagleClient {
     // MARK: - Space weather (Kp/F10.7/solar wind for AuroraPresence)
 
     /// Fetch the latest geomagnetic snapshot from physiome (NOAA SWPC poller writes
-    /// it every 2h). Returns nil on any failure — caller falls back to a calm default
-    /// so the aurora keeps breathing even when offline.
-    public func fetchLatestSpaceWeather() async -> SpaceWeatherStore.Snapshot? {
-        let bases: [URL] = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://physiome-ingest.beagle.svc.cluster.local:8080")!
-        ]
+    /// it every 2h), wrapped in `Truthful` with epistemic provenance and error detail.
+    public func latestSpaceWeather() async -> Truthful<SpaceWeatherStore.Snapshot> {
+        let bases = BeagleEndpoints.physiomeURLs
         print("[SpaceWeather/Client] ensureAuth…")
         let authed = await ensureAuth()
         print("[SpaceWeather/Client] auth=\(authed) trying \(bases.count) bases")
-        var request = URLRequest(url: bases[0])
+        var lastError = "space-weather endpoint unreachable"
         for base in bases {
             guard let url = URL(string: "/api/physiome/space-weather/latest", relativeTo: base) else { continue }
-            request = URLRequest(url: url)
+            var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = 15
             request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -1938,56 +1920,45 @@ public actor BeagleClient {
                 let (data, response) = try await session.data(for: request)
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                 print("[SpaceWeather/Client] \(base.host ?? "?") → HTTP \(code) (\(data.count)B)")
-                guard (200..<300).contains(code) else { continue }
+                guard (200..<300).contains(code) else {
+                    lastError = "HTTP \(code)"
+                    continue
+                }
                 struct Resp: Decodable { let ok: Bool; let latest: Latest? ; struct Latest: Decodable { let ts: String; let kp: Double; let dst: Double?; let f107: Double; let solar_wind_speed: Double?; let bz: Double?; let hp30: Double?; let ap30: Double?; let hp60: Double?; let cosmic_ray_oulu: Double?; let schumann_f1: Double?; let schumann_f2: Double?; let schumann_f3: Double?; let xray_flux: Double?; let proton_flux: Double?; let aurora_power: Double?; let sym_h: Double?; let ae_index: Double?; let source: String } }
                 let resp = try decoder.decode(Resp.self, from: data)
-                guard let l = resp.latest else { return nil }
+                guard let l = resp.latest else {
+                    return .staleError("space-weather payload contained no latest snapshot", source: url.host)
+                }
                 let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
                 let ts = f.date(from: l.ts) ?? ISO8601DateFormatter().date(from: l.ts) ?? Date()
-                return SpaceWeatherStore.Snapshot(ts: ts, kp: l.kp, dst: l.dst, f107: l.f107, solarWindSpeed: l.solar_wind_speed, bz: l.bz, hp30: l.hp30, ap30: l.ap30, hp60: l.hp60, cosmicRayOulu: l.cosmic_ray_oulu, schumannF1: l.schumann_f1, schumannF2: l.schumann_f2, schumannF3: l.schumann_f3, xrayFlux: l.xray_flux, protonFlux: l.proton_flux, auroraPower: l.aurora_power, symH: l.sym_h, aeIndex: l.ae_index, source: l.source)
+                let snapshot = SpaceWeatherStore.Snapshot(ts: ts, kp: l.kp, dst: l.dst, f107: l.f107, solarWindSpeed: l.solar_wind_speed, bz: l.bz, hp30: l.hp30, ap30: l.ap30, hp60: l.hp60, cosmicRayOulu: l.cosmic_ray_oulu, schumannF1: l.schumann_f1, schumannF2: l.schumann_f2, schumannF3: l.schumann_f3, xrayFlux: l.xray_flux, protonFlux: l.proton_flux, auroraPower: l.aurora_power, symH: l.sym_h, aeIndex: l.ae_index, source: l.source)
+                return .observed(snapshot, source: url.host)
             } catch {
+                lastError = error.localizedDescription
                 print("[SpaceWeather/Client] \(base.host ?? "?") error: \(error.localizedDescription)")
                 continue
             }
         }
-        return nil
+        return .staleError(lastError)
     }
 
-    /// Recent sky + ambient + HRV series for the Agora detail screen's trends. Cockpit route
-    /// (/api/mobile/v1/agora-history). Best-effort → nil on any failure.
+    /// Fetch the latest geomagnetic snapshot from physiome.
+    @available(*, deprecated, message: "Use latestSpaceWeather() returning Truthful<SpaceWeatherStore.Snapshot>.")
+    public func fetchLatestSpaceWeather() async -> SpaceWeatherStore.Snapshot? {
+        await latestSpaceWeather().value
+    }
+
+    /// Recent sky + ambient + HRV series for the Agora detail screen's trends.
+    @available(*, deprecated, message: "Use CockpitClient.shared.agoraHistory(hours:) returning Truthful<AgoraHistory>.")
     public func agoraHistory(hours: Int = 48) async -> AgoraHistory? {
-        let cockpitURLs = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!,
-            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-        ]
-        for base in cockpitURLs {
-            guard let url = URL(string: "/api/mobile/v1/agora-history?hours=\(hours)", relativeTo: base) else { continue }
-            do {
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 20
-                request.setValue("application/json", forHTTPHeaderField: "Accept")
-                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
-                let (data, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
-                return try decoder.decode(AgoraHistory.self, from: data)
-            } catch {
-                print("[AgoraHistory] \(base.host ?? "?") error: \(error.localizedDescription)")
-                continue
-            }
-        }
-        return nil
+        await CockpitClient.shared.agoraHistory(hours: hours).value
     }
 
     /// Forecast (the forward half of the Agora charts): hourly temp/UV/AQI + the NOAA
-    /// planetary-K 3-day forecast. The server defaults to the last uploaded location, so no
-    /// lat/lon is needed. Public endpoint (no auth). Best-effort → nil.
-    public func agoraForecast() async -> AgoraForecast? {
-        let bases = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://physiome-ingest.beagle.svc.cluster.local:8080")!
-        ]
+    /// planetary-K 3-day forecast. Public endpoint (no auth), wrapped in `Truthful`.
+    public func physiomeForecast() async -> Truthful<AgoraForecast> {
+        let bases = BeagleEndpoints.physiomeURLs
+        var lastError = "physiome forecast unreachable"
         for base in bases {
             guard let url = URL(string: "/api/physiome/forecast", relativeTo: base) else { continue }
             do {
@@ -1995,41 +1966,32 @@ public actor BeagleClient {
                 request.timeoutInterval = 20
                 request.setValue("application/json", forHTTPHeaderField: "Accept")
                 let (data, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
-                return try decoder.decode(AgoraForecast.self, from: data)
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                guard (200..<300).contains(code) else {
+                    lastError = "HTTP \(code)"
+                    continue
+                }
+                let decoded = try decoder.decode(AgoraForecast.self, from: data)
+                return .observed(decoded, source: url.host)
             } catch {
+                lastError = error.localizedDescription
                 print("[AgoraForecast] \(base.host ?? "?") error: \(error.localizedDescription)")
                 continue
             }
         }
-        return nil
+        return .staleError(lastError)
     }
 
-    /// Body×sky×ambient correlations (Spearman + lag scan) for the data screen. Reads through the
-    /// cockpit (the phone can't reach physiome's ClusterIP / hold its token). Best-effort → nil.
+    /// Forecast (the forward half of the Agora charts).
+    @available(*, deprecated, message: "Use physiomeForecast() returning Truthful<AgoraForecast>.")
+    public func agoraForecast() async -> AgoraForecast? {
+        await physiomeForecast().value
+    }
+
+    /// Body×sky×ambient correlations (Spearman + lag scan) for the data screen.
+    @available(*, deprecated, message: "Use CockpitClient.shared.correlations(days:) returning Truthful<PhysioCorrelations>.")
     public func correlations(days: Int = 30) async -> PhysioCorrelations? {
-        let cockpitURLs = [
-            URL(string: "https://beagle.chiuratto.ai")!,
-            URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-            URL(string: "http://100.107.208.198")!,
-            URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-        ]
-        for base in cockpitURLs {
-            guard let url = URL(string: "/api/mobile/v1/correlations?days=\(days)", relativeTo: base) else { continue }
-            do {
-                var request = URLRequest(url: url)
-                request.timeoutInterval = 20
-                request.setValue("application/json", forHTTPHeaderField: "Accept")
-                request.setValue(Self.cockpitMobileToken, forHTTPHeaderField: "x-cockpit-token")
-                let (data, response) = try await session.data(for: request)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { continue }
-                return try decoder.decode(PhysioCorrelations.self, from: data)
-            } catch {
-                print("[Correlations] \(base.host ?? "?") error: \(error.localizedDescription)")
-                continue
-            }
-        }
-        return nil
+        await CockpitClient.shared.correlations(days: days).value
     }
 
     // MARK: - Novelty Endpoints (Void, Fractal, Phi)

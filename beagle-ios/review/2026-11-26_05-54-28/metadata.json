@@ -1,0 +1,14 @@
+{
+  "skill": "code-review-auditor",
+  "mode": "complete",
+  "created_at_local": "2026-11-26T05:54:28.872717",
+  "scope": "representative static review, not exhaustive",
+  "limitations": [
+    "No simulator",
+    "No tests executed",
+    "No backend verification",
+    "Other agents active",
+    "Cluster memory capture unavailable"
+  ],
+  "build": "passed"
+}

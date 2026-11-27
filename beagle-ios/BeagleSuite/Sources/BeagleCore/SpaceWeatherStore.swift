@@ -54,6 +54,9 @@ public final class SpaceWeatherStore {
     /// The most recent observed snapshot. nil until the first successful fetch.
     public private(set) var latest: Snapshot?
 
+    /// Full epistemic result from the most recent fetch attempt (preserves `mode`, `source`, `error`).
+    public private(set) var latestTruth: Truthful<Snapshot>?
+
     /// Convenience: Kp normalized 0…1 (quiet ≤ 2 → 0; storm ≥ 6 → 1).
     public var kpIntensity: Double {
         guard let k = latest?.kp else { return 0.15 }   // gentle default
@@ -100,8 +103,10 @@ public final class SpaceWeatherStore {
     /// Manual one-shot refresh.
     public func refresh() async {
         print("[SpaceWeather] refresh: fetching latest")
-        guard let snap = await client.fetchLatestSpaceWeather() else {
-            print("[SpaceWeather] refresh: ❌ fetch returned nil")
+        let result = await client.latestSpaceWeather()
+        latestTruth = result
+        guard let snap = result.value else {
+            print("[SpaceWeather] refresh: ❌ \(result.error ?? "fetch returned nil")")
             return
         }
         print("[SpaceWeather] refresh: ✅ kp=\(snap.kp) wind=\(snap.solarWindSpeed.map { "\($0)" } ?? "nil") bz=\(snap.bz.map { "\($0)" } ?? "nil")")

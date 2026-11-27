@@ -150,7 +150,7 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
         public func setTerminalTitle(source: TerminalView, title: String) {
             let t = title.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !t.isEmpty else { return }
-            client.titulo = t
+            client.title = t
         }
         public func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
         public func scrolled(source: TerminalView, position: Double) {}
@@ -191,7 +191,7 @@ public struct PTYTerminalView: _PlatformViewRepresentable {
             NSSound.beep()
             NSApp.requestUserAttention(.informationalRequest)
             #endif
-            client.tocouSino()
+            client.recordBell()
         }
     }
 }

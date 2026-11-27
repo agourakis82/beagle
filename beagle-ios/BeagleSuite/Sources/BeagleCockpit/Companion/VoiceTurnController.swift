@@ -71,6 +71,12 @@ final class VoiceTurnController {
     var supportsHandsFree: Bool { !recognizer.isUsingLegacyRecognizer }
     /// Set once, by the composer. Receives the finished utterance.
     var onCommit: ((String) -> Void)?
+    /// Called when a turn finishes with an empty transcript (silence window or denied/failed mic).
+    /// Used by continuous Walkie-Talkie mode to count empty silence strikes and auto-pause cleanly.
+    var onEmptyFinish: (() -> Void)?
+    /// Optional silence ceiling when transcript is still empty (used ONLY during continuous
+    /// Walkie-Talkie sessions so a silent room pauses cleanly instead of staying open for 120s).
+    var emptyWindowTimeoutSeconds: TimeInterval?
 
     // MARK: - Private
 
@@ -172,6 +178,29 @@ final class VoiceTurnController {
         }
     }
 
+    /// Triggered by Action Button, Control Center, or Siri Shortcut (`beagle://voice`):
+    /// immediately arms hands-free voice listening (or push-to-talk fallback if continuous
+    /// endpointing is unavailable on the device).
+    func startHandsFreeFromShortcut() async {
+        guard phase == .idle || phase == .denied else { return }
+        motivoDaRecusa = nil
+        emptyWindowTimeoutSeconds = nil
+        await start(latched: supportsHandsFree)
+    }
+
+    /// Arms a single listening window inside a continuous Walkie-Talkie session.
+    /// Sets `emptyWindowTimeoutSeconds = 22` so prolonged silence triggers `onEmptyFinish`
+    /// instead of holding the mic open for 2 minutes. Returns `true` if listening started.
+    @discardableResult
+    func startContinuousTurn() async -> Bool {
+        if isListening { return true }
+        guard phase == .idle || phase == .denied else { return false }
+        motivoDaRecusa = nil
+        emptyWindowTimeoutSeconds = 22
+        await start(latched: supportsHandsFree)
+        return isListening
+    }
+
     // MARK: - Core transitions
 
     private func start(latched: Bool) async {
@@ -179,6 +208,7 @@ final class VoiceTurnController {
         let auth = await SpeechRecognizer.requestAuthorization()
         guard auth.isReady else {
             phase = .denied
+            emptyWindowTimeoutSeconds = nil
             haptic(.error)
             return
         }
@@ -188,6 +218,7 @@ final class VoiceTurnController {
         await recognizer.startRecording(profile: .conversation, uploadsAcoustics: false)
         guard recognizer.isRecording else {
             phase = .idle
+            emptyWindowTimeoutSeconds = nil
             haptic(.error)
             return
         }
@@ -200,15 +231,19 @@ final class VoiceTurnController {
 
     private func commit() {
         guard isListening || phase == .arming else { return }
+        let wasContinuousWindow = (emptyWindowTimeoutSeconds != nil)
+        emptyWindowTimeoutSeconds = nil
         stopWatchdog()
         recognizer.stopRecording()
         let text = recognizer.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         phase = .idle
         startedAt = nil
         guard !text.isEmpty else {
-            // Nothing heard. This MUST be felt, not merely absent — the whole point of the
-            // gesture is that he is not looking at the screen.
-            haptic(.error)
+            if !wasContinuousWindow {
+                // Nothing heard on manual gesture. This MUST be felt, not merely absent.
+                haptic(.error)
+            }
+            onEmptyFinish?()
             return
         }
         haptic(.success)
@@ -218,11 +253,23 @@ final class VoiceTurnController {
     /// Discard the turn: no transcript, no acoustic sample, no message.
     func cancel() {
         guard phase != .idle else { return }
+        emptyWindowTimeoutSeconds = nil
         stopWatchdog()
         recognizer.cancelRecording()
         phase = .idle
         startedAt = nil
         haptic(.warning)
+    }
+
+    /// Quietly closes an open mic without firing warning haptic (used when pausing/ending
+    /// a continuous Walkie-Talkie session cleanly).
+    func stopQuietly() {
+        guard phase != .idle else { return }
+        emptyWindowTimeoutSeconds = nil
+        stopWatchdog()
+        recognizer.cancelRecording()
+        phase = .idle
+        startedAt = nil
     }
 
     /// Called when the app leaves the foreground. A hold whose release event never arrives is
@@ -262,9 +309,17 @@ final class VoiceTurnController {
         if recognizer.level > Self.silenceLevel { lastVoiceAt = Date() }
         // Endpointing ONLY when latched. In push-to-talk the finger is the endpoint, which is
         // the only endpoint detector that works in a noisy corridor.
-        guard phase == .latched,
-              !recognizer.transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let lastVoiceAt,
+        guard phase == .latched else { return }
+        let trimmed = recognizer.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            if let emptyTimeout = emptyWindowTimeoutSeconds,
+               let lastVoiceAt,
+               Date().timeIntervalSince(lastVoiceAt) > emptyTimeout {
+                commit()
+            }
+            return
+        }
+        guard let lastVoiceAt,
               Date().timeIntervalSince(lastVoiceAt) > Self.endpointSilenceSeconds else { return }
         commit()
     }
