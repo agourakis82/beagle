@@ -44,7 +44,7 @@ struct SessaoUsoTests {
     /// com `aceita` conhecido recebe um frame `state` que NÃO menciona `aceita`, e a capacidade
     /// tem de sobreviver (cair para `old.aceita`, nunca para `nil`).
     @Test func testUmPatchDeStateSemAceitaPreservaACapacidade() {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle("""
         {"t":"sessions","sessions":[
           {"sid":"claude-1","title":"claude-1","state":"waiting","detail":"aprovar?",
@@ -66,7 +66,7 @@ struct SessaoUsoTests {
     /// `LaneState.init(loom:)` (quadro inteiro) já degrada assim; o patch de lane única tinha de
     /// concordar com ele, não silenciosamente discordar.
     @Test func testUmPatchDeStateComAceitaIlegivelZeraParaNilEmVezDePreservar() {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle("""
         {"t":"sessions","sessions":[
           {"sid":"claude-1","title":"claude-1","state":"waiting","detail":"aprovar?",
@@ -86,7 +86,7 @@ struct SessaoUsoTests {
     /// Terceiro caso do trio: um valor VÁLIDO no patch é aplicado normalmente (nem preserva o
     /// antigo, nem zera).
     @Test func testUmPatchDeStateComAceitaValidoAplicaOValorNovo() {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle("""
         {"t":"sessions","sessions":[
           {"sid":"claude-1","title":"claude-1","state":"waiting","detail":"aprovar?",
@@ -111,11 +111,11 @@ struct SessaoUsoTests {
             .uso(id: 3, contextoUsado: 36_874, contextoTeto: 1_000_000, usd: 0, at: t0),
             .uso(id: 4, contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728, at: t0),
         ]
-        let turno = Turno.agrupar(passos)[0]
-        let uso = try #require(turno.uso)
+        let turno = SessionTurn.group(passos)[0]
+        let uso = try #require(turno.usage)
         #expect(abs(uso.usd - 0.3728) <= 0.0001, "o último com custo, não a soma")
-        #expect(uso.contextoUsado == 38_718, "contexto é absoluto e monotônico: o último vale")
-        #expect(uso.contextoTeto == 1_000_000)
+        #expect(uso.contextUsed == 38_718, "contexto é absoluto e monotônico: o último vale")
+        #expect(uso.contextLimit == 1_000_000)
     }
 
     /// O teto varia por agente — 1.000.000 no Claude, 258.400 no Codex via ACP (medido). O rodapé
@@ -126,14 +126,14 @@ struct SessaoUsoTests {
             .prompt(id: 1, text: "x", at: t0),
             .uso(id: 2, contextoUsado: 28_795, contextoTeto: 258_400, usd: 0.01, at: t0),
         ]
-        #expect(Turno.agrupar(passos)[0].uso?.contextoTeto == 258_400)
+        #expect(SessionTurn.group(passos)[0].usage?.contextLimit == 258_400)
     }
 
     @Test func testTurnoSemUsoNaoInventaZero() {
         let t0 = Date()
         let passos: [SessionStep] = [.prompt(id: 1, text: "x", at: t0),
                                      .message(id: 2, text: "y", at: t0)]
-        #expect(Turno.agrupar(passos)[0].uso == nil, "sem evento de uso, o rodapé não mostra custo")
+        #expect(SessionTurn.group(passos)[0].usage == nil, "sem evento de uso, o rodapé não mostra custo")
     }
 
     /// O evento `usage` da trama traz o custo em `detail`, no formato que o loomd escreve:
@@ -142,7 +142,7 @@ struct SessaoUsoTests {
         let e = TramaEvent(seq: 9, tsMs: 0, lane: "claude-4", kind: "usage",
                            text: nil, detail: "contexto 38718/1000000 · USD 0.3728", diff: nil,
                            tool: nil, approvalKind: nil)
-        let passo = try #require(SessionStore.passo(de: e))
+        let passo = try #require(SessionStore.step(from: e))
         guard case .uso(_, let usado, let teto, let usd, _) = passo else {
             Issue.record("usage tem de virar .uso, não sumir no default")
             return
@@ -161,16 +161,16 @@ struct SessaoUsoTests {
             .uso(id: 2, contextoUsado: 38_000, contextoTeto: 1_000_000, usd: 0.3728, at: t0),
             .uso(id: 3, contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0, at: t0),
         ]
-        let uso = try #require(Turno.agrupar(passos)[0].uso)
+        let uso = try #require(SessionTurn.group(passos)[0].usage)
         #expect(abs(uso.usd - 0.3728) <= 0.0001, "o zero de fechamento não apaga o custo")
-        #expect(uso.contextoUsado == 38_718, "mas o contexto é o último, sempre")
+        #expect(uso.contextUsed == 38_718, "mas o contexto é o último, sempre")
     }
 
     /// 🚨 Achado da review: `.uso` devolvia `EmptyView()` na trilha, mas um `EmptyView()` ainda
     /// ocupa posição no `ForEach` dentro do `VStack` — o `spacing` fixo abre um buraco visível a
     /// cada evento `uso`. O passo tem de ser filtrado ANTES de chegar à lista, não desenhado
-    /// vazio. Este teste prende as duas metades: o custo não desaparece (`turno.uso` continua
-    /// alcançável) e não polui a conversa (`desenhavel` corta para 2 de 3 passos).
+    /// vazio. Este teste prende as duas metades: o custo não desaparece (`turno.usage` continua
+    /// alcançável) e não polui a conversa (`isRenderable` corta para 2 de 3 passos).
     @Test func testUsoNaoEhDesenhavelMasContinuaAlcancavelViaTurnoUso() throws {
         let t0 = Date()
         let passos: [SessionStep] = [
@@ -178,11 +178,11 @@ struct SessaoUsoTests {
             .message(id: 2, text: "feito", at: t0),
             .uso(id: 3, contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728, at: t0),
         ]
-        let turno = Turno.agrupar(passos)[0]
-        #expect(turno.passos.count == 3, "os três passos existem no turno")
-        #expect(turno.passos.filter(\.desenhavel).count == 2,
+        let turno = SessionTurn.group(passos)[0]
+        #expect(turno.steps.count == 3, "os três passos existem no turno")
+        #expect(turno.steps.filter(\.isRenderable).count == 2,
                 "custo não é fala: não entra na trilha desenhada")
-        let uso = try #require(turno.uso)
+        let uso = try #require(turno.usage)
         #expect(abs(uso.usd - 0.3728) <= 0.0001, "mas o custo continua alcançável pelo rodapé")
     }
 
@@ -222,8 +222,8 @@ struct SessaoUsoTests {
     /// 🚨 Um "US$ 0,0000" no rodapé de todo turno é ruído que treina o olho a ignorar a linha
     /// inteira — e aí o custo que importa também deixa de ser visto.
     @Test func testRodapeComCustoMostraOUSD() throws {
-        let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728)
-        let texto = try #require(SessionStore.rodapeDoTurno(duracao: 12, uso: uso))
+        let uso = TurnUsage(contextUsed: 38_718, contextLimit: 1_000_000, usd: 0.3728)
+        let texto = try #require(SessionStore.turnFooter(duration: 12, usage: uso))
         #expect(texto.contains("US$"), "custo > 0 tem de aparecer")
         // Ajustado: afirmava "0.3728" — o ponto do `%.4f` insensível a locale. As quatro
         // casas seguem sendo o contrato do rodapé; só o separador mudou para vírgula.
@@ -232,14 +232,14 @@ struct SessaoUsoTests {
     }
 
     @Test func testRodapeComCustoZeroNaoMostraUSD() throws {
-        let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0)
-        let texto = try #require(SessionStore.rodapeDoTurno(duracao: 12, uso: uso))
+        let uso = TurnUsage(contextUsed: 38_718, contextLimit: 1_000_000, usd: 0)
+        let texto = try #require(SessionStore.turnFooter(duration: 12, usage: uso))
         #expect(!texto.contains("US$"),
                 "custo zero é ruído que treina o olho a ignorar a linha inteira")
     }
 
     @Test func testRodapeSemUsoMostraSoADuracao() throws {
-        let texto = try #require(SessionStore.rodapeDoTurno(duracao: 12, uso: nil))
+        let texto = try #require(SessionStore.turnFooter(duration: 12, usage: nil))
         #expect(!texto.contains("contexto"))
         #expect(!texto.contains("US$"))
     }
@@ -253,9 +253,9 @@ struct SessaoUsoTests {
     /// conservador que a fonte. Este teste substitui `testRodapeSemDuracaoEhNil`, que pinava o
     /// comportamento antigo (linha inteira sumia sem duração).
     @Test func testRodapeSemDuracaoMasComUsoMostraContextoEUSD() throws {
-        let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: 0.3728)
+        let uso = TurnUsage(contextUsed: 38_718, contextLimit: 1_000_000, usd: 0.3728)
         let texto = try #require(
-            SessionStore.rodapeDoTurno(duracao: nil, uso: uso),
+            SessionStore.turnFooter(duration: nil, usage: uso),
             "sem duração mas com uso, o rodapé não pode sumir — é o turno em curso, o único que ainda importa parar ou deixar ir"
         )
         #expect(texto.contains("contexto"), "\(texto)")
@@ -266,16 +266,16 @@ struct SessaoUsoTests {
 
     /// Nem duração, nem uso: aí sim não há nada para o rodapé dizer.
     @Test func testRodapeSemDuracaoESemUsoEhNil() {
-        #expect(SessionStore.rodapeDoTurno(duracao: nil, uso: nil) == nil)
+        #expect(SessionStore.turnFooter(duration: nil, usage: nil) == nil)
     }
 
     /// O teto varia por agente — 1.000.000 no Claude, 258.400 no Codex via ACP. Dois `uso` com o
     /// mesmo `contextoUsado` e tetos diferentes têm de dar porcentagens diferentes no rodapé.
     @Test func testRodapeUsaOTetoDoEventoNaoUmaConstante() throws {
-        let claude = UsoDoTurno(contextoUsado: 20_000, contextoTeto: 1_000_000, usd: 0.01)
-        let codex = UsoDoTurno(contextoUsado: 20_000, contextoTeto: 258_400, usd: 0.01)
-        let textoClaude = try #require(SessionStore.rodapeDoTurno(duracao: 5, uso: claude))
-        let textoCodex = try #require(SessionStore.rodapeDoTurno(duracao: 5, uso: codex))
+        let claude = TurnUsage(contextUsed: 20_000, contextLimit: 1_000_000, usd: 0.01)
+        let codex = TurnUsage(contextUsed: 20_000, contextLimit: 258_400, usd: 0.01)
+        let textoClaude = try #require(SessionStore.turnFooter(duration: 5, usage: claude))
+        let textoCodex = try #require(SessionStore.turnFooter(duration: 5, usage: codex))
         #expect(textoClaude.contains("contexto 2%"), "\(textoClaude)")
         #expect(textoCodex.contains("contexto 8%"), "\(textoCodex)")
         #expect(textoClaude != textoCodex, "tetos diferentes têm de render porcentagens diferentes")
@@ -288,8 +288,8 @@ struct SessaoUsoTests {
     /// silencioso. `.rounded()` resolve.
     @Test func testRodapeArredondaAPorcentagemDeContextoEmVezDeTruncar() throws {
         // 6_000 / 1_000_000 = 0,6% — truncado vira "0%"; arredondado, "1%".
-        let uso = UsoDoTurno(contextoUsado: 6_000, contextoTeto: 1_000_000, usd: 0.01)
-        let texto = try #require(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
+        let uso = TurnUsage(contextUsed: 6_000, contextLimit: 1_000_000, usd: 0.01)
+        let texto = try #require(SessionStore.turnFooter(duration: 5, usage: uso))
         #expect(texto.contains("contexto 1%"), "\(texto)")
     }
 
@@ -300,8 +300,8 @@ struct SessaoUsoTests {
     /// defeito do "US$ 0,0000"/"US$ 0,00" já consertados duas vezes, na quarta forma.
     @Test func testRodapeContextoAbaixoDeUmPorCentoNaoMostraZero() throws {
         // 2.000 / 1.000.000 = 0,2% — arredondado ainda dá 0. O limiar explícito diz a verdade.
-        let uso = UsoDoTurno(contextoUsado: 2_000, contextoTeto: 1_000_000, usd: 0.01)
-        let texto = try #require(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
+        let uso = TurnUsage(contextUsed: 2_000, contextLimit: 1_000_000, usd: 0.01)
+        let texto = try #require(SessionStore.turnFooter(duration: 5, usage: uso))
         #expect(texto.contains("contexto < 1%"), "\(texto)")
         #expect(!texto.contains("contexto 0%"), "\(texto)")
     }
@@ -310,16 +310,16 @@ struct SessaoUsoTests {
     /// tokens) é o único caso em que "contexto 0%" é a verdade honesta, não um valor pequeno
     /// escondido pelo arredondamento — por isso ele NÃO passa pelo limiar de "< 1%".
     @Test func testRodapeContextoExatamenteZeroMostraZeroSemLimiar() throws {
-        let uso = UsoDoTurno(contextoUsado: 0, contextoTeto: 1_000_000, usd: 0)
-        let texto = try #require(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
+        let uso = TurnUsage(contextUsed: 0, contextLimit: 1_000_000, usd: 0)
+        let texto = try #require(SessionStore.turnFooter(duration: 5, usage: uso))
         #expect(texto.contains("contexto 0%"), "\(texto)")
         #expect(!texto.contains("< 1%"), "\(texto)")
     }
 
     /// >= 1% (arredondado) mostra o número normal, sem o limiar — cobertura do terceiro ramo.
     @Test func testRodapeContextoAcimaDeUmPorCentoMostraNumeroNormal() throws {
-        let uso = UsoDoTurno(contextoUsado: 20_000, contextoTeto: 1_000_000, usd: 0.01)
-        let texto = try #require(SessionStore.rodapeDoTurno(duracao: 5, uso: uso))
+        let uso = TurnUsage(contextUsed: 20_000, contextLimit: 1_000_000, usd: 0.01)
+        let texto = try #require(SessionStore.turnFooter(duration: 5, usage: uso))
         #expect(texto.contains("contexto 2%"), "\(texto)")
         #expect(!texto.contains("< 1%"), "\(texto)")
     }
@@ -432,8 +432,8 @@ struct SessaoUsoTests {
         for usd in [0.0042, 0.01, 0.42, 12.3456, 1234.5678, 987654.321] {
             produzidas.append(try #require(SessionStore.custoDoChip(usd)))
             produzidas.append(SessionStore.custoParaAcessibilidade(usd))
-            let uso = UsoDoTurno(contextoUsado: 38_718, contextoTeto: 1_000_000, usd: usd)
-            produzidas.append(try #require(SessionStore.rodapeDoTurno(duracao: 12, uso: uso)))
+            let uso = TurnUsage(contextUsed: 38_718, contextLimit: 1_000_000, usd: usd)
+            produzidas.append(try #require(SessionStore.turnFooter(duration: 12, usage: uso)))
         }
         for s in produzidas {
             #expect(s.contains("US$"), "amostra sem dinheiro, o teste não provaria nada: \(s)")
@@ -466,7 +466,7 @@ struct SessaoUsoTests {
     /// silêncio — igual `confidence` e `aceita` antes dele. Uma lane com custo recebe um frame
     /// `state` que NÃO menciona `usd`, e o valor tem de sobreviver (cair para `old.usd`, nunca 0).
     @Test func testUmPatchDeStateSemUsdPreservaOCusto() {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle("""
         {"t":"sessions","sessions":[
           {"sid":"claude-1","title":"claude-1","state":"waiting","detail":"aprovar?",
@@ -614,12 +614,12 @@ struct SessaoUsoTests {
     /// a Frota já mostra para "o broker caiu" — em vez de uma segunda string inventada aqui.
     @Test func testRazaoSemCapacidadeQuandoOLinkCaiuUsaAExplicacaoDaFrota() {
         #expect(SessionStore.razaoSemCapacidadeDeclarada(link: .failed("boom")) ==
-                .linkCaido(FleetStateClient.explicacaoDoLink(.failed("boom"))))
+                .linkCaido(FleetStateStore.linkDescription(.failed("boom"))))
         #expect(SessionStore.razaoSemCapacidadeDeclarada(link: .reconnecting) ==
-                .linkCaido(FleetStateClient.explicacaoDoLink(.reconnecting)))
+                .linkCaido(FleetStateStore.linkDescription(.reconnecting)))
 
         guard case .linkCaido(let motivo) = SessionStore.razaoSemCapacidadeDeclarada(
-            link: .insistindo(motivo: "connection refused", tentativas: 13)
+            link: .retrying(reason: "connection refused", attempts: 13)
         ) else {
             Issue.record(".insistindo tem de virar .linkCaido, nunca .transitorio")
             return

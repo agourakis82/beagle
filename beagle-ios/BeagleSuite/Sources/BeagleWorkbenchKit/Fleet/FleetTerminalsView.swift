@@ -410,7 +410,6 @@ public struct FleetTerminalsView: View {
     /// lane não trocar de tom entre a Frota e esta aba. Ver o comentário lá.
     private func color(for agent: String) -> Color { BeagleTheme.familyColor(LaneFamily.of(agent)) }
 }
-#endif
 
 /// Pulso do sino: chama a atenção e depois para de insistir.
 ///
@@ -465,3 +464,4 @@ private struct TrocaPorSwipe: ViewModifier {
         #endif
     }
 }
+#endif

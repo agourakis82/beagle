@@ -223,21 +223,21 @@ struct AprovacaoPorRPCTests {
         // guarda nenhuma. Enquanto a escolha morava dentro da função que faz rede, não havia
         // costura para testar; agora é pura.
         let doLoomd = LaneSnapshot(sid: "loom-1", title: "loom-1", state: .waiting, pendingApproval: true)
-        #expect(FleetStateClient.approveTransport(for: doLoomd) == .rpc,
+        #expect(FleetStateStore.approveTransport(for: doLoomd) == .rpc,
                 "pendência tipada NÃO pode virar tecla nem folha de texto")
 
         let deTela = LaneSnapshot(sid: "codex-2", title: "codex-2", state: .waiting, approve: .enterKey)
-        #expect(FleetStateClient.approveTransport(for: deTela) == .key(.enter))
+        #expect(FleetStateStore.approveTransport(for: deTela) == .key(.enter))
 
         let perguntaAberta = LaneSnapshot(sid: "kimi-cli1", title: "kimi-cli1", state: .waiting, approve: .answerNeeded)
-        #expect(FleetStateClient.approveTransport(for: perguntaAberta) == .answer,
+        #expect(FleetStateStore.approveTransport(for: perguntaAberta) == .answer,
                 "pergunta que pede frase nunca ganha botão de um toque")
 
         // E a precedência importa: se as duas coisas chegarem, o RPC vence — é o caminho que
         // responde ao pedido REAL, enquanto a tecla seria enviada a um pane que não existe.
         let ambos = LaneSnapshot(sid: "loom-1", title: "loom-1", state: .waiting,
                                  approve: .yKey, pendingApproval: true)
-        #expect(FleetStateClient.approveTransport(for: ambos) == .rpc)
+        #expect(FleetStateStore.approveTransport(for: ambos) == .rpc)
     }
 
     @Test func testARotaDeAprovarNaoLevaOTokenNaURLERecusaSidHostil() throws {

@@ -47,10 +47,17 @@ public struct FrotaView: View {
     /// teste: enquanto a única forma de ver a Frota era conectar no broker e torcer para um
     /// agente estar parado, cada rodada de design era um palpite.
     public init(fleet: FleetStateStore? = nil, onOpenLane: @escaping (String) -> Void = { _ in }) {
+        self.init(fleet: fleet, scrollable: true, onOpenLane: onOpenLane)
+    }
+
+    init(fleet: FleetStateStore? = nil, scrollable: Bool, onOpenLane: @escaping (String) -> Void = { _ in }) {
         injetado = fleet != nil
+        self.scrollable = scrollable
         _fleet = State(initialValue: fleet ?? FleetStateStore())
         self.onOpenLane = onOpenLane
     }
+
+    private let scrollable: Bool
 
     /// `fleet` veio de fora (o Mission Control passa o cliente da JANELA) ou a Frota criou o
     /// próprio? Decide quem tem a responsabilidade de conectar.
@@ -91,10 +98,17 @@ public struct FrotaView: View {
     }
 
     public var body: some View {
-        ScrollView { conteudo }
+        Group {
+            if scrollable {
+                ScrollView { conteudo }
+            } else {
+                conteudo
+            }
+        }
         .background(Self.canvas.ignoresSafeArea())
         .navigationTitle("Frota")
         .onAppear {
+            guard scrollable else { return }
             if !injetado { fleet.connect() }
             coord.start()
         }

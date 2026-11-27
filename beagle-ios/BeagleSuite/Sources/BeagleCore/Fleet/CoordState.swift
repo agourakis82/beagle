@@ -172,6 +172,3 @@ public final class CoordStore {
         }
     }
 }
-
-@available(*, deprecated, renamed: "CoordStore")
-public typealias CoordClient = CoordStore

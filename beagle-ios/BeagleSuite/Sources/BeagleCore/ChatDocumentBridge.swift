@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import Synchronization
 #if canImport(PDFKit) && !os(watchOS)
 import PDFKit
 import CoreGraphics
@@ -263,7 +264,7 @@ public enum BeagleSharedInbox {
     public static let appGroupId = "group.dev.sounio.cockpit"
     private static let folderName = "SharedChatInbox"
     private static let manifestName = "shared_chat_queue.json"
-    private static let lock = NSLock()
+    private static let lock = Mutex<Void>(())
 
     public static func inboxDirectory(overrideRoot: URL? = nil) -> URL? {
         let base = overrideRoot ?? FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId)
@@ -282,8 +283,26 @@ public enum BeagleSharedInbox {
         originalPDFName: String? = nil,
         overrideRoot: URL? = nil
     ) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
+        lock.withLock { _ in
+            enqueueLocked(
+                text: text,
+                urls: urls,
+                imageData: imageData,
+                pdfData: pdfData,
+                originalPDFName: originalPDFName,
+                overrideRoot: overrideRoot
+            )
+        }
+    }
+
+    private static func enqueueLocked(
+        text: String,
+        urls: [String],
+        imageData: Data?,
+        pdfData: Data?,
+        originalPDFName: String?,
+        overrideRoot: URL?
+    ) -> Bool {
         guard let dir = inboxDirectory(overrideRoot: overrideRoot) else { return false }
 
         let id = UUID().uuidString.lowercased()
@@ -333,8 +352,12 @@ public enum BeagleSharedInbox {
     }
 
     public static func dequeueNext(overrideRoot: URL? = nil) -> SharedChatLoadedPayload? {
-        lock.lock()
-        defer { lock.unlock() }
+        lock.withLock { _ in
+            dequeueNextLocked(overrideRoot: overrideRoot)
+        }
+    }
+
+    private static func dequeueNextLocked(overrideRoot: URL?) -> SharedChatLoadedPayload? {
         guard let dir = inboxDirectory(overrideRoot: overrideRoot) else { return nil }
         let manifestURL = dir.appendingPathComponent(manifestName)
         guard let raw = try? Data(contentsOf: manifestURL) else { return nil }

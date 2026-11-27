@@ -46,11 +46,6 @@ public final class FleetTerminalStore {
         if !opened.contains(agent) { opened.append(agent) }
     }
 
-    @available(*, deprecated, renamed: "adopt(_:client:)")
-    public func adotar(_ agent: String, _ c: PTYClient) {
-        adopt(agent, client: c)
-    }
-
     public func open(_ agent: String) {
         guard FleetEndpoint.hasTerminal(agent) else { return }
         let c = client(for: agent)
@@ -79,20 +74,10 @@ public final class FleetTerminalStore {
         return t
     }
 
-    @available(*, deprecated, renamed: "title(for:)")
-    public func titulo(_ agent: String) -> String? {
-        title(for: agent)
-    }
-
     /// Whether a terminal bell fired for this lane since it was last viewed.
     public func hasPendingBell(for agent: String) -> Bool {
         guard let c = clients[agent] else { return false }
         return c.bellCount > (sinosVistos[agent] ?? 0)
-    }
-
-    @available(*, deprecated, renamed: "hasPendingBell(for:)")
-    public func chamou(_ agent: String) -> Bool {
-        hasPendingBell(for: agent)
     }
     private var sinosVistos: [String: Int] = [:]
 

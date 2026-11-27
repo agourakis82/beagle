@@ -122,11 +122,6 @@ extension BeagleClient {
         return Truthful(value: nil, mode: .stale, observedAt: nil, source: nil, error: lastError)
     }
 
-    @available(*, deprecated, renamed: "companionVoice(text:)")
-    public func fetchCompanionVoice(text: String) async -> Truthful<Data> {
-        await companionVoice(text: text)
-    }
-
     // MARK: - A chegada (síntese proativa)
 
     public struct ArrivalSynthesis: Sendable {
@@ -181,11 +176,6 @@ extension BeagleClient {
         }
         print("\(debugLabel) falhou — \(lastError ?? "sem detalhe")")
         return Truthful(value: nil, mode: .stale, observedAt: nil, source: nil, error: lastError)
-    }
-
-    @available(*, deprecated, renamed: "arrivalSynthesis(windowDays:)")
-    public func fetchArrivalSynthesis(windowDays: Int = 3) async -> Truthful<ArrivalSynthesis> {
-        await arrivalSynthesis(windowDays: windowDays)
     }
 
     internal func postPublicMobileChat(body: [String: any Sendable]) async -> Truthful<ChatResponse> {
@@ -302,11 +292,6 @@ extension BeagleClient {
         }
         print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
         return .staleError(lastError, source: "cockpit-mobile-gateway")
-    }
-
-    @available(*, deprecated, renamed: "companionGrounding()")
-    public func fetchCompanionGrounding() async -> Truthful<CompanionGrounding> {
-        await companionGrounding()
     }
 
     // MARK: - Streaming chat (SSE: /api/mobile/v1/chat/stream)
@@ -515,18 +500,6 @@ extension BeagleClient {
         return .staleError(lastError)
     }
 
-    /// Fetch the latest geomagnetic snapshot from physiome.
-    @available(*, deprecated, message: "Use latestSpaceWeather() returning Truthful<SpaceWeatherStore.Snapshot>.")
-    public func fetchLatestSpaceWeather() async -> SpaceWeatherStore.Snapshot? {
-        await latestSpaceWeather().value
-    }
-
-    /// Recent sky + ambient + HRV series for the Agora detail screen's trends.
-    @available(*, deprecated, message: "Use CockpitClient.shared.agoraHistory(hours:) returning Truthful<AgoraHistory>.")
-    public func agoraHistory(hours: Int = 48) async -> AgoraHistory? {
-        await CockpitClient.shared.agoraHistory(hours: hours).value
-    }
-
     /// Forecast (the forward half of the Agora charts): hourly temp/UV/AQI + the NOAA
     /// planetary-K 3-day forecast. Public endpoint (no auth), wrapped in `Truthful`.
     public func physiomeForecast() async -> Truthful<AgoraForecast> {
@@ -554,17 +527,4 @@ extension BeagleClient {
         }
         return .staleError(lastError)
     }
-
-    /// Forecast (the forward half of the Agora charts).
-    @available(*, deprecated, message: "Use physiomeForecast() returning Truthful<AgoraForecast>.")
-    public func agoraForecast() async -> AgoraForecast? {
-        await physiomeForecast().value
-    }
-
-    /// Body×sky×ambient correlations (Spearman + lag scan) for the data screen.
-    @available(*, deprecated, message: "Use CockpitClient.shared.correlations(days:) returning Truthful<PhysioCorrelations>.")
-    public func correlations(days: Int = 30) async -> PhysioCorrelations? {
-        await CockpitClient.shared.correlations(days: days).value
-    }
-
 }

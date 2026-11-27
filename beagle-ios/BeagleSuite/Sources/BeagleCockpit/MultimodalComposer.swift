@@ -824,7 +824,7 @@ struct CameraImagePicker: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
 
-    final class Coordinator: NSObject, UINavigationControllerDelegate, @preconcurrency UIImagePickerControllerDelegate {
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
         let onImage: @MainActor (UIImage) -> Void
         let dismiss: DismissAction
 
@@ -873,7 +873,7 @@ struct DocumentCameraScanner: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {}
 
-    final class Coordinator: NSObject, @preconcurrency VNDocumentCameraViewControllerDelegate {
+    final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
         let onImage: @MainActor (UIImage) -> Void
         let dismiss: DismissAction
 

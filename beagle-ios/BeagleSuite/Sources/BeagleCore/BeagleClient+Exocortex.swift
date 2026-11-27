@@ -299,14 +299,6 @@ extension BeagleClient {
         )
     }
 
-    /// Flush one queued offline companion turn to the cockpit's memory-spine ingest endpoint.
-    @available(*, deprecated, message: "Use CockpitClient.shared.ingestTurn(_:) directly.")
-    public func ingestTurn(
-        _ request: IngestTurnRequest
-    ) async -> Truthful<IngestTurnResult> {
-        await CockpitClient.shared.ingestTurn(request)
-    }
-
     public func captureSessionStart(
         _ request: CaptureSessionStartRequest
     ) async -> Truthful<CaptureSession> {

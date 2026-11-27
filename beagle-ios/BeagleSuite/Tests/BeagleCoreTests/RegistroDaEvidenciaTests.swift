@@ -97,7 +97,7 @@ struct RegistroDaEvidenciaTests {
     /// no mesmo `?? old` manteria a fala em serifada sobre texto que voltou a vir da tela.
     @Test @MainActor
     func testPatchDistingueChaveAusenteDeChaveNula() {
-        let c = FleetStateClient()
+        let c = FleetStateStore()
         c.handle("""
         {"t":"sessions","sessions":[
           {"sid":"loom-1","title":"loom-1","state":"running","detail":"falando",

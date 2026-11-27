@@ -14,9 +14,6 @@ public final class OficinaStore {
     public private(set) var truthfulState: Truthful<OficinaState> = .declared(.empty)
     public private(set) var isLoading = false
 
-    @available(*, deprecated, renamed: "isLoading")
-    public var loading: Bool { isLoading }
-
     /// Set when the fetch itself failed (as opposed to the server reporting a stale sweep).
     public private(set) var fetchError: String?
 
@@ -98,6 +95,3 @@ public final class OficinaStore {
         }
     }
 }
-
-@available(*, deprecated, renamed: "OficinaStore")
-public typealias OficinaClient = OficinaStore

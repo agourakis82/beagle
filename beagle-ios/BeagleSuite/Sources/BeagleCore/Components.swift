@@ -739,7 +739,11 @@ public struct MilestoneCelebration: View {
 
     private func dismiss() {
         withAnimation(.easeIn(duration: 0.2)) { show = false }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { onDismiss() }
+        let finish = onDismiss
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            finish()
+        }
     }
 
     private func spawnParticles() {
@@ -787,20 +791,24 @@ public enum BeagleHaptics {
     public static func goDeepComplete() {
         let gen = UINotificationFeedbackGenerator()
         gen.notificationOccurred(.success)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(120))
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.5)
         }
     }
 
     /// Milestone hit — three quick taps ascending in intensity.
     public static func milestone() {
-        let timings: [(delay: Double, style: UIImpactFeedbackGenerator.FeedbackStyle, intensity: CGFloat)] = [
-            (0,    .light,  0.4),
-            (0.10, .medium, 0.7),
-            (0.22, .heavy,  1.0),
+        let timings: [(delayMs: Int, style: UIImpactFeedbackGenerator.FeedbackStyle, intensity: CGFloat)] = [
+            (0,   .light,  0.4),
+            (100, .medium, 0.7),
+            (220, .heavy,  1.0),
         ]
         for t in timings {
-            DispatchQueue.main.asyncAfter(deadline: .now() + t.delay) {
+            Task { @MainActor in
+                if t.delayMs > 0 {
+                    try? await Task.sleep(for: .milliseconds(t.delayMs))
+                }
                 let gen = UIImpactFeedbackGenerator(style: t.style)
                 gen.impactOccurred(intensity: t.intensity)
             }

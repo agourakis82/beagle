@@ -94,13 +94,14 @@ struct GoDeepView: View {
                 hasLaunched = true
 
                 // Wire Live Activity callbacks (with active lens + live summary snippet)
-                store.onResearchStart = { runId, name, slug in
-                    let initialLens = store.modalityStates.first?.modality.shortBadge ?? "Astra xhigh"
+                let observedStore = store
+                store.onResearchStart = { [weak observedStore] runId, name, slug in
+                    let initialLens = observedStore?.modalityStates.first?.modality.shortBadge ?? "Astra xhigh"
                     LiveActivityManager.shared.startResearchActivity(
                         runId: runId,
                         campaign: name,
                         slug: slug,
-                        totalSteps: max(2, store.totalCount + 1),
+                        totalSteps: max(2, (observedStore?.totalCount ?? 1) + 1),
                         activeLens: initialLens
                     )
                 }
@@ -117,8 +118,8 @@ struct GoDeepView: View {
                         )
                     }
                 }
-                store.onResearchEnd = { [weak store] _ in
-                    LiveActivityManager.shared.endResearchActivity(finalSummary: store?.synthesis)
+                store.onResearchEnd = { [weak observedStore] _ in
+                    LiveActivityManager.shared.endResearchActivity(finalSummary: observedStore?.synthesis)
                     #if os(iOS)
                     BeagleHaptics.goDeepComplete()
                     #endif

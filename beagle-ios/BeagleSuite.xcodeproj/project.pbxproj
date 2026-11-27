@@ -36,6 +36,7 @@
 		4DA6AD62DD347FAACCB96433 /* DeepExplorationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */; };
 		4E33B6ACECC471E64754FB9D /* MemoryLensDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93ABC6EEEFA5327B2B528AC /* MemoryLensDetailView.swift */; };
 		4F30330ABC2C3224A105FB72 /* BeagleWorkbenchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 19404BEBA13FB54406BE5069 /* BeagleWorkbenchKit */; };
+		BEAF00010000000000000002 /* BeagleWorkbenchKit in Frameworks */ = {isa = PBXBuildFile; productRef = BEAF00010000000000000001 /* BeagleWorkbenchKit */; };
 		516E1D231C1D60DF1ECDB5A1 /* BeagleShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CEC7FE0EE0D0A7399591E5E4 /* BeagleShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		53B8479DB1330CE984F0FC29 /* MessageBubble.swift in Sources */ = {isa = PBXBuildFile; fileRef = 235FEA192D29E895FB53AC4D /* MessageBubble.swift */; };
 		558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */; };
@@ -392,6 +393,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */,
+				BEAF00010000000000000002 /* BeagleWorkbenchKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -655,6 +657,7 @@
 			name = BeagleVisionOS;
 			packageProductDependencies = (
 				85AA837F77CBB98A5A3D1297 /* BeagleCore */,
+				BEAF00010000000000000001 /* BeagleWorkbenchKit */,
 			);
 			productName = BeagleVisionOS;
 			productReference = 67516A1FA21422BE9A964B96 /* BeagleVisionOS.app */;
@@ -1727,6 +1730,10 @@
 		85AA837F77CBB98A5A3D1297 /* BeagleCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = BeagleCore;
+		};
+		BEAF00010000000000000001 /* BeagleWorkbenchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = BeagleWorkbenchKit;
 		};
 		89A4FE3D86B15D992A7B5030 /* BeagleCore */ = {
 			isa = XCSwiftPackageProductDependency;

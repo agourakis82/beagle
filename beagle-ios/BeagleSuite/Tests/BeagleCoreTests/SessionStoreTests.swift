@@ -50,10 +50,10 @@ struct SessionStoreTests {
         // O loomd coalesce os 70 deltas de um turno e manda o parcial em `streaming`. Se `delta`
         // também virasse passo, a mesma frase apareceria N vezes na trilha — e a lista piscaria a
         // cada volta do poll.
-        #expect(SessionStore.passo(de: ev(1, "delta", text: "Vou")) == nil)
+        #expect(SessionStore.step(from: ev(1, "delta", text: "Vou")) == nil)
         for ruido in ["turn_started", "turn_ended", "session_started", "session_ended",
                       "idle", "approval_answered", "unknown"] {
-            #expect(SessionStore.passo(de: ev(2, ruido)) == nil,
+            #expect(SessionStore.step(from: ev(2, ruido)) == nil,
                     "\(ruido) é ciclo de vida, não conteúdo nem decisão")
         }
     }
@@ -62,16 +62,16 @@ struct SessionStoreTests {
     func testDiffVazioNaoViraPasso() {
         // Um `diff_proposed` sem texto desenharia um bloco de código em branco, que lê como
         // "o agente propôs nada" em vez de "não houve diff".
-        #expect(SessionStore.passo(de: ev(1, "diff_proposed")) == nil)
-        #expect(SessionStore.passo(de: ev(2, "diff_proposed", diff: "")) == nil)
-        #expect(SessionStore.passo(de: ev(3, "diff_proposed", diff: "--- a\n+++ b\n")) != nil)
+        #expect(SessionStore.step(from: ev(1, "diff_proposed")) == nil)
+        #expect(SessionStore.step(from: ev(2, "diff_proposed", diff: "")) == nil)
+        #expect(SessionStore.step(from: ev(3, "diff_proposed", diff: "--- a\n+++ b\n")) != nil)
     }
 
     @Test @MainActor
     func testErroSemDescricaoAindaDizAlgo() {
         // Erro é conteúdo de primeira classe. Um erro vazio na tela é pior que nenhum: some sem
         // deixar rastro de que houve falha.
-        guard case .failure(_, let t, _)? = SessionStore.passo(de: ev(1, "error")) else {
+        guard case .failure(_, let t, _)? = SessionStore.step(from: ev(1, "error")) else {
             Issue.record("erro deveria virar passo")
             return
         }
@@ -83,7 +83,7 @@ struct SessionStoreTests {
         // Um evento antigo, relido de um diário escrito antes de `approval_kind` existir, não pode
         // virar `patch` por otimismo — patch diz "reversível por git", e isso decide se ele lê o
         // comando antes de aprovar.
-        guard case .approval(_, let k, _, _, _)? = SessionStore.passo(de: ev(1, "awaiting_approval")) else {
+        guard case .approval(_, let k, _, _, _)? = SessionStore.step(from: ev(1, "awaiting_approval")) else {
             Issue.record("aprovação deveria virar passo")
             return
         }
@@ -100,7 +100,7 @@ struct SessionStoreTests {
     func testAwaitingApprovalCarregaODiffQuandoOEventoTraz() {
         let e = ev(1, "awaiting_approval", text: "aplicar mudança em alvo.txt",
                    diff: "--- a/alvo.txt\n+++ b/alvo.txt\n-velho\n+novo", approval: .patch)
-        guard case .approval(_, let k, let detalhe, let diff, _)? = SessionStore.passo(de: e) else {
+        guard case .approval(_, let k, let detalhe, let diff, _)? = SessionStore.step(from: e) else {
             Issue.record("aprovação com diff deveria virar passo")
             return
         }
@@ -115,7 +115,7 @@ struct SessionStoreTests {
     @Test @MainActor
     func testAwaitingApprovalSemDiffNoEventoFicaNil() {
         let e = ev(1, "awaiting_approval", text: "aplicar", approval: .patch)
-        guard case .approval(_, _, _, let diff, _)? = SessionStore.passo(de: e) else {
+        guard case .approval(_, _, _, let diff, _)? = SessionStore.step(from: e) else {
             Issue.record("aprovação deveria virar passo")
             return
         }
@@ -163,9 +163,9 @@ struct SessionStoreTests {
         // justamente aí que mais se quer o botão de parar. Derivar do parcial perderia esse caso.
         let s = SessionStore(lane: "codex-4")
         s.apply(page([], turnRunning: true))
-        #expect(s.turnoEmCurso, "sem parcial nenhum, o servidor disse que há turno")
+        #expect(s.isTurnActive, "sem parcial nenhum, o servidor disse que há turno")
         s.apply(page([], turnRunning: false))
-        #expect(!s.turnoEmCurso)
+        #expect(!s.isTurnActive)
     }
 
     @Test @MainActor
@@ -189,11 +189,11 @@ struct SessionStoreTests {
             .tool(id: 4, name: "Read", detail: "x", at: .init()),
             .message(id: 5, text: "rb", at: .init()),
         ]
-        let t = Turno.agrupar(passos)
+        let t = SessionTurn.group(passos)
         #expect(t.count == 2)
-        #expect(t[0].pedido == "a")
-        #expect(t[1].pedido == "b")
-        #expect(t[1].passos.count == 3)
+        #expect(t[0].prompt == "a")
+        #expect(t[1].prompt == "b")
+        #expect(t[1].steps.count == 3)
         #expect(t[0].id == 1, "o id é o seq do primeiro passo — estável, então a lista não reordena")
     }
 
@@ -202,42 +202,42 @@ struct SessionStoreTests {
         // 🚨 Sessão RETOMADA: o pedido está fora da janela do diário. Pendurar aquele trabalho no
         // próximo pedido seria atribuí-lo ao pedido errado — e é o tipo de erro que faz alguém
         // aprovar a coisa errada por ler o contexto trocado.
-        let t = Turno.agrupar([
+        let t = SessionTurn.group([
             .message(id: 90, text: "terminei a varredura", at: .init()),
             .prompt(id: 91, text: "quais?", at: .init()),
             .message(id: 92, text: "três", at: .init()),
         ])
         #expect(t.count == 2)
-        #expect(t[0].pedido == nil, "o primeiro bloco não tem pedido, e a tela precisa poder dizer isso")
-        #expect(t[0].passos.count == 1)
-        #expect(t[1].pedido == "quais?")
+        #expect(t[0].prompt == nil, "o primeiro bloco não tem pedido, e a tela precisa poder dizer isso")
+        #expect(t[0].steps.count == 1)
+        #expect(t[1].prompt == "quais?")
     }
 
     @Test @MainActor
     func testTurnoSabeSeTemDiffESePedePermissao() {
         // É o que o cabeçalho do turno resume — serve para decidir se vale abrir com o olho.
-        let t = Turno.agrupar([
+        let t = SessionTurn.group([
             .prompt(id: 1, text: "arruma", at: .init()),
             .diff(id: 2, patch: "--- a\n+++ b\n", at: .init()),
             .approval(id: 3, kind: .patch, detail: "x", at: .init()),
         ])[0]
-        #expect(t.temDiff)
-        #expect(t.pedePermissao)
+        #expect(t.hasDiff)
+        #expect(t.requiresApproval)
 
-        let simples = Turno.agrupar([.prompt(id: 1, text: "oi", at: .init())])[0]
-        #expect(!simples.temDiff)
-        #expect(!simples.pedePermissao)
+        let simples = SessionTurn.group([.prompt(id: 1, text: "oi", at: .init())])[0]
+        #expect(!simples.hasDiff)
+        #expect(!simples.requiresApproval)
     }
 
     @Test @MainActor
     func testDuracaoNaoEAFIRMADAParaTurnoEmCurso() throws {
         // Afirmar duração de algo que está correndo é dizer que acabou.
-        let t = Turno.agrupar([
+        let t = SessionTurn.group([
             .prompt(id: 1, text: "oi", at: Date(timeIntervalSince1970: 1000)),
             .message(id: 2, text: "olá", at: Date(timeIntervalSince1970: 1042)),
         ])[0]
-        #expect(t.duracao(concluido: false) == nil)
-        let duracao = try #require(t.duracao(concluido: true))
+        #expect(t.duration(completed: false) == nil)
+        let duracao = try #require(t.duration(completed: true))
         #expect(abs(duracao - 42) <= 0.001)
     }
 
@@ -249,16 +249,16 @@ struct SessionStoreTests {
         // editei os dois lados à mão ao adotar `codex-4`. Agora quem manda é o servidor — MAS um
         // roster vazio numa queda do loomd significa "não sei", não "não há lane". Tratar os dois
         // igual esvaziaria o allowlist e toda ação seria descartada em silêncio.
-        let c = FleetStateClient.fixture(lanes: [], loomd: LoomdHealth(
+        let c = FleetStateStore.fixture(lanes: [], loomd: LoomdHealth(
             mode: .observed, lanes: 2, roster: ["codex-4", "loom-1"], everObserved: true))
         #expect(c.loomdRoster == ["codex-4", "loom-1"], "observado: manda o servidor")
 
-        let caido = FleetStateClient.fixture(lanes: [], loomd: LoomdHealth(
+        let caido = FleetStateStore.fixture(lanes: [], loomd: LoomdHealth(
             mode: .down, lanes: 0, roster: [], error: "connection refused", everObserved: true))
         #expect(caido.loomdRoster == FleetEndpoint.loomdLanes,
                 "fonte caída: cai na semente em vez de esvaziar")
 
-        let vazioObservado = FleetStateClient.fixture(lanes: [], loomd: LoomdHealth(
+        let vazioObservado = FleetStateStore.fixture(lanes: [], loomd: LoomdHealth(
             mode: .observed, lanes: 0, roster: [], everObserved: true))
         #expect(vazioObservado.loomdRoster == FleetEndpoint.loomdLanes,
                 "observado mas vazio também cai na semente — nunca uma lista vazia")

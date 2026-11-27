@@ -8,12 +8,13 @@
 
 import Foundation
 import Security
+import Synchronization
 
 // MARK: - Direct Brain Credentials & MoE / OpenAI / Anthropic / MCP Orchestrator
 
 enum DirectCredentialKeychain {
     private static let service = "dev.sounio.beagle.direct-credentials"
-    private static let lock = NSLock()
+    private static let lock = Mutex<Void>(())
 
     private static func query(account: String) -> [String: Any] {
         [
@@ -24,46 +25,46 @@ enum DirectCredentialKeychain {
     }
 
     static func load(account: String) -> String? {
-        lock.lock()
-        defer { lock.unlock() }
-        var request = query(account: account)
-        request[kSecReturnData as String] = true
-        request[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(request as CFDictionary, &result)
-        if status == errSecSuccess, let data = result as? Data,
-           let value = String(data: data, encoding: .utf8), !value.isEmpty {
+        lock.withLock { _ in
+            var request = query(account: account)
+            request[kSecReturnData as String] = true
+            request[kSecMatchLimit as String] = kSecMatchLimitOne
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(request as CFDictionary, &result)
+            if status == errSecSuccess, let data = result as? Data,
+               let value = String(data: data, encoding: .utf8), !value.isEmpty {
+                UserDefaults.standard.removeObject(forKey: account)
+                return value
+            }
+            // A locked/unavailable Keychain must not be mistaken for an absent item.
+            guard status == errSecItemNotFound else { return nil }
+            guard let legacy = UserDefaults.standard.string(forKey: account)?
+                .trimmingCharacters(in: .whitespacesAndNewlines), !legacy.isEmpty else { return nil }
+            // Preserve the old value until migration succeeds; never use plaintext on failure.
+            guard write(legacy, account: account) else { return nil }
             UserDefaults.standard.removeObject(forKey: account)
-            return value
+            return legacy
         }
-        // A locked/unavailable Keychain must not be mistaken for an absent item.
-        guard status == errSecItemNotFound else { return nil }
-        guard let legacy = UserDefaults.standard.string(forKey: account)?
-            .trimmingCharacters(in: .whitespacesAndNewlines), !legacy.isEmpty else { return nil }
-        // Preserve the old value until migration succeeds; never use plaintext on failure.
-        guard write(legacy, account: account) else { return nil }
-        UserDefaults.standard.removeObject(forKey: account)
-        return legacy
     }
 
     @discardableResult
     static func save(_ value: String, account: String) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let success: Bool
-        if trimmed.isEmpty {
-            let status = SecItemDelete(query(account: account) as CFDictionary)
-            success = status == errSecSuccess || status == errSecItemNotFound
-        } else {
-            success = write(trimmed, account: account)
+        lock.withLock { _ in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let success: Bool
+            if trimmed.isEmpty {
+                let status = SecItemDelete(query(account: account) as CFDictionary)
+                success = status == errSecSuccess || status == errSecItemNotFound
+            } else {
+                success = write(trimmed, account: account)
+            }
+            if success {
+                UserDefaults.standard.removeObject(forKey: account)
+            } else {
+                print("[DirectBrainCredentials] Keychain update failed; credential unchanged.")
+            }
+            return success
         }
-        if success {
-            UserDefaults.standard.removeObject(forKey: account)
-        } else {
-            print("[DirectBrainCredentials] Keychain update failed; credential unchanged.")
-        }
-        return success
     }
 
     private static func write(_ value: String, account: String) -> Bool {
@@ -91,7 +92,11 @@ public enum DirectBrainCredentials {
     private static let keepLocalLoadedDefault = "beagle.moe.keepLocalLoaded"
 
     /// Ephemeral override used exclusively by unit tests so Keychain entitlements are never required in CI/simulator.
-    nonisolated(unsafe) static var testOpenAIKeyOverride: String?
+    private static let testOpenAIKeyStorage = Mutex<String?>(nil)
+    static var testOpenAIKeyOverride: String? {
+        get { testOpenAIKeyStorage.withLock { $0 } }
+        set { testOpenAIKeyStorage.withLock { $0 = newValue } }
+    }
 
     public static var openAIKey: String {
         get {

@@ -105,9 +105,6 @@ public enum SessionStep: Sendable, Equatable, Identifiable {
         if case .uso = self { return false }
         return true
     }
-
-    @available(*, deprecated, renamed: "isRenderable")
-    public var desenhavel: Bool { isRenderable }
 }
 
 /// Token context and USD cost snapshot for a session turn.
@@ -125,24 +122,7 @@ public struct TurnUsage: Sendable, Equatable {
         self.contextLimit = contextLimit
         self.usd = usd
     }
-
-    @available(*, deprecated, renamed: "contextUsed")
-    public var contextoUsado: Int { contextUsed }
-
-    @available(*, deprecated, renamed: "contextLimit")
-    public var contextoTeto: Int { contextLimit }
-
-    @available(*, deprecated, renamed: "ratio")
-    public var proporcao: Double { ratio }
-
-    @available(*, deprecated, renamed: "init(contextUsed:contextLimit:usd:)")
-    public init(contextoUsado: Int, contextoTeto: Int, usd: Double) {
-        self.init(contextUsed: contextoUsado, contextLimit: contextoTeto, usd: usd)
-    }
 }
-
-@available(*, deprecated, renamed: "TurnUsage")
-public typealias UsoDoTurno = TurnUsage
 
 /// A grouped conversation turn: one operator prompt and all agent steps produced for it.
 public struct SessionTurn: Identifiable, Sendable {
@@ -153,11 +133,6 @@ public struct SessionTurn: Identifiable, Sendable {
     public init(id: Int, steps: [SessionStep]) {
         self.id = id
         self.steps = steps
-    }
-
-    @available(*, deprecated, renamed: "init(id:steps:)")
-    public init(id: Int, passos: [SessionStep]) {
-        self.init(id: id, steps: passos)
     }
 
     public var prompt: String? {
@@ -213,39 +188,7 @@ public struct SessionTurn: Identifiable, Sendable {
         }
         return turns
     }
-
-    // MARK: - Deprecated Portuguese compatibility shims
-
-    @available(*, deprecated, renamed: "steps")
-    public var passos: [SessionStep] { steps }
-
-    @available(*, deprecated, renamed: "prompt")
-    public var pedido: String? { prompt }
-
-    @available(*, deprecated, renamed: "startedAt")
-    public var comecouEm: Date { startedAt }
-
-    @available(*, deprecated, renamed: "endedAt")
-    public var terminouEm: Date { endedAt }
-
-    @available(*, deprecated, renamed: "duration(completed:)")
-    public func duracao(concluido: Bool) -> TimeInterval? { duration(completed: concluido) }
-
-    @available(*, deprecated, renamed: "hasDiff")
-    public var temDiff: Bool { hasDiff }
-
-    @available(*, deprecated, renamed: "requiresApproval")
-    public var pedePermissao: Bool { requiresApproval }
-
-    @available(*, deprecated, renamed: "usage")
-    public var uso: TurnUsage? { usage }
-
-    @available(*, deprecated, renamed: "group(_:)")
-    public static func agrupar(_ passos: [SessionStep]) -> [SessionTurn] { group(passos) }
 }
-
-@available(*, deprecated, renamed: "SessionTurn")
-public typealias Turno = SessionTurn
 
 /// Um evento cru da trama, como o cockpit o devolve em `/turns`.
 public struct TramaEvent: Decodable, Sendable {
@@ -294,17 +237,11 @@ public final class SessionStore {
     /// Grouped conversation turns derived from `steps`.
     public var turns: [SessionTurn] { SessionTurn.group(steps) }
 
-    @available(*, deprecated, renamed: "turns")
-    public var turnos: [SessionTurn] { turns }
-
     /// A mensagem SENDO ESCRITA agora — os deltas coalescidos do outro lado. Não é um passo:
     /// vira um quando fecha, e mostrá-la como passo faria a lista piscar a cada volta do poll.
     public private(set) var streaming: String?
     public private(set) var link: Link = .idle
     public private(set) var isSending = false
-
-    @available(*, deprecated, renamed: "isSending")
-    public var sending: Bool { isSending }
     /// A recusa do servidor, nas palavras dele. Ele sabe o motivo; nós inventaríamos um pior.
     public private(set) var note: String?
     public private(set) var lastPollAt: Date?
@@ -425,12 +362,6 @@ public final class SessionStore {
         default:
             return nil
         }
-    }
-
-    /// A tradução. `Delta` nunca chega aqui — ele é coalescido no loomd e vem em `streaming`.
-    @available(*, deprecated, renamed: "step(from:)")
-    public static func passo(de e: TramaEvent) -> SessionStep? {
-        step(from: e)
     }
 
     /// "contexto 38718/1000000 · USD 0.3728" → os três números.
@@ -623,11 +554,6 @@ public final class SessionStore {
             if u.usd > 0 { parts.append(moeda(u.usd, casas: 4)) }
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
-    }
-
-    @available(*, deprecated, renamed: "turnFooter(duration:usage:)")
-    public static func rodapeDoTurno(duracao: TimeInterval?, uso: TurnUsage?) -> String? {
-        turnFooter(duration: duracao, usage: uso)
     }
 
     /// A porcentagem de contexto usado, para o rodapé. O 5º "arredonda para zero" desta fatia:
@@ -1015,9 +941,6 @@ public final class SessionStore {
 
     /// Whether a turn is actively running according to the server.
     public private(set) var isTurnActive = false
-
-    @available(*, deprecated, renamed: "isTurnActive")
-    public var turnoEmCurso: Bool { isTurnActive }
 
     /// Parar o turno, ou guiá-lo. `texto` vazio = interromper.
     @discardableResult

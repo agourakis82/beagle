@@ -27,11 +27,6 @@ public final class FleetStateStore {
         /// retentativa resolveria sozinha, então aqui não há mentira em dizer "parei".
         case failed(String)
 
-        @available(*, deprecated, renamed: "retrying(reason:attempts:)")
-        public static func insistindo(motivo: String, tentativas: Int) -> Link {
-            .retrying(reason: motivo, attempts: tentativas)
-        }
-
         public var isConnected: Bool { self == .live }
 
         public var isConnecting: Bool {
@@ -100,13 +95,6 @@ public final class FleetStateStore {
     /// latest frame — `nil` prevents the UI from offering an unsupported gesture.
     public func acceptedCapability(for sid: String) -> Aceita? {
         lanes.first { $0.sid == sid }?.aceita
-    }
-
-    /// O que a lane aceita, segundo o servidor. `nil` quando a lane não está no último quadro —
-    /// e `nil` faz a tela NÃO oferecer gesto, que é o comportamento seguro.
-    @available(*, deprecated, renamed: "acceptedCapability(for:)")
-    public func aceita(de sid: String) -> Aceita? {
-        acceptedCapability(for: sid)
     }
 
     /// Trava: a fonte já respondeu nesta sessão. É o que separa QUEDA de AUSÊNCIA, e portanto
@@ -448,11 +436,6 @@ public final class FleetStateStore {
         min(10_000, 250 * (1 << min(max(retries, 1), 6)))
     }
 
-    @available(*, deprecated, renamed: "nextRetryDelayMs(retries:)")
-    nonisolated static func proximoAtrasoMs(retries: Int) -> Int {
-        nextRetryDelayMs(retries: retries)
-    }
-
     /// Pure explanatory message for each link state (testable without UI).
     public nonisolated static func linkDescription(_ link: Link) -> String {
         switch link {
@@ -470,12 +453,4 @@ public final class FleetStateStore {
             return "Sem conexão com o broker."
         }
     }
-
-    @available(*, deprecated, renamed: "linkDescription(_:)")
-    public nonisolated static func explicacaoDoLink(_ link: Link) -> String {
-        linkDescription(link)
-    }
 }
-
-@available(*, deprecated, renamed: "FleetStateStore")
-public typealias FleetStateClient = FleetStateStore

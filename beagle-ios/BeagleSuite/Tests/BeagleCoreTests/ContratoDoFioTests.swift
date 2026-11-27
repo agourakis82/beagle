@@ -78,7 +78,7 @@ struct ContratoDoFioTests {
     /// Antes do caminho único, este teste era impossível de escrever: a reconstrução campo-a-campo
     /// dentro do `FleetStateClient` tinha de ser conferida campo a campo, à mão, por quem lembrasse.
     @Test func testPatchSilenciosoNaoPerdeNenhumCampo() throws {
-        let c = FleetStateClient()
+        let c = FleetStateStore()
         let jsonData = try JSONSerialization.data(withJSONObject: ["t": "sessions", "sessions": [frameCompleto]])
         let jsonString = try #require(String(data: jsonData, encoding: .utf8))
         c.handle(jsonString)
@@ -97,7 +97,7 @@ struct ContratoDoFioTests {
     /// acima seria satisfeito por um `?? antigo` cego, que manteria `GUIAR` numa lane que o servidor
     /// acabou de tornar somente-leitura — e foi exatamente esse o achado da review do `aceita`.
     @Test func testNullExplicitoDegradaEmVezDePreservar() throws {
-        let c = FleetStateClient()
+        let c = FleetStateStore()
         let jsonData = try JSONSerialization.data(withJSONObject: ["t": "sessions", "sessions": [frameCompleto]])
         let jsonString = try #require(String(data: jsonData, encoding: .utf8))
         c.handle(jsonString)

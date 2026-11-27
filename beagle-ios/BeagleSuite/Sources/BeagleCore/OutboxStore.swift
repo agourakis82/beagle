@@ -37,9 +37,6 @@ public struct IngestTurnRequest: Encodable, Sendable, Equatable {
     public let clientTime: String
     public let timezone: String
 
-    @available(*, deprecated, renamed: "sessionId")
-    public var session_id: String { sessionId }
-
     enum CodingKeys: String, CodingKey {
         case sessionId = "session_id"
         case userText
@@ -54,17 +51,6 @@ public struct IngestTurnRequest: Encodable, Sendable, Equatable {
         self.assistantText = assistantText
         self.clientTime = clientTime
         self.timezone = timezone
-    }
-
-    @available(*, deprecated, renamed: "init(sessionId:userText:assistantText:clientTime:timezone:)")
-    public init(session_id: String, userText: String, assistantText: String, clientTime: String, timezone: String) {
-        self.init(
-            sessionId: session_id,
-            userText: userText,
-            assistantText: assistantText,
-            clientTime: clientTime,
-            timezone: timezone
-        )
     }
 }
 

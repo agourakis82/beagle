@@ -9,8 +9,8 @@ import Testing
 @MainActor
 struct FleetStateClientTests {
 
-    private func client(comLaneExata sid: String) -> FleetStateClient {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+    private func client(comLaneExata sid: String) -> FleetStateStore {
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle("""
         {"t":"sessions","sessions":[
           {"sid":"\(sid)","title":"\(sid)","state":"waiting","detail":"aprovar?",
@@ -52,14 +52,14 @@ struct FleetStateClientTests {
           {"sid":"claude-1","title":"claude-1","state":"running","detail":"…","observedAt":1000}
         ]}
         """)
-        #expect(c.aceita(de: "loom-1") == .redireciona)
+        #expect(c.acceptedCapability(for: "loom-1") == .redireciona)
     }
 
     /// Uma lane que não está no último quadro não pode virar um chute: `nil`, não um valor
     /// inventado.
     @Test func testAceitaDeDevolveNilParaLaneAusente() {
         let c = client(comLaneExata: "loom-1")
-        #expect(c.aceita(de: "não-existe") == nil)
+        #expect(c.acceptedCapability(for: "não-existe") == nil)
     }
 
     /// 🚨 Distinção que a mutação (Step 6 do brief) mata se a implementação "simplificar" para a
@@ -67,7 +67,7 @@ struct FleetStateClientTests {
     /// devolve `nil` — mas pelo motivo certo (silêncio sobre AQUELA lane), não por confundi-la
     /// com "não achei" nem com a lane errada.
     @Test func testAceitaDeDevolveNilParaLanePresenteSemCapacidadeDeclarada() {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle("""
         {"t":"sessions","sessions":[
           {"sid":"loom-1","title":"loom-1","state":"waiting","detail":"aprovar?",
@@ -75,7 +75,7 @@ struct FleetStateClientTests {
           {"sid":"claude-1","title":"claude-1","state":"running","detail":"…","observedAt":1000}
         ]}
         """)
-        #expect(c.aceita(de: "claude-1") == nil, "presente, mas sem aceita declarado — nil, não a da primeira lane")
+        #expect(c.acceptedCapability(for: "claude-1") == nil, "presente, mas sem aceita declarado — nil, não a da primeira lane")
     }
 
     @Test func testAStatePatchThatDeclaresConfidenceWins() {
@@ -97,8 +97,8 @@ struct FleetStateClientTests {
     // MARK: - O que está sendo aprovado sobrevive ao patch de lane única
 
     /// Um cliente cuja lane medida já trouxe diff e tipo de aprovação no quadro `sessions`.
-    private func clienteComPedido() -> FleetStateClient {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+    private func clienteComPedido() -> FleetStateStore {
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle("""
         {"t":"sessions","sessions":[
           {"sid":"loom-1","title":"loom-1","state":"waiting",
@@ -179,7 +179,7 @@ struct FleetStateClientTests {
     @Test func testOFrameDeSessoesTrazASaudeDaFonteENaoSoAsLanes() {
         // Antes disto o cliente fazia `arr.compactMap(...)` e descartava o resto do frame: o
         // bloco chegava e morria no parser.
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle(frameVivo())
         #expect(c.loomd?.mode == .observed)
         #expect(c.loomd?.lanes == 1)
@@ -187,7 +187,7 @@ struct FleetStateClientTests {
     }
 
     @Test func testQuandoAFonteCaiALaneNaoSomeSemNome() {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle(frameVivo())
         c.handle(frameCaido())
         // O card realmente sumiu do board — é o comportamento que se estava vendo…
@@ -203,7 +203,7 @@ struct FleetStateClientTests {
         // O `lost[]` do servidor zera quando o cockpit reinicia — e a lane continua fora do
         // board. O diff antes/depois feito do lado do cliente é o único que o outro lado não
         // pode apagar.
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle(frameVivo())
         c.handle(frameCaido(lost: "[]"))
         #expect(c.loomd?.lost == ["loom-1"], "o cliente viu a lane exata sair; tem que dizer o nome")
@@ -212,7 +212,7 @@ struct FleetStateClientTests {
     @Test func testONomeDaLanePerdidaSobreviveAosFramesSeguintes() {
         // No sweep seguinte a lane já não está no estado anterior, então o diff não a reencontra.
         // Sem a trava, o nome apareceria por um frame e sumiria — pior que nunca ter aparecido.
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle(frameVivo())
         c.handle(frameCaido(lost: "[]"))
         c.handle(frameCaido(lost: "[]"))
@@ -220,7 +220,7 @@ struct FleetStateClientTests {
     }
 
     @Test func testAFonteQueVoltaParaDeAcusarPerda() {
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle(frameVivo())
         c.handle(frameCaido(lost: "[]"))
         c.handle(frameVivo())
@@ -231,7 +231,7 @@ struct FleetStateClientTests {
     @Test func testUmaLaneRaspadaQueSomeNaoEPenduradaNaQuedaDoLoomd() {
         // `claude-1` some por tmux/pod, não pela fonte medida. Acusar o loomd aqui mandaria o
         // operador depurar o processo errado.
-        let c = FleetStateClient(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
+        let c = FleetStateStore(endpoint: FleetEndpoint(host: "h", scheme: "ws", token: "t"))
         c.handle(frameVivo())
         c.handle("""
         {"t":"sessions","sessions":[

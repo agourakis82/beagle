@@ -54,9 +54,8 @@ struct FrotaSnapshotTests {
 
     /// O que vai para o PNG: o CONTEÚDO da Frota sobre o mesmo chão que a tela usa.
     /// Sem o `ScrollView`, que faz o `ImageRenderer` propor altura infinita e devolver branco.
-    private func retrato(_ fleet: FleetStateClient) -> some View {
-        FrotaView(fleet: fleet).conteudo
-            .background(Color(red: 0.043, green: 0.055, blue: 0.086))
+    private func retrato(_ fleet: FleetStateStore) -> some View {
+        FrotaView(fleet: fleet, scrollable: false)
     }
 
     // MARK: - A frota real, medida
@@ -150,7 +149,7 @@ struct FrotaSnapshotTests {
 
     @Test func testRetratoDaFrotaReal() throws {
         let now = Date()
-        let fleet = FleetStateClient.fixture(
+        let fleet = FleetStateStore.fixture(
             lanes: Self.frotaReal(now: now),
             loomd: LoomdHealth(mode: .observed, observedAt: now.addingTimeInterval(-998),
                                readAt: now, lanes: 1, everObserved: true))
@@ -164,7 +163,7 @@ struct FrotaSnapshotTests {
         // Nada na prateleira: o estado MAIS comum do dia, e o que decide se a tela vale a pena
         // ficar aberta. Uma Frota que só é boa em emergência é um alarme, não um posto de trabalho.
         let calmas = Self.frotaReal(now: now).filter { !$0.needsOperator }
-        let fleet = FleetStateClient.fixture(
+        let fleet = FleetStateStore.fixture(
             lanes: calmas,
             loomd: LoomdHealth(mode: .observed, readAt: now, lanes: 1, everObserved: true))
         try render(retrato(fleet), size: CGSize(width: 1180, height: 900), name: "03-frota-calma")
@@ -177,7 +176,7 @@ struct FrotaSnapshotTests {
         var lanes = Self.frotaReal(now: now.addingTimeInterval(-300))
         lanes.append(.init(sid: "grok-cli3", title: "grok-cli3", state: .exited,
                            detail: "sessão não existe no tmux", observedAt: now))
-        let fleet = FleetStateClient.fixture(
+        let fleet = FleetStateStore.fixture(
             lanes: lanes,
             loomd: LoomdHealth(mode: .down, readAt: now, lanes: 0, lost: ["loom-1"],
                                error: "connection refused", everObserved: true),

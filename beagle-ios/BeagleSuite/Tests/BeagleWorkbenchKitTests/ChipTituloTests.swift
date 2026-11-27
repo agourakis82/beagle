@@ -58,12 +58,12 @@ struct ChipTituloTests {
         // todo e não pede nada. O sino é a lane CHAMANDO. Se um badge só cobrisse os dois, o
         // pedido de atenção viraria ruído de fundo, que é como um alarme morre.
         let c = PTYClient(agent: "claude-1")
-        #expect(c.sinos == 0)
-        c.tocouSino()
-        c.tocouSino()
-        #expect(c.sinos == 2)
-        c.limparSinos()
-        #expect(c.sinos == 0, "olhar a lane reconhece o chamado")
+        #expect(c.bellCount == 0)
+        c.recordBell()
+        c.recordBell()
+        #expect(c.bellCount == 2)
+        c.clearBells()
+        #expect(c.bellCount == 0, "olhar a lane reconhece o chamado")
     }
 
     @Test @MainActor
@@ -73,18 +73,18 @@ struct ChipTituloTests {
         // continuava verde. Aqui a decisão é exercida onde ela mora.
         let s = FleetTerminalStore()
         let c = PTYClient(agent: "claude-1")
-        s.adotar("claude-1", c)
+        s.adopt("claude-1", client: c)
 
-        #expect(!s.chamou("claude-1"), "nada aconteceu ainda")
-        c.tocouSino()
-        #expect(s.chamou("claude-1"), "a lane CHAMOU")
+        #expect(!s.hasPendingBell(for: "claude-1"), "nada aconteceu ainda")
+        c.recordBell()
+        #expect(s.hasPendingBell(for: "claude-1"), "a lane CHAMOU")
         s.open("claude-1")
-        #expect(!s.chamou("claude-1"), "olhar reconhece o chamado")
+        #expect(!s.hasPendingBell(for: "claude-1"), "olhar reconhece o chamado")
 
         // E a distinção: saída nova NÃO acende o sino, e nunca deveria — trabalhar não é chamar.
-        c.tocouSino()
+        c.recordBell()
         s.open("claude-1")
-        #expect(!s.chamou("claude-1"))
+        #expect(!s.hasPendingBell(for: "claude-1"))
         #expect(!s.hasUnread("claude-1"), "abrir também zera a saída nova")
     }
 
@@ -94,15 +94,15 @@ struct ChipTituloTests {
         // gasta espaço para dizer o que já está dito ao lado.
         let s = FleetTerminalStore()
         let c = PTYClient(agent: "claude-1")
-        s.adotar("claude-1", c)
+        s.adopt("claude-1", client: c)
 
-        #expect(s.titulo("claude-1") == nil, "sem título anunciado, nada a mostrar")
-        c.titulo = "claude-1"
-        #expect(s.titulo("claude-1") == nil, "repetir o nome da lane não é informação")
-        c.titulo = "   "
-        #expect(s.titulo("claude-1") == nil, "espaço em branco não é título")
-        c.titulo = "compiler-issue-triage"
-        #expect(s.titulo("claude-1") == "compiler-issue-triage")
+        #expect(s.title(for: "claude-1") == nil, "sem título anunciado, nada a mostrar")
+        c.title = "claude-1"
+        #expect(s.title(for: "claude-1") == nil, "repetir o nome da lane não é informação")
+        c.title = "   "
+        #expect(s.title(for: "claude-1") == nil, "espaço em branco não é título")
+        c.title = "compiler-issue-triage"
+        #expect(s.title(for: "claude-1") == "compiler-issue-triage")
     }
 
     @Test @MainActor
@@ -110,7 +110,7 @@ struct ChipTituloTests {
         // Muito shell publica o próprio nome do programa como título. Repetir `claude-1  claude-1`
         // no chip gasta espaço para dizer o que já está dito.
         let s = FleetTerminalStore()
-        #expect(s.titulo("claude-1") == nil, "lane fechada não tem título — sem fio, sem afirmação")
+        #expect(s.title(for: "claude-1") == nil, "lane fechada não tem título — sem fio, sem afirmação")
     }
 }
 #endif

@@ -9,6 +9,7 @@
 
 import UIKit
 import Social
+import Synchronization
 import UniformTypeIdentifiers
 import CoreSpotlight
 
@@ -264,8 +265,8 @@ class ShareViewController: SLComposeServiceViewController {
     }
 }
 
-private final class SharedAttachmentCollector: @unchecked Sendable {
-    struct Snapshot {
+private final class SharedAttachmentCollector: Sendable {
+    struct Snapshot: Sendable {
         let urls: [String]
         let extraTexts: [String]
         let imageData: Data?
@@ -273,49 +274,48 @@ private final class SharedAttachmentCollector: @unchecked Sendable {
         let pdfName: String?
     }
 
-    private let lock = NSLock()
-    private var urls: [String] = []
-    private var extraTexts: [String] = []
-    private var imageData: Data?
-    private var pdfData: Data?
-    private var pdfName: String?
+    private struct State: Sendable {
+        var urls: [String] = []
+        var extraTexts: [String] = []
+        var imageData: Data?
+        var pdfData: Data?
+        var pdfName: String?
+    }
+
+    private let state = Mutex<State>(State())
 
     func appendURL(_ value: String) {
-        lock.lock()
-        urls.append(value)
-        lock.unlock()
+        state.withLock { $0.urls.append(value) }
     }
 
     func appendExtraText(_ value: String) {
-        lock.lock()
-        extraTexts.append(value)
-        lock.unlock()
+        state.withLock { $0.extraTexts.append(value) }
     }
 
     func setImage(_ data: Data) {
-        lock.lock()
-        if imageData == nil { imageData = data }
-        lock.unlock()
+        state.withLock {
+            if $0.imageData == nil { $0.imageData = data }
+        }
     }
 
     func setPDF(data: Data, name: String) {
-        lock.lock()
-        if pdfData == nil {
-            pdfData = data
-            pdfName = name
+        state.withLock {
+            if $0.pdfData == nil {
+                $0.pdfData = data
+                $0.pdfName = name
+            }
         }
-        lock.unlock()
     }
 
     func snapshot() -> Snapshot {
-        lock.lock()
-        defer { lock.unlock() }
-        return Snapshot(
-            urls: urls,
-            extraTexts: extraTexts,
-            imageData: imageData,
-            pdfData: pdfData,
-            pdfName: pdfName
-        )
+        state.withLock {
+            Snapshot(
+                urls: $0.urls,
+                extraTexts: $0.extraTexts,
+                imageData: $0.imageData,
+                pdfData: $0.pdfData,
+                pdfName: $0.pdfName
+            )
+        }
     }
 }

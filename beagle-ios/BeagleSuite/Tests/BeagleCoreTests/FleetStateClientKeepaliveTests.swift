@@ -12,12 +12,12 @@ import Testing
 @Suite
 struct FleetStateClientKeepaliveTests {
 
-    // MARK: - proximoAtrasoMs(retries:)
+    // MARK: - nextRetryDelayMs(retries:)
 
     @Test func testAtrasoCrescePorRetentativa() {
-        let a1 = FleetStateClient.proximoAtrasoMs(retries: 1)
-        let a2 = FleetStateClient.proximoAtrasoMs(retries: 2)
-        let a3 = FleetStateClient.proximoAtrasoMs(retries: 3)
+        let a1 = FleetStateStore.nextRetryDelayMs(retries: 1)
+        let a2 = FleetStateStore.nextRetryDelayMs(retries: 2)
+        let a3 = FleetStateStore.nextRetryDelayMs(retries: 3)
         #expect(a1 < a2)
         #expect(a2 < a3)
     }
@@ -27,7 +27,7 @@ struct FleetStateClientKeepaliveTests {
         // app em quarentena de log por volume.
         let tetoMs = 10_000
         for r in 1...50 {
-            #expect(FleetStateClient.proximoAtrasoMs(retries: r) <= tetoMs,
+            #expect(FleetStateStore.nextRetryDelayMs(retries: r) <= tetoMs,
                     "retries=\(r) deve respeitar o teto de 10s")
         }
     }
@@ -35,42 +35,42 @@ struct FleetStateClientKeepaliveTests {
     @Test func testAtrasoNuncaZero() {
         // Um atraso zero vira laço apertado — a mesma tempestade, só que mais rápida.
         for r in 1...50 {
-            #expect(FleetStateClient.proximoAtrasoMs(retries: r) > 0)
+            #expect(FleetStateStore.nextRetryDelayMs(retries: r) > 0)
         }
     }
 
     /// 🚨 A prova central desta rodada de conserto: o cliente NUNCA desiste de vez. `retries`
     /// pode crescer sem limite — o atraso só satura no teto, nunca vira um sinal de "pare". Se
-    /// `proximoAtrasoMs` alguma hora ganhar um ramo de desistência (por exemplo, devolvendo um
+    /// `nextRetryDelayMs` alguma hora ganhar um ramo de desistência (por exemplo, devolvendo um
     /// valor não-positivo depois de N falhas), este teste tem de acusar — é exatamente a
     /// regressão que esta rodada existe para impedir.
     @Test func testAtrasoContinuaNoTetoParaRetriesGrandesENuncaSinalizaDesistencia() {
-        let a100 = FleetStateClient.proximoAtrasoMs(retries: 100)
-        let a1000 = FleetStateClient.proximoAtrasoMs(retries: 1000)
+        let a100 = FleetStateStore.nextRetryDelayMs(retries: 100)
+        let a1000 = FleetStateStore.nextRetryDelayMs(retries: 1000)
         #expect(a100 == 10_000)
         #expect(a1000 == 10_000)
         #expect(a100 > 0, "um valor <= 0 seria o cliente dizendo 'desista'")
         #expect(a1000 > 0, "um valor <= 0 seria o cliente dizendo 'desista'")
     }
 
-    // MARK: - explicacaoDoLink(_:) — o texto não pode mentir sobre o motor ter parado
+    // MARK: - linkDescription(_:) — o texto não pode mentir sobre o motor ter parado
 
     /// 🚨 Achado da terceira rodada de review: a tese desta fatia (não afirmar um estado que não
-    /// é verdade) virada contra ela mesma. `.insistindo` significa "caiu, mas eu mesmo estou
+    /// é verdade) virada contra ela mesma. `.retrying` significa "caiu, mas eu mesmo estou
     /// tentando de novo, sozinho, em segundo plano" — e o texto NÃO pode ler como ".failed"
     /// ("parei, aja você"), porque o motor nunca parou.
     @Test func testInsistindoNuncaAfirmaParada() {
-        let texto = FleetStateClient.explicacaoDoLink(.insistindo(motivo: "timeout", tentativas: 12))
+        let texto = FleetStateStore.linkDescription(.retrying(reason: "timeout", attempts: 12))
         #expect(texto.contains("reconectando") || texto.contains("sozinho") || texto.contains("caiu"),
                 "o texto tem de dizer que o cliente está tentando por conta própria: \"\(texto)\"")
-        #expect(texto != FleetStateClient.explicacaoDoLink(.failed("timeout")),
-                "insistindo não pode reaproveitar o texto de parada — motores diferentes, textos diferentes")
+        #expect(texto != FleetStateStore.linkDescription(.failed("timeout")),
+                "retrying não pode reaproveitar o texto de parada — motores diferentes, textos diferentes")
     }
 
     /// `.failed` continua existindo para o caso que É de verdade permanente (endpoint mal
-    /// configurado) — este teste prende que ELE não regride para o texto de "insistindo".
+    /// configurado) — este teste prende que ELE não regride para o texto de "retrying".
     @Test func testFailedContinuaSendoParadaDeVerdade() {
-        let texto = FleetStateClient.explicacaoDoLink(.failed("bad endpoint"))
+        let texto = FleetStateStore.linkDescription(.failed("bad endpoint"))
         #expect(!texto.contains("sozinho"), "endpoint mal configurado não se resolve retentando")
     }
 }
