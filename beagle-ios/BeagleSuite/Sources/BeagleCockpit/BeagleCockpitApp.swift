@@ -93,12 +93,14 @@ struct BeagleCockpitApp: App {
                 }
                 .onContinueUserActivity("dev.sounio.cockpit.viewProject") { activity in
                     if let slug = activity.userInfo?["slug"] as? String {
-                        navigateToProject(slug)
+                        DeepLinkRouter.shared.requestProject(.init(slug: slug))
                     }
                 }
                 .onContinueUserActivity("dev.sounio.cockpit.viewAgent") { activity in
                     if let slug = activity.userInfo?["slug"] as? String {
-                        navigateToProject(slug)
+                        let kind = (activity.userInfo?["agentKind"] as? String)
+                            ?? (activity.userInfo?["kind"] as? String)
+                        DeepLinkRouter.shared.requestProject(.init(slug: slug, agentKind: kind))
                     }
                 }
                 #if canImport(CoreSpotlight) && !os(watchOS)
@@ -192,29 +194,13 @@ struct BeagleCockpitApp: App {
     // MARK: - Deep link handling
 
     private func handleDeepLink(_ url: URL) {
-        // beagle://project/{slug}
-        // beagle://project/{slug}/agent/{kind}
-        guard url.scheme == "beagle" else { return }
-        // beagle://frota | beagle://oficina | beagle://work — parked for whichever layout can
-        // present them (iPhone drawer sheet vs iPad sidebar). See DeepLinkRouter.
-        if DeepLinkRouter.shared.open(url) { return }
-        let components = url.pathComponents.filter { $0 != "/" }
-
-        if components.count >= 2, components[0] == "project" {
-            let slug = components[1]
-            navigateToProject(slug)
-        }
+        // Unified routing through DeepLinkRouter (handles companion actions, project targets
+        // beagle://project/{slug}[/agent/{kind}], and top-level destinations across cold start
+        // on both iPhone and iPad).
+        _ = DeepLinkRouter.shared.open(url)
     }
 
     // bootstrap() moved to RootView where modelContext is properly available
-
-    private func navigateToProject(_ slug: String) {
-        // Find or create the project to navigate to
-        if let project = catalog.projects.first(where: { $0.projectSlug == slug }) {
-            navigationPath = NavigationPath()
-            navigationPath.append(project)
-        }
-    }
 }
 
 #if os(iOS)

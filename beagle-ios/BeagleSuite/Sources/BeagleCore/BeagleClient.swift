@@ -154,10 +154,9 @@ public actor BeagleClient {
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode) else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
                     lastError = formatError(statusCode: statusCode, data: data, fallback: "HTTP \(statusCode)")
-                    print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
-                    print("[BeagleClient] Response body: \(bodyText.prefix(300))")
+                    let meta = Self.redactedDiagnosticSummary(statusCode: statusCode, byteCount: data.count)
+                    print("[BeagleClient] \(debugLabel) ❌ \(meta)")
                     continue
                 }
 
@@ -166,14 +165,11 @@ public actor BeagleClient {
                 return .observed(decoded, source: url.host)
             } catch {
                 lastError = error.localizedDescription
-                let bodyText: String
-                if let data = responseData {
-                    bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
-                } else {
-                    bodyText = "<no response data>"
-                }
-                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
-                print("[BeagleClient] Response body: \(bodyText.prefix(300))")
+                let meta = Self.redactedDiagnosticSummary(
+                    byteCount: responseData?.count,
+                    error: error
+                )
+                print("[BeagleClient] \(debugLabel) ❌ \(meta)")
                 continue
             }
         }
@@ -188,7 +184,8 @@ public actor BeagleClient {
         path: String,
         body: [String: any Sendable] = [:],
         timeout: TimeInterval = 120,
-        requiresAuth: Bool = true
+        requiresAuth: Bool = true,
+        idempotencyKey: String? = nil
     ) async -> Truthful<T> {
         if requiresAuth {
             let authReady = await ensureAuth()
@@ -198,56 +195,21 @@ public actor BeagleClient {
                 return .staleError(authError)
             }
         }
-        var lastError = "beagle-server unreachable"
-        let debugLabel = "[\(type)] POST \(path)"
-        print("[BeagleClient] \(debugLabel) starting...")
 
-        for base in baseURLs {
-            guard let url = URL(string: path, relativeTo: base) else {
-                print("[BeagleClient] \(debugLabel) failed to construct URL with base: \(base)")
-                continue
-            }
-            var responseData: Data?
-            do {
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = timeout
-                applyAuth(&request)
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                print("[BeagleClient] \(debugLabel) requesting: \(url)")
-                let (data, response) = try await session.data(for: request)
-                responseData = data
-
-                guard let http = response as? HTTPURLResponse,
-                      (200..<300).contains(http.statusCode) else {
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
-                    lastError = formatError(statusCode: statusCode, data: data, fallback: "HTTP \(statusCode)")
-                    print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
-                    print("[BeagleClient] Response body: \(bodyText.prefix(300))")
-                    continue
-                }
-
-                let decoded = try decoder.decode(T.self, from: data)
-                print("[BeagleClient] \(debugLabel) ✅ success")
-                return .observed(decoded, source: url.host)
-            } catch {
-                lastError = error.localizedDescription
-                let bodyText: String
-                if let data = responseData {
-                    bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
-                } else {
-                    bodyText = "<no response data>"
-                }
-                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
-                print("[BeagleClient] Response body: \(bodyText.prefix(300))")
-                continue
-            }
+        let payload: Data
+        do {
+            payload = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            return .staleError("Failed to encode request: \(error.localizedDescription)")
         }
-        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
-        return .staleError(lastError)
+
+        return await executePost(
+            type,
+            path: path,
+            payload: payload,
+            timeout: timeout,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     public func postEncoded<T: Decodable & Sendable, Body: Encodable & Sendable>(
@@ -255,7 +217,8 @@ public actor BeagleClient {
         path: String,
         body: Body,
         timeout: TimeInterval = 120,
-        requiresAuth: Bool = true
+        requiresAuth: Bool = true,
+        idempotencyKey: String? = nil
     ) async -> Truthful<T> {
         if requiresAuth {
             let authReady = await ensureAuth()
@@ -273,9 +236,26 @@ public actor BeagleClient {
             return .staleError("Failed to encode request: \(error.localizedDescription)")
         }
 
+        return await executePost(
+            type,
+            path: path,
+            payload: payload,
+            timeout: timeout,
+            idempotencyKey: idempotencyKey
+        )
+    }
+
+    private func executePost<T: Decodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        payload: Data,
+        timeout: TimeInterval,
+        idempotencyKey: String?
+    ) async -> Truthful<T> {
         var lastError = "beagle-server unreachable"
+        let requestID = HTTPFailoverPolicy.resolvedRequestID(idempotencyKey)
         let debugLabel = "[\(type)] POST \(path)"
-        print("[BeagleClient] \(debugLabel) starting...")
+        print("[BeagleClient] \(debugLabel) starting (requestId=\(requestID))...")
 
         for base in baseURLs {
             guard let url = URL(string: path, relativeTo: base) else {
@@ -283,10 +263,12 @@ public actor BeagleClient {
                 continue
             }
             var responseData: Data?
+            var responseStatusCode: Int?
             do {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(requestID, forHTTPHeaderField: "X-Request-ID")
                 request.timeoutInterval = timeout
                 applyAuth(&request)
                 request.httpBody = payload
@@ -294,34 +276,43 @@ public actor BeagleClient {
                 print("[BeagleClient] \(debugLabel) requesting: \(url)")
                 let (data, response) = try await session.data(for: request)
                 responseData = data
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                responseStatusCode = statusCode
 
                 guard let http = response as? HTTPURLResponse,
                       (200..<300).contains(http.statusCode) else {
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    let bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
                     lastError = formatError(statusCode: statusCode, data: data, fallback: "HTTP \(statusCode)")
-                    print("[BeagleClient] \(debugLabel) ❌ HTTP \(statusCode)")
-                    print("[BeagleClient] Response body: \(bodyText.prefix(300))")
-                    continue
+                    let meta = Self.redactedDiagnosticSummary(
+                        statusCode: statusCode,
+                        byteCount: data.count,
+                        requestID: requestID
+                    )
+                    print("[BeagleClient] \(debugLabel) ❌ \(meta) (no mutation failover)")
+                    return .staleError(lastError, source: url.host)
                 }
 
                 let decoded = try decoder.decode(T.self, from: data)
-                print("[BeagleClient] \(debugLabel) ✅ success")
+                print("[BeagleClient] \(debugLabel) ✅ success (requestId=\(requestID))")
                 return .observed(decoded, source: url.host)
             } catch {
                 lastError = error.localizedDescription
-                let bodyText: String
-                if let data = responseData {
-                    bodyText = String(data: data, encoding: .utf8) ?? "<binary>"
-                } else {
-                    bodyText = "<no response data>"
+                let meta = Self.redactedDiagnosticSummary(
+                    statusCode: responseStatusCode,
+                    byteCount: responseData?.count,
+                    requestID: requestID,
+                    error: error
+                )
+                // Only fail over to another base URL on pre-delivery connection errors.
+                // Never replay a POST after an HTTP response, decoding failure, or post-send timeout.
+                if responseData == nil && HTTPFailoverPolicy.shouldFailoverMutation(after: error) {
+                    print("[BeagleClient] \(debugLabel) ⚠️ pre-delivery failure (\(meta)), trying fallback")
+                    continue
                 }
-                print("[BeagleClient] \(debugLabel) ❌ error: \(error.localizedDescription)")
-                print("[BeagleClient] Response body: \(bodyText.prefix(300))")
-                continue
+                print("[BeagleClient] \(debugLabel) ❌ \(meta) (no mutation failover)")
+                return .staleError(lastError, source: url.host)
             }
         }
-        print("[BeagleClient] \(debugLabel) all URLs failed: \(lastError)")
+        print("[BeagleClient] \(debugLabel) all URLs failed (requestId=\(requestID)): \(lastError)")
         return .staleError(lastError)
     }
 
@@ -454,21 +445,16 @@ public actor BeagleClient {
     }
 
     internal func formatError(statusCode: Int, data: Data, fallback: String) -> String {
-        if let payload = try? decoder.decode(BeagleBackendErrorPayload.self, from: data) {
+        if let payload = try? decoder.decode(BeagleBackendErrorPayload.self, from: data),
+           payload.hasStructuredDetails {
             return payload.message(statusCode: statusCode, fallback: fallback)
         }
-
-        let bodyText = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let bodyText, !bodyText.isEmpty {
-            return "HTTP \(statusCode) · \(bodyText)"
-        }
-
         return fallback
     }
 
     internal func formatMobileError(statusCode: Int, data: Data, fallback: String) -> String {
-        if let payload = try? decoder.decode(MobileEnvelope<ChatResponse>.self, from: data) {
+        if let payload = try? decoder.decode(MobileEnvelope<ChatResponse>.self, from: data),
+           payload.error != nil || payload.meta?.requestId != nil || payload.meta?.truthMode != nil {
             var parts = ["HTTP \(statusCode)"]
             if let message = payload.error?.message, !message.isEmpty {
                 parts.append(message)
@@ -489,14 +475,56 @@ public actor BeagleClient {
             }
             return parts.joined(separator: " · ")
         }
-
-        let bodyText = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let bodyText, !bodyText.isEmpty {
-            return "HTTP \(statusCode) · \(bodyText)"
-        }
-
         return fallback
+    }
+
+    /// Formats response/error diagnostics using structural metadata only — never raw response text.
+    internal static func redactedDiagnosticSummary(
+        statusCode: Int? = nil,
+        byteCount: Int? = nil,
+        requestID: String? = nil,
+        error: Error? = nil
+    ) -> String {
+        var parts: [String] = []
+        if let statusCode {
+            parts.append("status=\(statusCode)")
+        }
+        if let byteCount {
+            parts.append("bytes=\(byteCount)")
+        }
+        if let requestID, !requestID.isEmpty {
+            parts.append("requestId=\(requestID)")
+        }
+        if let error {
+            if let urlError = error as? URLError {
+                parts.append("urlError=\(urlError.code.rawValue)")
+            } else if let decodingError = error as? DecodingError {
+                parts.append("decodingError=\(decodingErrorSummary(decodingError))")
+            } else {
+                parts.append("errorType=\(String(describing: type(of: error)))")
+            }
+        }
+        return parts.isEmpty ? "no-metadata" : parts.joined(separator: " ")
+    }
+
+    private static func decodingErrorSummary(_ error: DecodingError) -> String {
+        func pathString(_ codingPath: [CodingKey]) -> String {
+            let rendered = codingPath.map(\.stringValue).filter { !$0.isEmpty }.joined(separator: ".")
+            return rendered.isEmpty ? "<root>" : rendered
+        }
+        switch error {
+        case .keyNotFound(let key, let ctx):
+            let full = (ctx.codingPath + [key]).map(\.stringValue).filter { !$0.isEmpty }.joined(separator: ".")
+            return "keyNotFound(\(full.isEmpty ? key.stringValue : full))"
+        case .typeMismatch(let expected, let ctx):
+            return "typeMismatch(\(expected)@\(pathString(ctx.codingPath)))"
+        case .valueNotFound(let expected, let ctx):
+            return "valueNotFound(\(expected)@\(pathString(ctx.codingPath)))"
+        case .dataCorrupted(let ctx):
+            return "dataCorrupted(@\(pathString(ctx.codingPath)))"
+        @unknown default:
+            return "unknown"
+        }
     }
 
 }
@@ -518,6 +546,14 @@ struct BeagleBackendErrorPayload: Decodable {
         case caller
         case via
         case proxiedPath = "proxied_path"
+    }
+
+    var hasStructuredDetails: Bool {
+        [error, reason, truthMode, requestId, caller, via, proxiedPath]
+            .contains { value in
+                guard let value else { return false }
+                return !value.isEmpty
+            }
     }
 
     func message(statusCode: Int, fallback: String) -> String {
@@ -597,5 +633,44 @@ struct ThoughtRefineRequest: Encodable, Sendable {
         case sourceSurface = "source_surface"
         case languageHint = "language_hint"
         case preserveLanguage = "preserve_language"
+    }
+}
+
+
+/// Shared failover and idempotency policy for mutating HTTP requests across `BeagleClient` and `CockpitClient`.
+internal enum HTTPFailoverPolicy {
+    /// Returns `true` ONLY for pre-delivery connection errors where the request could not have
+    /// reached the server (DNS, refused connection, offline, TLS handshake failure).
+    /// Ambiguous post-send failures (`.timedOut`, `.networkConnectionLost`, `.cancelled`) and
+    /// post-response failures (`DecodingError`, non-2xx HTTP status) MUST NOT trigger a mutation
+    /// replay on a fallback host.
+    static func shouldFailoverMutation(after error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .cannotFindHost,
+             .cannotConnectToHost,
+             .dnsLookupFailed,
+             .notConnectedToInternet,
+             .internationalRoamingOff,
+             .dataNotAllowed,
+             .cannotLoadFromNetwork,
+             .secureConnectionFailed,
+             .serverCertificateHasBadDate,
+             .serverCertificateUntrusted,
+             .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid,
+             .clientCertificateRejected,
+             .clientCertificateRequired:
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func resolvedRequestID(_ explicit: String?) -> String {
+        if let explicit = explicit?.trimmingCharacters(in: .whitespacesAndNewlines), !explicit.isEmpty {
+            return explicit
+        }
+        return UUID().uuidString.lowercased()
     }
 }

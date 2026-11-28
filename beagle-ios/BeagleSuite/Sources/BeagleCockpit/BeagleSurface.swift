@@ -39,10 +39,11 @@ struct BeagleSurface: View {
         self._bootError = bootError
     }
 
-    enum SurfaceSheet: String, Identifiable {
+    enum SurfaceSheet: Identifiable, Hashable {
         case settings
         case cognitiveState
         case projectPicker
+        case project(DeepLinkRouter.ProjectLaunchTarget)
         case memoryLens
         case originObservatory
         case continuityExplanation
@@ -54,7 +55,24 @@ struct BeagleSurface: View {
         case dailySynthesis  // Síntese Matinal Diária (GPT-6.2 Astra × Fisioma × Céu × Agenda)
         case deepExploration // Modo Fundo (DeepExplorationView) — target for beagle://fundo Live Activity tap
 
-        var id: String { rawValue }
+        var id: String {
+            switch self {
+            case .settings: return "settings"
+            case .cognitiveState: return "cognitiveState"
+            case .projectPicker: return "projectPicker"
+            case .project(let target): return "project:\(target.id)"
+            case .memoryLens: return "memoryLens"
+            case .originObservatory: return "originObservatory"
+            case .continuityExplanation: return "continuityExplanation"
+            case .capture: return "capture"
+            case .agora: return "agora"
+            case .memory: return "memory"
+            case .dreamInsights: return "dreamInsights"
+            case .work: return "work"
+            case .dailySynthesis: return "dailySynthesis"
+            case .deepExploration: return "deepExploration"
+            }
+        }
     }
 
     var body: some View {
@@ -82,7 +100,13 @@ struct BeagleSurface: View {
                     break
                 }
             }
-            .task { deepLink.applyLaunchArgumentIfPresent() }
+            .onChange(of: deepLink.pendingProject) { _, _ in
+                consumePendingProjectDeepLink()
+            }
+            .task {
+                deepLink.applyLaunchArgumentIfPresent()
+                consumePendingProjectDeepLink()
+            }
             .task {
                 await bootstrapSurface()
             }
@@ -194,6 +218,8 @@ struct BeagleSurface: View {
             cognitiveStateSheet
         case .projectPicker:
             projectPickerSheet
+        case .project(let target):
+            projectDeepLinkSheet(target)
         case .memoryLens:
             memoryLensSheet
         case .originObservatory:
@@ -289,6 +315,23 @@ struct BeagleSurface: View {
                     ControlRoomView(slug: project.projectSlug)
                 }
         }
+    }
+
+    private func projectDeepLinkSheet(_ target: DeepLinkRouter.ProjectLaunchTarget) -> some View {
+        NavigationStack {
+            ControlRoomView(slug: target.slug)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { activeSheet = nil }
+                            .accessibilityIdentifier("surface.projectDeepLink.doneButton")
+                    }
+                }
+        }
+    }
+
+    private func consumePendingProjectDeepLink() {
+        guard let target = deepLink.consumeProject() else { return }
+        activeSheet = .project(target)
     }
 
     private var memoryLensSheet: some View {

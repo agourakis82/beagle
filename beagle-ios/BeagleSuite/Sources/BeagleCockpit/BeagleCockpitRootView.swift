@@ -259,7 +259,19 @@ struct RootView: View {
                         SpatialDeskMissionControlView()
                     }
                 }
+                .navigationDestination(for: DeepLinkRouter.ProjectLaunchTarget.self) { target in
+                    ControlRoomView(slug: target.slug)
+                }
+                .navigationDestination(for: Project.self) { project in
+                    ControlRoomView(slug: project.projectSlug)
+                }
             }
+        }
+        .task {
+            consumePendingProjectOnIPad()
+        }
+        .onChange(of: deepLink.pendingProject) { _, _ in
+            consumePendingProjectOnIPad()
         }
         .onChange(of: deepLink.pending) { _, _ in
             if deepLink.pending == .capture {
@@ -286,6 +298,12 @@ struct RootView: View {
                     }
             }
         }
+    }
+
+    private func consumePendingProjectOnIPad() {
+        guard let target = deepLink.consumeProject() else { return }
+        path = NavigationPath()
+        path.append(target)
     }
 
     private func authErrorBanner(_ error: String) -> some View {
