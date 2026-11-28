@@ -159,6 +159,7 @@ struct GoDeepView: View {
                 Text(store.isRunning ? "Cancelar" : "Fechar")
                     .foregroundStyle(BeagleTheme.textSecondary)
             }
+            .accessibilityIdentifier("godeep.toolbar.closeButton")
         }
         ToolbarItem(placement: trailingToolbarPlacement) {
             Button {

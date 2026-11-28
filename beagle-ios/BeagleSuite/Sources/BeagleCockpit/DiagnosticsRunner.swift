@@ -121,24 +121,34 @@ final class DiagnosticsRunner {
         for i in tests.indices { tests[i].result = .pending }
 
         let t0 = Date()
+        let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
 
-        // --- Network (sequential — each depends on reachability order) ---
-        await runNetwork(catalog: catalog)
+        if isUITesting {
+            for id in ["cockpit_health", "beagle_health", "catalog", "agent_sessions", "cognitive_state", "ws_connect", "ws_message", "auth_bridge", "thought_persist"] {
+                setResult(id, .skipped("ui-testing offline mode"))
+            }
+            // Run synchronous terminal/ANSI + local LLM probes deterministically without network stalls
+            runANSITests()
+            await runLocalLLM()
+        } else {
+            // --- Network (sequential — each depends on reachability order) ---
+            await runNetwork(catalog: catalog)
 
-        // --- WebSocket ---
-        await runWebSocket()
+            // --- WebSocket ---
+            await runWebSocket()
 
-        // --- Terminal (synchronous — pure logic) ---
-        runANSITests()
+            // --- Terminal (synchronous — pure logic) ---
+            runANSITests()
 
-        // --- Auth ---
-        await runAuthBridge()
+            // --- Auth ---
+            await runAuthBridge()
 
-        // --- Local LLM ---
-        await runLocalLLM()
+            // --- Local LLM ---
+            await runLocalLLM()
 
-        // --- Persistence ---
-        await runPersistence(cognitive: cognitive)
+            // --- Persistence ---
+            await runPersistence(cognitive: cognitive)
+        }
 
         totalDurationMs = Int(Date().timeIntervalSince(t0) * 1000)
 

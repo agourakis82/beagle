@@ -194,6 +194,7 @@ struct BeagleInputBar: View {
             .focused($isFocused)
             .disabled(!isEnabled)
             .frame(minHeight: 40, maxHeight: max(40, min(168, textHeight)))
+            .accessibilityIdentifier("beagle.inputBar.editor")
             .overlay(alignment: .topLeading) {
                 if text.isEmpty {
                     placeholderLabel
@@ -223,6 +224,7 @@ struct BeagleInputBar: View {
         .buttonStyle(.plain)
         .disabled(isTextEmpty || !isEnabled)
         .animation(BeagleMotion.fast, value: isTextEmpty)
+        .accessibilityIdentifier("beagle.inputBar.sendButton")
     }
 
     private var isTextEmpty: Bool {

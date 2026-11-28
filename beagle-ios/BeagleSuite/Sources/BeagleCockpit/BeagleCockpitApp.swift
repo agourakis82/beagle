@@ -66,7 +66,7 @@ struct BeagleCockpitApp: App {
                     PersistedDeepSession.self,
                     PersistedExocortexHomeSnapshot.self,
                     PersistedAssistedImportOutbox.self,
-                ])
+                ], inMemory: ProcessInfo.processInfo.arguments.contains("--ui-testing"))
                 .sheet(isPresented: Binding(
                     get: { MemorySearchNavigation.shared.episodeID != nil },
                     set: { if !$0 { MemorySearchNavigation.shared.episodeID = nil } }

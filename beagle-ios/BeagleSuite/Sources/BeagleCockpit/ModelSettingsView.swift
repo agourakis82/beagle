@@ -60,6 +60,7 @@ struct ModelSettingsView: View {
             .padding(.top, BeagleSpacing.md)
             .padding(.bottom, BeagleSpacing.jumbo)
         }
+        .accessibilityIdentifier("settings.scrollView")
         .background { ModelGradient(loadState: llm.loadState) }
         .navigationTitle("Cérebro · MoE · Voz")
         .onChange(of: openAIKey) { _, newValue in

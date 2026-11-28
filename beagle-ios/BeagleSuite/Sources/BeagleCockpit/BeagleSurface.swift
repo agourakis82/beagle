@@ -465,7 +465,16 @@ struct BeagleSurface: View {
         )
         syncConversationLiveContext()
         conversation.loadPersistedConversation()
-        if ProcessInfo.processInfo.arguments.contains("--demo-chat") {
+        if ProcessInfo.processInfo.arguments.contains("--demo-history") {
+            conversation.seedPreviewConversation([
+                ChatMessage(role: .user, content: "Acordei meio pra baixo hoje, não sei bem por quê."),
+                ChatMessage(
+                    role: .assistant,
+                    content: "Faz sentido. Você dormiu leve e o coração andou tenso essa noite — às vezes o corpo sente antes da gente entender. Quer me contar como foi a noite?",
+                    source: "physiome"
+                ),
+            ])
+        } else if ProcessInfo.processInfo.arguments.contains("--demo-chat") {
             conversation.seedDemoConversation()
         }
 

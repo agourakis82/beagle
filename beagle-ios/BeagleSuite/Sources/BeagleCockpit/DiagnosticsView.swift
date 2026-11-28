@@ -92,6 +92,7 @@ struct DiagnosticsView: View {
                     }
                     .buttonStyle(PrimaryButton())
                     .disabled(runner.isRunning)
+                    .accessibilityIdentifier("diagnostics.runAllButton")
                 } else if !runner.isRunning {
                     Button {
                         runner.reset()
@@ -100,6 +101,7 @@ struct DiagnosticsView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(SecondaryButton(color: BeagleTheme.textTertiary))
+                    .accessibilityIdentifier("diagnostics.resetButton")
                 }
             }
         }

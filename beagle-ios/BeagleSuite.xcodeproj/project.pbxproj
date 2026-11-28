@@ -179,6 +179,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		A461CC2130B9F13000297321 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7073DE690D3DAE155D2E23FD /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 233B7E5DA2C7B4C7AEE6B02C;
+			remoteInfo = BeagleCockpit;
+		};
 		C0716A44065AB38522367886 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 7073DE690D3DAE155D2E23FD /* Project object */;
@@ -844,6 +851,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				A461CC2230B9F13000297321 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A461CC1B30B9F13000297321 /* BeagleCockpitUITests */,
@@ -906,6 +914,7 @@
 					};
 					A461CC1930B9F13000297321 = {
 						CreatedOnToolsVersion = 27.2;
+						TestTargetID = 233B7E5DA2C7B4C7AEE6B02C;
 					};
 					D460B6115A3309F917104353 = {
 						DevelopmentTeam = S9DPGW22A8;
@@ -1205,6 +1214,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A461CC2230B9F13000297321 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 233B7E5DA2C7B4C7AEE6B02C /* BeagleCockpit */;
+			targetProxy = A461CC2130B9F13000297321 /* PBXContainerItemProxy */;
+		};
 		9F024D34240EAB7F2DEEE8D4 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			platformFilter = ios;
@@ -1586,6 +1600,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = BeagleCockpit;
 				XROS_DEPLOYMENT_TARGET = 27.2;
 			};
 			name = Debug;
@@ -1614,6 +1629,7 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = BeagleCockpit;
 				XROS_DEPLOYMENT_TARGET = 27.2;
 			};
 			name = Release;
