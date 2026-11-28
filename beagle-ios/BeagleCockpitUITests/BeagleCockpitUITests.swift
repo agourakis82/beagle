@@ -176,9 +176,8 @@ final class BeagleCockpitUITests: XCTestCase {
         )
 
         // Navigate into DiagnosticsView
-        let settingsScroll = app.scrollViews["settings.scrollView"].exists
-            ? app.scrollViews["settings.scrollView"]
-            : app.scrollViews.firstMatch
+        let settingsScroll = app.scrollViews["settings.scrollView"]
+        XCTAssertTrue(settingsScroll.waitForExistence(timeout: 5))
         let diagnosticsLink = app.buttons["settings.diagnosticsLink"]
         scrollUntilHittable(diagnosticsLink, in: settingsScroll)
         XCTAssertTrue(diagnosticsLink.waitForExistence(timeout: 5))
@@ -384,7 +383,9 @@ final class BeagleCockpitUITests: XCTestCase {
         drawerButton.tap()
         XCTAssertTrue(app.navigationBars["Conversas"].waitForExistence(timeout: 6))
 
-        let demoRow = app.buttons.matching(
+        let drawerList = app.collectionViews.firstMatch
+        XCTAssertTrue(drawerList.waitForExistence(timeout: 5))
+        let demoRow = drawerList.buttons.matching(
             NSPredicate(format: "label CONTAINS[c] %@", "Acordei meio pra baixo")
         ).firstMatch
         XCTAssertTrue(
