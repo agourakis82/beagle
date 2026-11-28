@@ -55,6 +55,7 @@ struct DailySynthesisView: View {
                         dismiss()
                     }
                     .foregroundStyle(BeagleTheme.textSecondary)
+                    .accessibilityIdentifier("dailySynthesis.closeButton")
                 }
                 ToolbarItem(placement: trailingPlacement) {
                     HStack(spacing: BeagleSpacing.sm) {

@@ -13,7 +13,7 @@ import ActivityKit
 
 // MARK: - Live Activity Attributes
 
-public struct AgentSessionAttributes: ActivityAttributes {
+public struct AgentSessionAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         public var status: String
         public var tokensUsed: Int
@@ -37,7 +37,7 @@ public struct AgentSessionAttributes: ActivityAttributes {
     }
 }
 
-public struct ResearchRunAttributes: ActivityAttributes {
+public struct ResearchRunAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         public var stepCurrent: Int
         public var stepTotal: Int
@@ -74,7 +74,7 @@ public struct ResearchRunAttributes: ActivityAttributes {
     }
 }
 
-public struct CognitiveActivityAttributes: ActivityAttributes {
+public struct CognitiveActivityAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         public var readiness: Double?
         public var intensity: String
@@ -134,7 +134,7 @@ public struct CognitiveActivityAttributes: ActivityAttributes {
 /// A single companion chat turn — "pensando" while the voice (Sonnet/Opus/GPT/...) works, then
 /// "respondeu" with a snippet once the reply lands. Lets the user leave the app during the ~14-20s
 /// premium-voice wait (Opus/GPT) and see it resolve from the lock screen / Dynamic Island.
-public struct CompanionTurnAttributes: ActivityAttributes {
+public struct CompanionTurnAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         public var status: String        // "pensando" | "respondeu" | "sem resposta"
         public var voiceLabel: String     // "Sonnet 5", "Opus 4.8", "GLM 5.2", ...

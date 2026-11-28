@@ -55,11 +55,7 @@ public actor BaroSyncEngine {
     private var lastPressureHpa: Double?
     private var isRunning = false
 
-    nonisolated(unsafe) private static let iso8601: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
+    private static let iso8601Style = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     private init() {}
 
@@ -101,7 +97,7 @@ public actor BaroSyncEngine {
         lastPressureHpa = hPa
 
         let obs = PhysioWeatherObservation(
-            ts: Self.iso8601.string(from: Date()),
+            ts: Date().formatted(Self.iso8601Style),
             lat: loc.lat,
             lon: loc.lon,
             tempC: nil,

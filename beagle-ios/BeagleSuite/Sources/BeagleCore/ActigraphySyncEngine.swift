@@ -40,11 +40,7 @@ public actor ActigraphySyncEngine {
     /// CMSensorRecorder's native accelerometer rate (fixed by the hardware, ~50Hz on iPhone).
     private static let approxSampleRate: Double = 50
 
-    nonisolated(unsafe) private static let iso8601: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
+    private static let iso8601Style = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 
     private init() {}
 
@@ -91,7 +87,7 @@ public actor ActigraphySyncEngine {
             // Skip days with too little coverage for a meaningful daily complexity estimate.
             guard epochs.count >= 360 else { continue } // ~6h of epochs minimum
             guard let dayDate = dayFormatter.date(from: day) else { continue }
-            let ts = Self.iso8601.string(from: dayDate)
+            let ts = dayDate.formatted(Self.iso8601Style)
 
             if let alpha = ActigraphyDSP.dfaAlpha(series: epochs) {
                 samples.append(PhysioHealthSample(

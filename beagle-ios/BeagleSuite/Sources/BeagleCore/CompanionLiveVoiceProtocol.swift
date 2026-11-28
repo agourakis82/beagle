@@ -277,7 +277,45 @@ public final class CompanionLiveVoiceBus {
 // MARK: - ActivityKit Attributes + Interactive LiveActivityIntents (iOS)
 
 #if os(iOS)
-public struct CompanionVoiceSessionAttributes: ActivityAttributes {
+extension ActivityKit.Activity where Attributes: Sendable, Attributes.ContentState: Sendable {
+    @MainActor
+    public func updateLocalContent(_ content: ActivityContent<Attributes.ContentState>) {
+        nonisolated(unsafe) let activity = self
+        Task { await activity.update(content) }
+    }
+
+    @MainActor
+    public func endLocalContent(
+        _ content: ActivityContent<Attributes.ContentState>,
+        dismissalPolicy: ActivityUIDismissalPolicy,
+        afterEnd: (@Sendable () async -> Void)? = nil
+    ) {
+        nonisolated(unsafe) let activity = self
+        Task {
+            await activity.end(content, dismissalPolicy: dismissalPolicy)
+            if let afterEnd {
+                await afterEnd()
+            }
+        }
+    }
+
+    @MainActor
+    public func updateLocalContentAsync(_ content: ActivityContent<Attributes.ContentState>) async {
+        nonisolated(unsafe) let activity = self
+        await activity.update(content)
+    }
+
+    @MainActor
+    public func endLocalContentAsync(
+        _ content: ActivityContent<Attributes.ContentState>,
+        dismissalPolicy: ActivityUIDismissalPolicy
+    ) async {
+        nonisolated(unsafe) let activity = self
+        await activity.end(content, dismissalPolicy: dismissalPolicy)
+    }
+}
+
+public struct CompanionVoiceSessionAttributes: ActivityAttributes, Sendable {
     public struct ContentState: Codable, Hashable, Sendable {
         public var phase: CompanionLiveVoicePhase
         public var voiceLabel: String
@@ -329,8 +367,7 @@ public struct TogglePauseLiveVoiceIntent: LiveActivityIntent {
                     liveLine: nextPhase.defaultLinePtBR
                 )
                 let content = ActivityContent(state: nextState, staleDate: Date.now.addingTimeInterval(900))
-                nonisolated(unsafe) let unsafeAct = activity
-                await unsafeAct.update(content)
+                await activity.updateLocalContentAsync(content)
             }
         }
         return .result()
@@ -359,8 +396,7 @@ public struct InterruptSpeechLiveVoiceIntent: LiveActivityIntent {
                     liveLine: CompanionLiveVoicePhase.listening.defaultLinePtBR
                 )
                 let content = ActivityContent(state: nextState, staleDate: Date.now.addingTimeInterval(900))
-                nonisolated(unsafe) let unsafeAct = activity
-                await unsafeAct.update(content)
+                await activity.updateLocalContentAsync(content)
             }
         }
         return .result()
@@ -389,8 +425,7 @@ public struct EndLiveVoiceSessionIntent: LiveActivityIntent {
                     liveLine: CompanionLiveVoicePhase.ended.defaultLinePtBR
                 )
                 let content = ActivityContent(state: finalState, staleDate: nil)
-                nonisolated(unsafe) let unsafeAct = activity
-                await unsafeAct.end(content, dismissalPolicy: .immediate)
+                await activity.endLocalContentAsync(content, dismissalPolicy: .immediate)
             }
         }
         return .result()

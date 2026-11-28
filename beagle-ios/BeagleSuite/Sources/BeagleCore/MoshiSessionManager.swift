@@ -87,7 +87,7 @@ public final class MoshiSessionManager {
         webSocketTask?.resume()
         connectionState = .active
 
-        setupAudioEngine()
+        await setupAudioEngine()
 
         receiveTask = Task { [weak self] in
             await self?.receiveLoop()
@@ -110,14 +110,10 @@ public final class MoshiSessionManager {
 
     // MARK: - Audio engine
 
-    private func setupAudioEngine() {
+    private func setupAudioEngine() async {
         #if os(iOS)
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord,
-                                   mode: .voiceChat,
-                                   options: [.defaultToSpeaker, .allowBluetoothHFP, .allowBluetoothA2DP])
-            try session.setActive(true)
+            try await BeagleAudioSessionCoordinator.shared.activateFullDuplexVoiceChat(duckOthers: false)
         } catch {
             print("[Moshi] AVAudioSession setup failed: \(error)")
         }
@@ -151,7 +147,9 @@ public final class MoshiSessionManager {
         playerNode.stop()
         engine.stop()
         #if os(iOS)
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        Task.detached(priority: .utility) {
+            await BeagleAudioSessionCoordinator.shared.deactivate()
+        }
         #endif
     }
 
