@@ -283,89 +283,154 @@ extension ChatScreen {
 
     var conversation: some View {
         ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: BeagleSpacing.lg) {
-                    aChegada
-                    ForEach(store.messages) { message in
-                        MessageBubble(
-                            message: message,
-                            isLast: message.id == store.messages.last?.id,
-                            onRegenerate: { Task { await store.regenerateLastResponse() } },
-                            voz: voz
-                        )
-                        .id(message.id)
+            ZStack(alignment: .bottomTrailing) {
+                ScrollView {
+                    LazyVStack(spacing: BeagleSpacing.lg) {
+                        aChegada
+                        ForEach(store.messages) { message in
+                            MessageBubble(
+                                message: message,
+                                isLast: message.id == store.messages.last?.id,
+                                onRegenerate: { Task { await store.regenerateLastResponse() } },
+                                voz: voz
+                            )
+                            .id(message.id)
+                        }
+                        // Presence LAYER — a murmur about the wait, not a line of his letter.
+                        // Lives outside the message list so server-authored text never renders
+                        // in serif as his voice (desenho 2026-08-02, item 5).
+                        if (store.isStreaming || gptLive.activeDelegationCount > 0),
+                           let note = store.presenceNote,
+                           !note.isEmpty {
+                            Text(note)
+                                .font(BeagleFont.footnote.font.italic())
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, BeagleSpacing.xs)
+                                .transition(.opacity)
+                        }
+                        // clearance so the floating composer + live voice bar never cover the last line
+                        Color.clear.frame(height: liveVoice.isActive ? 136 : 72).id(Self.bottomAnchor)
                     }
-                    // Presence LAYER — a murmur about the wait, not a line of his letter.
-                    // Lives outside the message list so server-authored text never renders
-                    // in serif as his voice (desenho 2026-08-02, item 5).
-                    if (store.isStreaming || gptLive.activeDelegationCount > 0),
-                       let note = store.presenceNote,
-                       !note.isEmpty {
-                        Text(note)
-                            .font(BeagleFont.footnote.font.italic())
-                            .foregroundStyle(BeagleTheme.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.leading, BeagleSpacing.xs)
-                            .transition(.opacity)
+                    .padding(.horizontal, BeagleSpacing.md)
+                    .padding(.top, BeagleSpacing.md)
+                    .frame(maxWidth: .infinity, minHeight: 0, alignment: .bottom)
+                    .animation(.easeOut(duration: 0.25), value: store.messages.count)
+                }
+                .defaultScrollAnchor(.bottom)   // recent messages hug the composer; void goes up top
+                .scrollDismissesKeyboard(.interactively)
+                // Direction-based chrome melt + tail proximity tracking (R3).
+                .onScrollGeometryChange(for: ConversationScrollPolicy.Metrics.self) { geo in
+                    let isScrollable = geo.contentSize.height > geo.containerSize.height + 24
+                    let distance = ConversationScrollPolicy.distanceFromBottom(
+                        contentHeight: geo.contentSize.height,
+                        contentOffsetY: geo.contentOffset.y,
+                        containerHeight: geo.containerSize.height,
+                        bottomInset: geo.contentInsets.bottom
+                    )
+                    return ConversationScrollPolicy.Metrics(
+                        offsetY: geo.contentOffset.y + geo.contentInsets.top,
+                        containerHeight: geo.containerSize.height,
+                        contentHeight: geo.contentSize.height,
+                        distanceFromBottom: distance,
+                        isScrollable: isScrollable
+                    )
+                } action: { oldMetrics, newMetrics in
+                    scrollFollowState = ConversationScrollPolicy.updatedFollowState(
+                        current: scrollFollowState,
+                        oldMetrics: oldMetrics,
+                        newMetrics: newMetrics
+                    )
+                    // Ignore programmatic offset jumps caused by keyboard appearance/dismissal
+                    // or orientation changes resizing the scroll container.
+                    if abs(newMetrics.containerHeight - oldMetrics.containerHeight) > 1 {
+                        scrollAccum = 0
+                        return
                     }
-                    // clearance so the floating composer + live voice bar never cover the last line
-                    Color.clear.frame(height: liveVoice.isActive ? 136 : 72).id(Self.bottomAnchor)
-                }
-                .padding(.horizontal, BeagleSpacing.md)
-                .padding(.top, BeagleSpacing.md)
-                .frame(maxWidth: .infinity, minHeight: 0, alignment: .bottom)
-                .animation(.easeOut(duration: 0.25), value: store.messages.count)
-            }
-            .defaultScrollAnchor(.bottom)   // recent messages hug the composer; void goes up top
-            .scrollDismissesKeyboard(.interactively)
-            // Direction-based chrome melt: finger up (offset grows → reading forward) hides the
-            // top bar; finger down (offset shrinks → going back) reveals it. Anchor-agnostic,
-            // and never hides the bar when the transcript fits on screen or sits at the top.
-            .onScrollGeometryChange(for: TopBarScrollMetrics.self) { geo in
-                TopBarScrollMetrics(
-                    offsetY: geo.contentOffset.y + geo.contentInsets.top,
-                    containerHeight: geo.containerSize.height,
-                    isScrollable: geo.contentSize.height > geo.containerSize.height + 24
-                )
-            } action: { oldMetrics, newMetrics in
-                // Ignore programmatic offset jumps caused by keyboard appearance/dismissal
-                // or orientation changes resizing the scroll container.
-                if abs(newMetrics.containerHeight - oldMetrics.containerHeight) > 1 {
-                    scrollAccum = 0
-                    return
-                }
-                if !newMetrics.isScrollable || newMetrics.offsetY <= 12 {
-                    if topBarHidden {
-                        withAnimation(.easeOut(duration: 0.3)) { topBarHidden = false }
+                    if !newMetrics.isScrollable || newMetrics.offsetY <= 12 {
+                        if topBarHidden {
+                            withAnimation(.easeOut(duration: 0.3)) { topBarHidden = false }
+                        }
+                        scrollAccum = 0
+                        return
                     }
-                    scrollAccum = 0
-                    return
+                    let delta = newMetrics.offsetY - oldMetrics.offsetY
+                    guard abs(delta) > 0.5 else { return }     // ignore noise
+                    // Reset the accumulator on a direction change so a deliberate gesture in one
+                    // direction is what counts — not net drift.
+                    if (delta > 0) != (scrollAccum > 0) { scrollAccum = 0 }
+                    scrollAccum += delta
+                    if scrollAccum > 60, !topBarHidden {
+                        withAnimation(.easeOut(duration: 0.4)) { topBarHidden = true }
+                        scrollAccum = 0
+                    } else if scrollAccum < -40, topBarHidden {
+                        withAnimation(.easeOut(duration: 0.4)) { topBarHidden = false }
+                        scrollAccum = 0
+                    }
                 }
-                let delta = newMetrics.offsetY - oldMetrics.offsetY
-                guard abs(delta) > 0.5 else { return }     // ignore noise
-                // Reset the accumulator on a direction change so a deliberate gesture in one
-                // direction is what counts — not net drift.
-                if (delta > 0) != (scrollAccum > 0) { scrollAccum = 0 }
-                scrollAccum += delta
-                if scrollAccum > 60, !topBarHidden {
-                    withAnimation(.easeOut(duration: 0.4)) { topBarHidden = true }
-                    scrollAccum = 0
-                } else if scrollAccum < -40, topBarHidden {
-                    withAnimation(.easeOut(duration: 0.4)) { topBarHidden = false }
-                    scrollAccum = 0
+                .onChange(of: store.messages.last?.content) { _, _ in
+                    let isUser = store.messages.last?.role == .user
+                    let decision = ConversationScrollPolicy.nextStateOnIncomingUpdate(
+                        state: scrollFollowState,
+                        isUserMessage: isUser
+                    )
+                    scrollFollowState = decision.nextState
+                    if decision.shouldScroll {
+                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                    }
+                }
+                .onChange(of: store.messages.count) { _, _ in
+                    let isUser = store.messages.last?.role == .user
+                    let decision = ConversationScrollPolicy.nextStateOnIncomingUpdate(
+                        state: scrollFollowState,
+                        isUserMessage: isUser
+                    )
+                    scrollFollowState = decision.nextState
+                    if decision.shouldScroll {
+                        withAnimation(.snappy(duration: 0.22)) {
+                            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                        }
+                    }
+                    // A fresh turn brings the bar back so the title/controls are always reachable.
+                    if topBarHidden { withAnimation(.easeOut(duration: 0.28)) { topBarHidden = false } }
+                }
+
+                if !scrollFollowState.isNearBottom {
+                    scrollToBottomButton(hasUnread: scrollFollowState.hasUnreadBelow || store.isStreaming) {
+                        scrollFollowState = ConversationScrollPolicy.resetForBottomJump()
+                        withAnimation(.snappy(duration: 0.25)) {
+                            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                        }
+                    }
+                    .padding(.trailing, BeagleSpacing.md)
+                    .padding(.bottom, liveVoice.isActive ? 144 : 84)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
-            .onChange(of: store.messages.last?.content) { _, _ in
-                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-            }
-            .onChange(of: store.messages.count) { _, _ in
-                withAnimation(.snappy(duration: 0.22)) {
-                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-                }
-                // A fresh turn brings the bar back so the title/controls are always reachable.
-                if topBarHidden { withAnimation(.easeOut(duration: 0.28)) { topBarHidden = false } }
-            }
+            .animation(.easeOut(duration: 0.2), value: scrollFollowState.isNearBottom)
         }
+    }
+
+    private func scrollToBottomButton(hasUnread: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 12, weight: .semibold))
+                if hasUnread {
+                    Text("Nova resposta")
+                        .font(BeagleFont.caption.font.weight(.medium))
+                }
+            }
+            .foregroundStyle(BeagleTheme.companionInk.opacity(0.95))
+            .padding(.horizontal, hasUnread ? 12 : 10)
+            .padding(.vertical, 9)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.16), lineWidth: 0.75))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(hasUnread ? "Ir para a nova resposta" : "Ir para o final da conversa")
+        .accessibilityIdentifier("chat.scrollToBottomButton")
     }
 
     // MARK: - Composer (the only glass)
@@ -562,9 +627,5 @@ extension ChatScreen {
 
     private static let bottomAnchor = "companion.chat.bottom"
 
-    private struct TopBarScrollMetrics: Equatable {
-        let offsetY: CGFloat
-        let containerHeight: CGFloat
-        let isScrollable: Bool
-    }
+
 }
