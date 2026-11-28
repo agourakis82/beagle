@@ -69,6 +69,17 @@ function spawnPane(body = {}) {
   const shell = cleanString(body.shell) || defaultShell;
   const cols = Number(body.cols || 120);
   const rows = Number(body.rows || 34);
+  // Provider credentials for an agent-role pane are passed in the spawn body
+  // (the role->slot->creds mapping lives in the workspace-agent, not here).
+  // Merge string-valued entries only; never log the values.
+  const providerEnv = {};
+  if (body.providerEnv && typeof body.providerEnv === "object") {
+    for (const [key, value] of Object.entries(body.providerEnv)) {
+      if (typeof key === "string" && key && typeof value === "string" && value) {
+        providerEnv[key] = value;
+      }
+    }
+  }
   const env = {
     ...process.env,
     TERM: "xterm-256color",
@@ -76,6 +87,7 @@ function spawnPane(body = {}) {
     BEAGLE_WORKBENCH: "1",
     BEAGLE_PTY_SUPERVISOR: "1",
     WORKSPACE_ROOT: cwd,
+    ...providerEnv,
   };
 
   const proc = pty.spawn(shell, ["-l"], {

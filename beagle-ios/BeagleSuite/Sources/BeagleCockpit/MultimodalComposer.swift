@@ -327,6 +327,9 @@ struct ThinkingAloudSessionView: View {
         let result = await BeagleClient.shared.captureSessionStart(request)
         captureSession = result.value
         statusLine = result.value == nil ? "Local only" : "Observed"
+        // Tags voice-acoustic samples back to this capture session — same convention as
+        // ThoughtCaptureView's persistenceConversationId.
+        speechRecognizer.sessionId = captureSession?.id
         await speechRecognizer.startRecording()
     }
 
@@ -384,6 +387,7 @@ struct VisualEvidenceCaptureView: View {
     @State private var showingReview = false
     @State private var localHints: [String] = ["visionkit-local-first"]
     @State private var detectedFaceCount = 0
+    @State private var faceDetectionUnavailable = false
     @State private var detectedBarcodeCount = 0
     @State private var detectedRectangleCount = 0
 
@@ -391,6 +395,10 @@ struct VisualEvidenceCaptureView: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var selectedImage: UIImage?
     @State private var selectedImageData: Data?
+    @State private var documentTables: [[[String]]] = []
+    @State private var documentJSON: String?
+    @State private var analysisID = UUID()
+    @State private var isAnalyzingImage = false
     @State private var showingCamera = false
     @State private var showingDocumentScanner = false
     #endif
@@ -446,6 +454,27 @@ struct VisualEvidenceCaptureView: View {
                             .background(RoundedRectangle(cornerRadius: BeagleRadius.md).fill(Color.white.opacity(0.05)))
                     }
 
+                    #if os(iOS)
+                    ForEach(documentTables.indices, id: \.self) { index in
+                        VStack(alignment: .leading) {
+                            Text("Table \(index + 1)").font(.headline)
+                            ScrollView(.horizontal) {
+                                Grid(alignment: .leading) {
+                                    ForEach(documentTables[index].indices, id: \.self) { row in
+                                        GridRow {
+                                            ForEach(documentTables[index][row].indices, id: \.self) { column in
+                                                Text(documentTables[index][row][column])
+                                                    .padding(6)
+                                                    .textSelection(.enabled)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    #endif
+
                     SourceConfidenceStripView(
                         hints: localHints,
                         faceCount: detectedFaceCount,
@@ -453,7 +482,11 @@ struct VisualEvidenceCaptureView: View {
                         rectangleCount: detectedRectangleCount
                     )
 
-                    if detectedFaceCount > 0 {
+                    if detectedFaceCount > 0 || faceDetectionUnavailable {
+                        if faceDetectionUnavailable {
+                            Text("Face detection unavailable. Review the image for sensitive content.")
+                                .font(BeagleFont.footnote.font)
+                        }
                         Toggle("I reviewed faces/sensitive visual context", isOn: $sensitiveVisualAcknowledged)
                             .font(BeagleFont.footnote.font)
                             .tint(BeagleTheme.truthObserved)
@@ -512,6 +545,9 @@ struct VisualEvidenceCaptureView: View {
     }
 
     private var hasVisualMaterial: Bool {
+        #if os(iOS)
+        if isAnalyzingImage { return false }
+        #endif
         if !localSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return true
         }
@@ -606,15 +642,17 @@ struct VisualEvidenceCaptureView: View {
             statusLine = "Restricted content stays local for explicit review."
             return
         }
-        guard detectedFaceCount == 0 || sensitiveVisualAcknowledged else {
-            statusLine = "Face/sensitive context detected. Review locally before upload."
+        guard (detectedFaceCount == 0 && !faceDetectionUnavailable) || sensitiveVisualAcknowledged else {
+            statusLine = "Review faces and sensitive visual context locally before upload."
             return
         }
 
         #if os(iOS)
         let artifactData = selectedImageData
+        let structuredDocument = documentJSON
         #else
         let artifactData: Data? = nil
+        let structuredDocument: String? = nil
         #endif
         let artifactRequest = VisualEvidenceArtifactRequest(
             projectSlug: projectSlug,
@@ -631,9 +669,11 @@ struct VisualEvidenceCaptureView: View {
             metadata: .object([
                 "external_model_confirmed": .bool(allowExternalModel),
                 "raw_image_policy": .string("private_cluster_artifact_only"),
-                "face_count": .number(Double(detectedFaceCount)),
+                "face_count": faceDetectionUnavailable ? .null : .number(Double(detectedFaceCount)),
+                "face_detection_unavailable": .bool(faceDetectionUnavailable),
                 "barcode_count": .number(Double(detectedBarcodeCount)),
-                "rectangle_count": .number(Double(detectedRectangleCount))
+                "rectangle_count": .number(Double(detectedRectangleCount)),
+                "structured_document_json": structuredDocument.map(ExocortexJSONValue.string) ?? .null
             ])
         )
         let artifact = await BeagleClient.shared.visualEvidenceArtifact(artifactRequest)
@@ -681,19 +721,39 @@ struct VisualEvidenceCaptureView: View {
 
     @MainActor
     private func applyImage(_ image: UIImage, source: String, originalData: Data? = nil) async {
+        let requestID = UUID()
+        analysisID = requestID
+        isAnalyzingImage = true
+        defer { if analysisID == requestID { isAnalyzingImage = false } }
         sourceKind = source
         selectedImage = image
-        selectedImageData = image.jpegData(compressionQuality: 0.88) ?? originalData
+        // Render orientation into the pixels so legacy OCR and document regions agree.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let normalizedImage = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        selectedImageData = normalizedImage.jpegData(compressionQuality: 0.88) ?? originalData
         statusLine = "Running local Vision analysis..."
-        let analysis = VisualEvidenceLocalAnalyzer.analyze(image: image, sourceKind: source)
+        guard let data = selectedImageData else {
+            statusLine = "Could not prepare image for analysis."
+            return
+        }
+        let analysis = await VisualEvidenceLocalAnalyzer.shared.analyze(data: data, sourceKind: source)
+        guard analysisID == requestID, !Task.isCancelled else { return }
+        documentTables = analysis.tables
+        documentJSON = analysis.documentJSON
         localSummary = analysis.summary
         extractedText = analysis.extractedText
         localHints = analysis.hints
         detectedFaceCount = analysis.faceCount
+        faceDetectionUnavailable = !analysis.faceDetectionSucceeded
         detectedBarcodeCount = analysis.barcodeCount
         detectedRectangleCount = analysis.rectangleCount
-        sensitiveVisualAcknowledged = analysis.faceCount == 0
-        statusLine = analysis.faceCount > 0
+        sensitiveVisualAcknowledged = analysis.faceDetectionSucceeded && analysis.faceCount == 0
+        statusLine = !analysis.faceDetectionSucceeded
+            ? "Face detection unavailable. Review sensitive content before upload."
+            : analysis.faceCount > 0
             ? "Local Vision found possible faces. Review before upload."
             : "Local Vision preview ready."
     }
@@ -728,14 +788,6 @@ struct VisualEvidenceCaptureView: View {
 }
 
 #if os(iOS)
-private struct VisualEvidenceLocalAnalysis {
-    var summary: String
-    var extractedText: String
-    var hints: [String]
-    var faceCount: Int
-    var barcodeCount: Int
-    var rectangleCount: Int
-}
 
 private struct VisualSourceButton: View {
     let title: String
@@ -754,85 +806,8 @@ private struct VisualSourceButton: View {
     }
 }
 
-private enum VisualEvidenceLocalAnalyzer {
-    static func analyze(image: UIImage, sourceKind: String) -> VisualEvidenceLocalAnalysis {
-        guard let cgImage = image.cgImage else {
-            return VisualEvidenceLocalAnalysis(
-                summary: "Image captured from \(sourceKind); local Vision could not read pixels.",
-                extractedText: "",
-                hints: ["visionkit-local-first", "image-unreadable"],
-                faceCount: 0,
-                barcodeCount: 0,
-                rectangleCount: 0
-            )
-        }
 
-        let textRequest = VNRecognizeTextRequest()
-        textRequest.recognitionLevel = .accurate
-        textRequest.usesLanguageCorrection = true
-
-        let faceRequest = VNDetectFaceRectanglesRequest()
-        let barcodeRequest = VNDetectBarcodesRequest()
-        let rectangleRequest = VNDetectRectanglesRequest()
-        let classifyRequest = VNClassifyImageRequest()
-
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        do {
-            try handler.perform([textRequest, faceRequest, barcodeRequest, rectangleRequest, classifyRequest])
-        } catch {
-            return VisualEvidenceLocalAnalysis(
-                summary: "Image captured from \(sourceKind); local Vision failed before external analysis.",
-                extractedText: "",
-                hints: ["visionkit-local-first", "vision-error"],
-                faceCount: 0,
-                barcodeCount: 0,
-                rectangleCount: 0
-            )
-        }
-
-        let recognizedText = (textRequest.results ?? [])
-            .compactMap { $0.topCandidates(1).first?.string }
-            .prefix(18)
-            .joined(separator: "\n")
-        let faces = faceRequest.results?.count ?? 0
-        let barcodes = barcodeRequest.results?.count ?? 0
-        let rectangles = rectangleRequest.results?.count ?? 0
-        let labels = (classifyRequest.results ?? [])
-            .prefix(4)
-            .map { "\($0.identifier) \(Int($0.confidence * 100))%" }
-        var hints = ["visionkit-local-first", sourceKind]
-        if !recognizedText.isEmpty { hints.append("ocr") }
-        if faces > 0 { hints.append("faces-detected") }
-        if barcodes > 0 { hints.append("barcode-detected") }
-        if rectangles > 0 { hints.append("document-layout") }
-        if !labels.isEmpty { hints.append("classification") }
-
-        var summaryParts = ["\(sourceKind.capitalized) captured for visual evidence."]
-        if !labels.isEmpty {
-            summaryParts.append("Local labels: \(labels.joined(separator: ", ")).")
-        }
-        if !recognizedText.isEmpty {
-            summaryParts.append("OCR extracted \(recognizedText.count) characters.")
-        }
-        if faces > 0 {
-            summaryParts.append("Possible faces/person context detected; require explicit review before upload.")
-        }
-        if rectangles > 0 {
-            summaryParts.append("Document/diagram layout signals detected.")
-        }
-
-        return VisualEvidenceLocalAnalysis(
-            summary: summaryParts.joined(separator: " "),
-            extractedText: recognizedText,
-            hints: hints,
-            faceCount: faces,
-            barcodeCount: barcodes,
-            rectangleCount: rectangles
-        )
-    }
-}
-
-private struct CameraImagePicker: UIViewControllerRepresentable {
+struct CameraImagePicker: UIViewControllerRepresentable {
     let onImage: @MainActor (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -842,14 +817,14 @@ private struct CameraImagePicker: UIViewControllerRepresentable {
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
-        picker.sourceType = .camera
+        picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
         picker.delegate = context.coordinator
         return picker
     }
 
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
 
-    final class Coordinator: NSObject, UINavigationControllerDelegate, @preconcurrency UIImagePickerControllerDelegate {
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
         let onImage: @MainActor (UIImage) -> Void
         let dismiss: DismissAction
 
@@ -882,7 +857,7 @@ private struct CameraImagePicker: UIViewControllerRepresentable {
     }
 }
 
-private struct DocumentCameraScanner: UIViewControllerRepresentable {
+struct DocumentCameraScanner: UIViewControllerRepresentable {
     let onImage: @MainActor (UIImage) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -898,7 +873,7 @@ private struct DocumentCameraScanner: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {}
 
-    final class Coordinator: NSObject, @preconcurrency VNDocumentCameraViewControllerDelegate {
+    final class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
         let onImage: @MainActor (UIImage) -> Void
         let dismiss: DismissAction
 

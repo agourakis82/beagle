@@ -1,0 +1,1 @@
+Sem medição de runtime; não atribuir ganhos ou perdas aos efeitos visuais sem profiling.

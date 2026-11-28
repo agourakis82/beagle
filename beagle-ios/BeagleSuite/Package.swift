@@ -36,17 +36,36 @@ let package = Package(
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.0"),
     ],
     targets: [
+        // The macOS Mission Control app — a workshop window for Sounio development.
+        // Kept OUT of BeagleSuite.xcodeproj on purpose: that project builds the Companion iOS app
+        // and is actively edited by another agent; a package target needs no surgery on a file we
+        // both touch.
+        .executableTarget(
+            name: "SounioMissionControl",
+            dependencies: ["BeagleCore", "BeagleWorkbenchKit"],
+            path: "Sources/SounioMissionControl",
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+                .swiftLanguageMode(.v6)
+            ]
+        ),
         // Shared core: API client, truth system, models, Tailnet resolver,
         // Observation-framework data stores, on-device LLM engine.
         // No UI. Platform-agnostic (except watchOS excludes MLX).
         .target(
             name: "BeagleCore",
             dependencies: [
-                .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
-                .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
-                .product(name: "Hub", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
-                .product(name: "Tokenizers", package: "swift-transformers", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
-                .product(name: "WhisperKit", package: "WhisperKit", condition: .when(platforms: [.iOS, .macOS, .visionOS])),
+                // macOS fica de fora destes de propósito: swift-transformers não
+                // compila para macOS com o toolchain atual (Hub/Config.swift,
+                // ObjectKey), e era isso que impedia `swift test` de rodar — os
+                // testes do pacote existiam e NUNCA eram executados por ninguém.
+                // O app é iOS; LocalLLMEngine já se protege com #if canImport,
+                // então no macOS ele simplesmente não tem runtime local.
+                .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .visionOS])),
+                .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(platforms: [.iOS, .visionOS])),
+                .product(name: "Hub", package: "swift-transformers", condition: .when(platforms: [.iOS, .visionOS])),
+                .product(name: "Tokenizers", package: "swift-transformers", condition: .when(platforms: [.iOS, .visionOS])),
+                .product(name: "WhisperKit", package: "WhisperKit", condition: .when(platforms: [.iOS, .visionOS])),
             ],
             path: "Sources/BeagleCore",
             swiftSettings: [

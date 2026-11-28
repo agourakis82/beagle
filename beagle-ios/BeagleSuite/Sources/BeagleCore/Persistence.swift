@@ -64,13 +64,18 @@ public final class PersistedMessage {
     public var podName: String?
     public var conversationId: String    // groups messages into conversations
     public var sentAt: Date
+    /// Compressed JPEG payload stored outside the SQLite row so long visual conversations stay fast.
+    @Attribute(.externalStorage) public var imageData: Data?
+    /// Local Vision OCR / classification digest extracted on-device for offline/MoE recall.
+    public var imageExtractedText: String?
 
     public init(
         role: String, content: String, model: String? = nil,
         tokensUsed: Int? = nil, isLocal: Bool = false,
         source: String? = nil, agentKind: String? = nil,
         sessionId: String? = nil, podName: String? = nil,
-        conversationId: String = "default", sentAt: Date = .now
+        conversationId: String = "default", sentAt: Date = .now,
+        imageData: Data? = nil, imageExtractedText: String? = nil
     ) {
         self.role = role
         self.content = content
@@ -83,6 +88,50 @@ public final class PersistedMessage {
         self.podName = podName
         self.conversationId = conversationId
         self.sentAt = sentAt
+        self.imageData = imageData
+        self.imageExtractedText = imageExtractedText
+    }
+}
+
+// MARK: - Persisted Conversation (multi-thread)
+
+/// One chat thread. Messages link to it by `PersistedMessage.conversationId == id`. Lets the
+/// chat hold many conversations (history drawer) instead of a single home thread.
+@Model
+public final class PersistedConversation {
+    @Attribute(.unique) public var id: String   // == conversationId on its messages
+    public var projectSlug: String
+    public var title: String?
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var pinned: Bool
+    public var lastModel: String?
+    /// Rolling episodic summary of older turns in this conversation so long threads (>30 turns)
+    /// retain full continuity without losing earlier arguments, hypotheses, or decisions.
+    public var rollingSummary: String?
+    /// Number of messages already compacted into `rollingSummary`.
+    public var summarizedMessageCount: Int = 0
+
+    public init(
+        id: String, projectSlug: String, title: String? = nil,
+        createdAt: Date = .now, updatedAt: Date = .now, pinned: Bool = false, lastModel: String? = nil,
+        rollingSummary: String? = nil, summarizedMessageCount: Int = 0
+    ) {
+        self.id = id
+        self.projectSlug = projectSlug
+        self.title = title
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.pinned = pinned
+        self.lastModel = lastModel
+        self.rollingSummary = rollingSummary
+        self.summarizedMessageCount = summarizedMessageCount
+    }
+
+    /// Title to show in the history drawer when none was set yet.
+    public var displayTitle: String {
+        let t = (title ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? "Nova conversa" : t
     }
 }
 
@@ -96,11 +145,27 @@ public final class PersistedDeepSession {
     public var synthesisText: String?
     public var modalityResults: String?   // JSON-encoded modality summaries
     public var modalityCount: Int
+    /// Optional JSON-encoded `[ScientificDossierExporter.HarvestedCitation]` (lightweight-migration safe).
+    public var citationsJSON: String?
+    /// Optional verified quantitative/code simulation output from Astra Agent Sandbox.
+    public var simulationOutput: String?
+    /// Optional Epistemic Round Table PCI (Φ) score if run during the session.
+    public var pciScore: Double?
 
-    public init(prompt: String, startedAt: Date = .now, modalityCount: Int = 0) {
+    public init(
+        prompt: String,
+        startedAt: Date = .now,
+        modalityCount: Int = 0,
+        citationsJSON: String? = nil,
+        simulationOutput: String? = nil,
+        pciScore: Double? = nil
+    ) {
         self.prompt = prompt
         self.startedAt = startedAt
         self.modalityCount = modalityCount
+        self.citationsJSON = citationsJSON
+        self.simulationOutput = simulationOutput
+        self.pciScore = pciScore
     }
 
     public var duration: TimeInterval? {
@@ -109,6 +174,15 @@ public final class PersistedDeepSession {
     }
 
     public var isComplete: Bool { completedAt != nil }
+
+    public var citationCount: Int {
+        guard let json = citationsJSON,
+              let data = json.data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return 0
+        }
+        return arr.count
+    }
 }
 
 // MARK: - Persisted Exocortex Home Snapshot Cache
@@ -158,6 +232,29 @@ public final class PersistedAssistedImportOutbox {
     }
 }
 
+/// A personal-space companion turn captured offline, awaiting sync to the memory spine.
+@Model
+public final class PendingIngest {
+    @Attribute(.unique) public var id: UUID
+    public var sessionId: String
+    public var userText: String
+    public var assistantText: String
+    public var clientTime: String
+    public var timezone: String
+    public var createdAt: Date
+
+    public init(id: UUID = UUID(), sessionId: String, userText: String, assistantText: String,
+                clientTime: String, timezone: String, createdAt: Date = Date()) {
+        self.id = id
+        self.sessionId = sessionId
+        self.userText = userText
+        self.assistantText = assistantText
+        self.clientTime = clientTime
+        self.timezone = timezone
+        self.createdAt = createdAt
+    }
+}
+
 // MARK: - Container Configuration
 
 public enum PersistenceConfig {
@@ -165,9 +262,11 @@ public enum PersistenceConfig {
         let schema = Schema([
             PersistedThought.self,
             PersistedMessage.self,
+            PersistedConversation.self,
             PersistedDeepSession.self,
             PersistedExocortexHomeSnapshot.self,
             PersistedAssistedImportOutbox.self,
+            PendingIngest.self,
         ])
         let config = ModelConfiguration(
             "BeagleExocortex",

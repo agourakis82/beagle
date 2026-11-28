@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memory-pg-promote
+  namespace: beagle
+  labels:
+    app: memory-pg
+    component: promote
+spec:
+  # Recompute trust tiers every 6h: fact_supports accumulate as the user chats
+  # (graph-worker writes them), and tiers must be re-derived to promote claims to
+  # corroborated/known across sessions+days. Idempotent full-table recompute.
+  schedule: "0 */6 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: Never
+          tolerations:
+            - key: sounio.dev/pool
+              operator: Equal
+              value: gpu-batch
+              effect: NoSchedule
+            - key: sounio.dev/compute
+              operator: Equal
+              value: heavy
+              effect: NoSchedule
+          containers:
+            - name: promote
+              image: 192.168.3.207:5003/memory-pg-embed-worker:p4-d3138dc3
+              command: ["node", "bin/promote-worker.mjs"]
+              env:
+                - name: MEMORY_PG_DSN
+                  valueFrom:
+                    secretKeyRef:
+                      name: memory-pg
+                      key: DATABASE_URL
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: 512Mi
+                limits:
+                  cpu: "2"
+                  memory: 2Gi

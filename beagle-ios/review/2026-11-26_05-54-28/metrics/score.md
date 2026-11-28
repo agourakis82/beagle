@@ -1,0 +1,1 @@
+{'risk_score': 50, 'maintainability_score': 55, 'security_posture': 'Needs Attention', 'test_confidence': 'Unknown', 'refactorability': 60, 'note': 'Estimativas qualitativas apenas do recorte revisado; não medir qualidade global por estes números.'}

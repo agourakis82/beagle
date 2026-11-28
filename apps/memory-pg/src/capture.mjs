@@ -72,7 +72,19 @@ export async function captureRecord(pool, rec) {
     occurred_at = null,
     privacy_class = "sensitive",
     decay_class = "identity",
+    prov_actor = "model_generated",
+    prov_surface = null,
+    prov_derived_from = [],
+    prov_confidence = null,
+    prov_asserted_at = null,
   } = rec;
+
+  const VALID_ACTORS = new Set([
+    "user_stated", "model_generated", "model_distilled", "external_import", "system",
+  ]);
+  if (!VALID_ACTORS.has(prov_actor)) {
+    throw new Error(`captureRecord: invalid prov_actor ${prov_actor}`);
+  }
 
   if (!source_type) throw new Error("captureRecord: source_type is required");
   if (typeof content !== "string" || content.length === 0) {
@@ -89,21 +101,37 @@ export async function captureRecord(pool, rec) {
   try {
     await client.query("BEGIN");
 
+    // Orphan check (design spec §1): a distilled record with no user_stated /
+    // external_import ancestor cannot be trusted as biography. Computed inside the
+    // txn so the flag is consistent with the ancestors that exist at write time.
+    let prov_orphan = false;
+    if (prov_actor === "model_distilled") {
+      if (!Array.isArray(prov_derived_from) || prov_derived_from.length === 0) {
+        prov_orphan = true;
+      } else {
+        const anc = await client.query(
+          `SELECT 1 FROM records
+            WHERE id = ANY($1::uuid[])
+              AND prov_actor IN ('user_stated', 'external_import')
+            LIMIT 1`,
+          [prov_derived_from],
+        );
+        prov_orphan = anc.rowCount === 0;
+      }
+    }
+
     // Insert the record; on duplicate content_sha256 do nothing.
     const ins = await client.query(
       `INSERT INTO records
-         (source_type, content, metadata, occurred_at, content_sha256, privacy_class, decay_class)
-       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
+         (source_type, content, metadata, occurred_at, content_sha256, privacy_class, decay_class,
+          prov_actor, prov_surface, prov_derived_from, prov_confidence, prov_asserted_at, prov_orphan)
+       VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10::uuid[], $11, $12, $13)
        ON CONFLICT (content_sha256) DO NOTHING
        RETURNING id`,
       [
-        source_type,
-        safeContent,
-        JSON.stringify(safeMetadata),
-        occurred_at,
-        content_sha256,
-        privacy_class,
-        decay_class,
+        source_type, safeContent, JSON.stringify(safeMetadata), occurred_at, content_sha256,
+        privacy_class, decay_class, prov_actor, prov_surface, prov_derived_from,
+        prov_confidence, prov_asserted_at, prov_orphan,
       ],
     );
 

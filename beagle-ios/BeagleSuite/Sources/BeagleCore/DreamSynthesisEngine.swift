@@ -38,7 +38,11 @@ public final class DreamSynthesisEngine {
     /// Run a dream synthesis session.
     /// Call from background processing when sleep is detected,
     /// or manually from the morning brief.
-    public func synthesize(thoughts: [ThoughtCapture], cognitivePosture: CognitivePosture) async {
+    public func synthesize(
+        thoughts: [ThoughtCapture],
+        cognitivePosture: CognitivePosture,
+        neuralSynthesizer: (@Sendable ([String]) async -> String?)? = nil
+    ) async {
         guard !isDreaming else { return }
         guard thoughts.count >= 3 else { return }
         isDreaming = true
@@ -46,6 +50,22 @@ public final class DreamSynthesisEngine {
 
         let recent = Array(thoughts.prefix(20))
         var insights: [DreamInsight] = []
+
+        // 0. Neural consolidation (AFM 3 / Foundation Models when supplied by host app)
+        if let neuralSynthesizer {
+            let candidateTexts = recent.prefix(6).compactMap { $0.refinedText ?? $0.rawText }
+            if candidateTexts.count >= 2,
+               let neuralBridge = await neuralSynthesizer(candidateTexts)?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !neuralBridge.isEmpty {
+                insights.append(DreamInsight(
+                    text: neuralBridge,
+                    sourceThoughtIds: Array(recent.prefix(6).map(\.id)),
+                    sleepStage: "afm3-dream",
+                    hrvAtGeneration: cognitivePosture.hrv,
+                    generatedAt: Date()
+                ))
+            }
+        }
 
         // 1. Random recombination — pick 2-3 thoughts from different time periods and find connections
         for _ in 0..<3 {

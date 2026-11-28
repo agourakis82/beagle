@@ -44,11 +44,15 @@ beagle-llm = { path = "../../crates/beagle-llm" }
 beagle-observer = { path = "../../crates/beagle-observer" }
 beagle-serendipity = { path = "../../crates/beagle-serendipity" }
 beagle-quantum = { path = "../../crates/beagle-quantum" }
+nalgebra = { version = "0.33", features = ["serde-serialize"] }
 beagle-memory = { path = "../../crates/beagle-memory" }
 beagle-search = { path = "../../crates/beagle-search" }
 beagle-latex = { path = "../../crates/beagle-latex" }
 beagle-exocortex = { path = "../../crates/beagle-exocortex" }
 beagle-checkpoint = { path = "../../crates/beagle-checkpoint" }
+beagle-agents = { path = "../../crates/beagle-agents" }
+beagle-worldmodel = { path = "../../crates/beagle-worldmodel" }
+beagle-hypergraph = { path = "../../crates/beagle-hypergraph" }
 # beagle-void e beagle-ontic comentados temporariamente (requerem dependências adicionais)
 # beagle-void = { path = "../../crates/beagle-void" }
 # beagle-ontic = { path = "../../crates/beagle-ontic" }

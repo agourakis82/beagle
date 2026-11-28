@@ -126,33 +126,100 @@ public actor BeagleMCPClient {
     private let decoder = JSONDecoder()
     private var accessToken: String?
     private var nextId = 1
+    private var initialized = false
+    public private(set) var cachedTools: [MCPToolSummary] = []
 
     public init(
-        endpoint: URL = URL(string: "https://mcp.agourakis.com/mcp")!,
+        endpoint: URL = BeagleEndpoints.mcpEndpoint,
+        session: URLSession? = nil,
         accessToken: String? = nil
     ) {
         self.endpoint = endpoint
         self.accessToken = accessToken
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 20
-        config.timeoutIntervalForResource = 120
-        config.waitsForConnectivity = true
-        config.httpAdditionalHeaders = [
-            "Accept": "application/json, text/event-stream",
-            "User-Agent": "BeagleAppleMCP/1.0"
-        ]
-        self.session = URLSession(configuration: config)
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 20
+            config.timeoutIntervalForResource = 120
+            config.waitsForConnectivity = true
+            config.httpAdditionalHeaders = [
+                "Accept": "application/json, text/event-stream",
+                "User-Agent": "BeagleAppleMCP/1.0"
+            ]
+            self.session = URLSession(configuration: config)
+        }
     }
 
     public func configure(accessToken: String?) {
         self.accessToken = accessToken
     }
 
+    /// Automatic authentication bridge: reuses configured accessToken, UserDefaults MCP token,
+    /// or falls back to BeagleClient's resolvedBearerToken() + CockpitToken.resolve().
+    private func ensureAuthAndInit() async {
+        if (accessToken ?? "").isEmpty {
+            if let stored = UserDefaults.standard.string(forKey: "beagle.mcp.accessToken"), !stored.isEmpty {
+                accessToken = stored
+            } else {
+                let bearer = await BeagleClient.shared.resolvedBearerToken()
+                if !bearer.isEmpty {
+                    accessToken = bearer
+                } else if let cockpit = CockpitToken.resolve(), !cockpit.isEmpty {
+                    accessToken = cockpit
+                }
+            }
+        }
+        if !initialized {
+            initialized = true
+            _ = try? await initialize()
+        }
+    }
+
+    /// Returns cached MCP tools or fetches them live from the Beagle MCP server.
+    public func availableTools(forceRefresh: Bool = false) async -> [MCPToolSummary] {
+        if !forceRefresh, !cachedTools.isEmpty { return cachedTools }
+        await ensureAuthAndInit()
+        if let list = try? await listTools() {
+            cachedTools = list.tools
+            return list.tools
+        }
+        return cachedTools
+    }
+
+    /// Execute an MCP tool by name with a JSON dictionary of arguments and return a formatted string for LLM tool-calling.
+    public func executeToolForLLM(name: String, argumentsJSON: String) async -> String {
+        await ensureAuthAndInit()
+        let argsValue: ExocortexJSONValue
+        if let data = argumentsJSON.data(using: .utf8),
+           let decoded = try? decoder.decode(ExocortexJSONValue.self, from: data) {
+            argsValue = decoded
+        } else {
+            argsValue = .object([:])
+        }
+        do {
+            let res = try await callTool(name: name, arguments: argsValue)
+            if let structured = res.structuredContent,
+               let data = try? encoder.encode(structured),
+               let str = String(data: data, encoding: .utf8) {
+                return str
+            }
+            if let content = res.content,
+               let data = try? encoder.encode(content),
+               let str = String(data: data, encoding: .utf8) {
+                return str
+            }
+            return "{\"ok\":true}"
+        } catch {
+            return "MCP tool '\(name)' error: \(error.localizedDescription)"
+        }
+    }
+
     public nonisolated static func auth0PKCEAuthorizationURL(
         domain: String,
         clientId: String,
         redirectURI: String,
-        audience: String = "https://mcp.agourakis.com/mcp",
+        audience: String = BeagleEndpoints.mcpEndpoint.absoluteString,
         scopes: [String] = [
             "openid",
             "profile",
@@ -238,6 +305,7 @@ public actor BeagleMCPClient {
         if let accessToken, !accessToken.isEmpty {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
+        BeagleEndpoints.applyCockpitAuth(to: &request)
         request.httpBody = try encoder.encode(MCPJSONRPCRequest(id: id, method: method, params: params))
 
         let (data, response) = try await session.data(for: request)

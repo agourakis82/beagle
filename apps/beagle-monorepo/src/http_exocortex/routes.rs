@@ -62,6 +62,10 @@ pub fn exocortex_routes() -> Router<AppState> {
             post(capture_review_handler),
         )
         .route(
+            "/api/exocortex/v1/capture/refine",
+            post(capture_refine_handler),
+        )
+        .route(
             "/api/exocortex/v1/context/compile",
             post(context_compile_handler),
         )

@@ -1,0 +1,1 @@
+Arquivos extensos e comentários históricos aumentam custo de compreensão; sem refatoração automática.

@@ -86,6 +86,30 @@ public struct Truthful<Value: Sendable>: Sendable {
         if age < 86400 { return "\(Int(age / 3600))h ago" }
         return "\(Int(age / 86400))d ago"
     }
+
+    /// Transforms the wrapped value while preserving epistemic metadata (`mode`, `observedAt`, `source`, `error`).
+    public func map<U: Sendable>(_ transform: (Value) -> U) -> Truthful<U> {
+        Truthful<U>(
+            value: value.map(transform),
+            mode: mode,
+            observedAt: observedAt,
+            source: source,
+            error: error
+        )
+    }
+
+    /// Projects an optional nested field into a new `Truthful<U>`, preserving epistemic metadata.
+    /// Returns `nil` when either the outer value or the projected field is absent.
+    public func compactMap<U: Sendable>(_ transform: (Value) -> U?) -> Truthful<U>? {
+        guard let value, let projected = transform(value) else { return nil }
+        return Truthful<U>(
+            value: projected,
+            mode: mode,
+            observedAt: observedAt,
+            source: source,
+            error: error
+        )
+    }
 }
 
 extension Truthful: Equatable where Value: Equatable {}

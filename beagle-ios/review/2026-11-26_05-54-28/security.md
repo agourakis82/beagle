@@ -1,0 +1,1 @@
+Ver R4; Secrets.plist não foi aberto. Não foi verificada a segurança do backend.

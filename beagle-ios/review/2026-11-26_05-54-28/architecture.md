@@ -1,0 +1,1 @@
+Separação de módulos e stores observáveis é útil; ver hotspots.md para concentração de responsabilidades.

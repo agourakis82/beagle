@@ -4,6 +4,11 @@
 
 Beagle is the platform and integration surface of the ecosystem. It is **not** the language substrate. **Sounio** is the technical star and the long-term systems-language foundation; **Beagle** is the exocortical layer that organizes, operates, and integrates the system around it.
 
+> Antes de roadmap ou feature nova, leia a estrela-guia do projeto:
+> [BEAGLE_NORTH_STAR.md](BEAGLE_NORTH_STAR.md).
+
+## 🚀 Versão Atual: v0.3.0
+
 ## Authority Position
 
 - **Sounio** is the authority for language, compiler, stdlib, and long-term systems convergence.
@@ -67,6 +72,7 @@ Siga as instruções em [docs/BEAGLE_MCP.md](docs/BEAGLE_MCP.md).
 
 ## Documentação
 
+- [BEAGLE_NORTH_STAR.md](BEAGLE_NORTH_STAR.md) - Essência, não negociáveis e regra de retomada
 - [BEAGLE_MCP.md](docs/BEAGLE_MCP.md) - Guia do MCP Server
 - [BEAGLE_CORE_v0_1.md](docs/BEAGLE_CORE_v0_1.md) - Documentação técnica do core
 - [BEAGLE_v0_3_RELEASE_NOTES.md](docs/BEAGLE_v0_3_RELEASE_NOTES.md) - Release notes v0.3.0

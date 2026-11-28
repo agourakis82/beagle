@@ -13,6 +13,13 @@ struct SpatialDeskMissionControlView: View {
     @State private var exocortex = ExocortexStore()
     @State private var commandText = ""
     @State private var selectedRoomId: String?
+    @State private var commandAnswer: String?
+    @State private var commandRunning = false
+    @State private var runningActionId: String?
+    /// Cited-recall actions (open_memory_lens/review_claim) present the real RecallPane —
+    /// same CognitiveAPI.recall() path CognitiveRecallView uses, same citation/confidence/
+    /// source-timeline UI — instead of a second hand-rolled query dumped into plain text.
+    @State private var recallQuery: (query: String, scope: String)?
 
     private var snapshot: MindPalaceSnapshot? { exocortex.mindPalace?.value }
     private var selectedRoom: MindPalaceRoom? {
@@ -55,6 +62,104 @@ struct SpatialDeskMissionControlView: View {
         #endif
         .task { await refresh() }
         .refreshable { await refresh() }
+        .sheet(isPresented: Binding(get: { commandAnswer != nil }, set: { if !$0 { commandAnswer = nil } })) {
+            commandAnswerSheet
+        }
+        .sheet(isPresented: Binding(get: { recallQuery != nil }, set: { if !$0 { recallQuery = nil } })) {
+            NavigationStack {
+                RecallPane(presetQuery: recallQuery?.query, presetScope: recallQuery?.scope)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { recallQuery = nil }
+                        }
+                    }
+            }
+        }
+    }
+
+    /// Send the command bar text as a real exocortex query and present the answer.
+    private func runCommand() {
+        let q = commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !commandRunning else { return }
+        commandRunning = true
+        Task {
+            let result = await ExocortexQuery.ask(q, mode: .personalNarrative(projectSlug: "sounio"))
+            commandAnswer = result.text
+            commandRunning = false
+            commandText = ""
+        }
+    }
+
+    /// Execute an Action Menu item against the real cluster, reusing existing
+    /// store/client methods. Each kind maps to a concrete cognitive action and
+    /// surfaces its result through the shared answer sheet.
+    private func runAction(_ action: SpatialAction) {
+        guard action.enabled, runningActionId == nil else { return }
+        let projectSlug = selectedRoom?.projectSlug ?? "sounio"
+        let intent = "\(action.title). \(action.reason)"
+        runningActionId = action.id
+        Task {
+            switch action.kind {
+            case "open_memory_lens", "review_claim":
+                // Cited recall — present the real RecallPane (CognitiveAPI.recall()) instead
+                // of a second, inconsistent ExocortexStore.queryGraphMemory() path dumped
+                // into plain text; one source of truth for "cited recall," full citation/
+                // confidence/source-timeline UI.
+                recallQuery = (query: intent, scope: projectSlug)
+            case "focus_intervention":
+                // Log a real focus-coach event, then refresh the palace.
+                let result = await exocortex.recordFocusCoachEvent(
+                    FocusCoachEventRequest(
+                        eventKind: "accept",
+                        interventionId: action.targetRef,
+                        projectSlug: projectSlug,
+                        notes: "Accepted from Spatial Desk Action Menu.",
+                        snoozedMinutes: nil
+                    )
+                )
+                commandAnswer = result.value != nil
+                    ? "Focus intervention recorded · mode \(result.value?.mode ?? "focus")."
+                    : (result.error ?? "Could not record the focus intervention.")
+                await refresh()
+            case "spatial_generation_draft":
+                // Deep-think a spatial generation draft on the cluster.
+                let result = await BeagleClient.shared.deepThink(prompt: intent, depth: 3)
+                commandAnswer = result.value?.response
+                    ?? result.error
+                    ?? "No draft returned."
+            default:
+                // open_workbench / promote_conversation_clip / unknown →
+                // run the action as an exocortex conversation turn.
+                let result = await BeagleClient.shared.chat(prompt: intent, projectSlug: projectSlug)
+                commandAnswer = result.value?.response
+                    ?? result.error
+                    ?? "No response from the exocortex."
+            }
+            runningActionId = nil
+        }
+    }
+
+    private var commandAnswerSheet: some View {
+        NavigationStack {
+            ScrollView {
+                Text(commandAnswer ?? "")
+                    .font(BeagleFont.body.font)
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+                    .padding()
+            }
+            .background(Color(red: 0.02, green: 0.03, blue: 0.06))
+            .navigationTitle("Exocortex")
+            #if !os(macOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { commandAnswer = nil }
+                }
+            }
+        }
     }
 
     private var header: some View {
@@ -94,14 +199,18 @@ struct SpatialDeskMissionControlView: View {
                 .font(BeagleFont.body.font)
                 .foregroundStyle(BeagleTheme.textPrimary)
             Button {
-                commandText = ""
+                runCommand()
             } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 22, weight: .semibold))
+                if commandRunning {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                }
             }
             .buttonStyle(.plain)
             .foregroundStyle(BeagleTheme.truthObserved)
-            .disabled(commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(commandRunning || commandText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(14)
         .background(BeagleTheme.surface1.opacity(0.72), in: RoundedRectangle(cornerRadius: 8))
@@ -226,25 +335,40 @@ struct SpatialDeskMissionControlView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionLabel("Action Menu")
             ForEach(snapshot.actionMenu.actions) { action in
-                HStack(alignment: .top, spacing: 9) {
-                    Image(systemName: actionIcon(action.kind))
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(action.enabled ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
-                        .frame(width: 20)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(action.title)
-                            .font(BeagleFont.caption.font)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(BeagleTheme.textPrimary)
-                        Text(action.reason)
-                            .font(BeagleFont.caption2.font)
-                            .foregroundStyle(BeagleTheme.textSecondary)
-                            .lineLimit(2)
+                Button {
+                    runAction(action)
+                } label: {
+                    HStack(alignment: .top, spacing: 9) {
+                        if runningActionId == action.id {
+                            ProgressView()
+                                .controlSize(.small)
+                                .frame(width: 20)
+                        } else {
+                            Image(systemName: actionIcon(action.kind))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(action.enabled ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                                .frame(width: 20)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(action.title)
+                                .font(BeagleFont.caption.font)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(BeagleTheme.textPrimary)
+                            Text(action.reason)
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.textSecondary)
+                                .lineLimit(2)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(BeagleTheme.textTertiary)
                     }
-                    Spacer(minLength: 0)
+                    .padding(9)
+                    .background(BeagleTheme.surface1.opacity(action.enabled ? 0.56 : 0.32), in: RoundedRectangle(cornerRadius: 8))
                 }
-                .padding(9)
-                .background(BeagleTheme.surface1.opacity(action.enabled ? 0.56 : 0.32), in: RoundedRectangle(cornerRadius: 8))
+                .buttonStyle(.plain)
+                .disabled(!action.enabled || runningActionId != nil)
             }
 
             sectionLabel("Focus Coach")

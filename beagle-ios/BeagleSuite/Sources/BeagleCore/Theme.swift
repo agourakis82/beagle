@@ -14,17 +14,67 @@
 //
 
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
+
+// MARK: - Adaptive color helper
+
+public extension Color {
+    /// Resolve to `light` in light appearance, `dark` in dark appearance.
+    init(light: Color, dark: Color) {
+        #if canImport(UIKit) && !os(watchOS)
+        self.init(uiColor: UIColor { trait in
+            trait.userInterfaceStyle == .dark ? UIColor(dark) : UIColor(light)
+        })
+        #elseif canImport(AppKit)
+        self.init(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark ? NSColor(dark) : NSColor(light)
+        })
+        #else
+        self = dark
+        #endif
+    }
+}
 
 // MARK: - BeagleTheme (colors + legacy aliases)
 
 public enum BeagleTheme {
 
-    // MARK: - Truth colors (semantic: data freshness)
+    // MARK: - Brand accent (Beagle Amber)
+    //
+    // The single brand color. Use for primary action, selection, marks of identity.
+    // Anything else should rely on semantic system colors.
 
-    public static let truthObserved    = Color(hue: 165/360, saturation: 0.60, brightness: 0.90) // teal — live
-    public static let truthRemembered  = Color(hue: 214/360, saturation: 0.70, brightness: 1.00) // sky — cached
-    public static let truthDeclared    = Color(hue: 215/360, saturation: 0.25, brightness: 0.75) // slate — policy
-    public static let truthStale       = Color(hue: 220/360, saturation: 0.10, brightness: 0.45) // gray — expired
+    public static let accent = Color(
+        light: Color(red: 0.66, green: 0.38, blue: 0.04),  // deep amber for white surfaces
+        dark:  Color(red: 0.94, green: 0.66, blue: 0.24)   // warm amber for dark surfaces
+    )
+
+    // MARK: - Truth colors (semantic: data freshness)
+    //
+    // Epistemic signature — keep as thin accents. Tuned for adequate contrast on
+    // both light and dark surfaces.
+
+    public static let truthObserved = Color(
+        light: Color(hue: 165/360, saturation: 0.85, brightness: 0.40),
+        dark:  Color(hue: 165/360, saturation: 0.60, brightness: 0.90)
+    )
+    public static let truthRemembered = Color(
+        light: Color(hue: 214/360, saturation: 0.85, brightness: 0.55),
+        dark:  Color(hue: 214/360, saturation: 0.70, brightness: 1.00)
+    )
+    public static let truthDeclared = Color(
+        light: Color(hue: 215/360, saturation: 0.30, brightness: 0.45),
+        dark:  Color(hue: 215/360, saturation: 0.25, brightness: 0.75)
+    )
+    public static let truthStale = Color(
+        light: Color(hue: 220/360, saturation: 0.05, brightness: 0.55),
+        dark:  Color(hue: 220/360, saturation: 0.10, brightness: 0.45)
+    )
 
     public static func color(for truth: TruthMode) -> Color {
         switch truth {
@@ -38,7 +88,7 @@ public enum BeagleTheme {
     // MARK: - Posture colors (semantic: operational state)
 
     public static let postureOn   = truthObserved
-    public static let postureWarm = Color(hue: 42/360, saturation: 0.88, brightness: 1.00) // gold
+    public static let postureWarm = accent
     public static let postureCold = truthDeclared
 
     public static func color(for posture: ProjectPosture) -> Color {
@@ -76,20 +126,65 @@ public enum BeagleTheme {
         }
     }
 
-    // MARK: - Surfaces (4-level depth)
+    // MARK: - Surfaces (4-level depth, adaptive)
+    //
+    // Prefer .regularMaterial / .glassEffect() for chrome (bars, sheets); these are for
+    // content fills. Light: near-white plaster; Dark: deep navies.
 
-    public static let surface0 = Color(red: 5/255,  green: 10/255, blue: 18/255)  // deepest
-    public static let surface1 = Color(red: 10/255, green: 22/255, blue: 40/255)
-    public static let surface2 = Color(red: 15/255, green: 31/255, blue: 56/255)
-    public static let surface3 = Color(red: 22/255, green: 42/255, blue: 74/255)  // highest
+    public static let surface0 = Color(
+        light: Color(white: 0.97),
+        dark:  Color(red: 5/255, green: 10/255, blue: 18/255)
+    )
+    public static let surface1 = Color(
+        light: Color(white: 0.94),
+        dark:  Color(red: 10/255, green: 22/255, blue: 40/255)
+    )
+    public static let surface2 = Color(
+        light: Color(white: 0.91),
+        dark:  Color(red: 15/255, green: 31/255, blue: 56/255)
+    )
+    public static let surface3 = Color(
+        light: Color(white: 0.88),
+        dark:  Color(red: 22/255, green: 42/255, blue: 74/255)
+    )
 
-    // MARK: - Text hierarchy
+    // MARK: - Text hierarchy (semantic, adaptive)
 
-    public static let textPrimary   = Color.white.opacity(0.94)
-    public static let textSecondary = Color.white.opacity(0.58)
-    public static let textTertiary  = Color.white.opacity(0.34)
-    public static let textData      = Color(red: 200/255, green: 230/255, blue: 255/255).opacity(0.90) // cool cyan tint
-    public static let hairline      = Color.white.opacity(0.08)
+    public static let textPrimary   = Color.primary
+    public static let textSecondary = Color.secondary
+    public static let textTertiary  = Color.secondary.opacity(0.55)
+    public static let textData      = Color.primary.opacity(0.90)
+    public static let hairline      = Color(
+        light: Color.black.opacity(0.10),
+        dark:  Color.white.opacity(0.08)
+    )
+
+    // MARK: - Identidade de família (Frota / Sessão / Terminais)
+
+    /// A cor de identidade de UMA família de agente, num lugar só para o app inteiro.
+    ///
+    /// 🚨 Existia duplicada — `FrotaView.corDaFamilia` e `FleetTerminalsView.color(for:)` cada
+    /// uma com sua própria paleta, e a segunda nem cobria as 7 famílias (kimi/grok/glm caíam
+    /// juntas num "vendor" genérico). A MESMA lane podia trocar de cor ao trocar de aba — que é
+    /// exatamente o defeito que o comentário original de `corDaFamilia` já nomeava
+    /// ("identidade que muda de tom... deixa de ser identidade"), só que entre telas, não dentro
+    /// de uma. Hue mora aqui agora; as telas leem, nenhuma decide sozinha.
+    ///
+    /// Hue carrega IDENTIDADE, nunca ESTADO — conectado/travado/chamando usam ícone, spinner ou
+    /// as cores semânticas (`stateReady`/`stateError`/`accent`), reservadas e intocadas por isto.
+    public static func familyColor(_ family: LaneFamily) -> Color {
+        switch family {
+        case .claude: return Color(red: 1.00, green: 0.76, blue: 0.34)   // amber
+        case .codex:  return Color(red: 0.28, green: 0.86, blue: 0.82)   // cyan
+        case .kimi:   return Color(red: 0.72, green: 0.56, blue: 1.00)   // violet
+        case .grok:   return Color(red: 0.72, green: 0.90, blue: 0.32)   // chartreuse
+        case .glm:    return Color(red: 0.44, green: 0.66, blue: 1.00)   // blue
+        case .minimax: return Color(red: 1.00, green: 0.42, blue: 0.55) // rose
+        case .cursor: return Color(red: 1.00, green: 0.57, blue: 0.40)  // coral
+        case .repo:   return Color(red: 0.85, green: 0.72, blue: 0.50)   // brass
+        case .other:  return Color(white: 0.75)
+        }
+    }
 
     // MARK: - Legacy font aliases (deprecated — use BeagleFont instead)
 
@@ -162,22 +257,14 @@ public enum BeaglePresenceState: String, Sendable {
         case .active:
             return BeagleTheme.truthObserved
         case .strained:
-            return BeagleTheme.postureWarm
+            return BeagleTheme.accent
         }
     }
 
-    public var glow: Color {
-        switch self {
-        case .dormant:
-            return Color(hue: 230/360, saturation: 0.24, brightness: 0.45)
-        case .attentive:
-            return Color(hue: 192/360, saturation: 0.48, brightness: 0.84)
-        case .active:
-            return Color(hue: 166/360, saturation: 0.66, brightness: 0.92)
-        case .strained:
-            return Color(hue: 28/360, saturation: 0.75, brightness: 0.95)
-        }
-    }
+    /// No glow. Returned for backward-compatibility with views that still call
+    /// `.shadow(color: state.glow…)` — `.clear` makes those shadows vanish without
+    /// editing every call site.
+    public var glow: Color { .clear }
 }
 
 public struct PresenceFieldCard<Accessory: View>: View {
@@ -259,37 +346,15 @@ private struct PresenceConstellation: View {
     let state: BeaglePresenceState
 
     var body: some View {
-        HStack(spacing: BeagleSpacing.sm) {
-            presenceNode(size: 11, opacity: 0.95)
-            capsule(width: 44, opacity: 0.35)
-            presenceNode(size: 8, opacity: 0.65)
-            capsule(width: 28, opacity: 0.20)
-            presenceNode(size: 6, opacity: 0.40)
-            Spacer()
+        HStack(spacing: BeagleSpacing.xs) {
+            Circle()
+                .fill(state.tint)
+                .frame(width: 6, height: 6)
             Text(state.subtitle)
                 .font(BeagleFont.caption2.font)
                 .foregroundStyle(BeagleTheme.textTertiary)
                 .lineLimit(2)
         }
-    }
-
-    private func presenceNode(size: CGFloat, opacity: Double) -> some View {
-        Circle()
-            .fill(state.tint.opacity(opacity))
-            .frame(width: size, height: size)
-            .shadow(color: state.glow.opacity(opacity * 0.5), radius: size, y: 0)
-    }
-
-    private func capsule(width: CGFloat, opacity: Double) -> some View {
-        Capsule()
-            .fill(
-                LinearGradient(
-                    colors: [state.tint.opacity(opacity), state.glow.opacity(opacity * 0.65)],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
-            .frame(width: width, height: 4)
     }
 }
 

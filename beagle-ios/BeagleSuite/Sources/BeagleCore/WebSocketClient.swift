@@ -20,12 +20,7 @@ public actor WebSocketClient {
     /// Same URL resolution as CockpitClient — http→ws scheme transform.
     /// Public websocket routes are now available on the Cloudflare edge, with
     /// the older private paths retained as fallback during transition.
-    private var baseURLs: [URL] = [
-        URL(string: "https://beagle.chiuratto.ai")!,
-        URL(string: "http://sounio-cockpit.tail21cbc4.ts.net")!,
-        URL(string: "http://100.107.208.198")!,
-        URL(string: "http://project-cockpit.beagle.svc.cluster.local")!
-    ]
+    private var baseURLs: [URL] = BeagleEndpoints.cockpitURLs
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoop: Task<Void, Never>?
@@ -162,7 +157,7 @@ public actor WebSocketClient {
                 let wsURL = Self.httpToWS(base: base, path: path)
                 guard let url = wsURL else { continue }
 
-                let wsTask = capturedSession.webSocketTask(with: url)
+                let wsTask = capturedSession.webSocketTask(with: Self.makeWebSocketRequest(url: url))
                 wsTask.resume()
 
                 // Wait briefly for handshake
@@ -259,7 +254,7 @@ public actor WebSocketClient {
                 for base in baseURLs {
                     guard let url = Self.httpToWS(base: base, path: path) else { continue }
 
-                    let wsTask = session.webSocketTask(with: url)
+                    let wsTask = session.webSocketTask(with: Self.makeWebSocketRequest(url: url))
                     wsTask.resume()
 
                     do {
@@ -388,6 +383,15 @@ public actor WebSocketClient {
 
     // MARK: - Helpers
 
+    /// The cockpit's mobile surface requires `x-cockpit-token` on every request, WebSocket
+    /// upgrades included — `webSocketTask(with: url)` sends no headers at all, so both connect
+    /// sites must build the request explicitly instead.
+    private static func makeWebSocketRequest(url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        BeagleEndpoints.applyCockpitAuth(to: &request)
+        return request
+    }
+
     private static func httpToWS(base: URL, path: String) -> URL? {
         guard var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else { return nil }
         components.scheme = (components.scheme == "https") ? "wss" : "ws"
@@ -479,10 +483,22 @@ public actor WebSocketClient {
 
 // MARK: - WebSocketState helpers
 
-extension WebSocketState {
+extension WebSocketState: ConnectionStateRepresentable {
     public var isConnected: Bool {
         if case .connected = self { return true }
         return false
+    }
+
+    public var isConnecting: Bool {
+        switch self {
+        case .connecting, .reconnecting: return true
+        case .disconnected, .connected, .failed: return false
+        }
+    }
+
+    public var failureMessage: String? {
+        if case .failed(let message) = self { return message }
+        return nil
     }
 
     public var truthMode: TruthMode {

@@ -15,6 +15,66 @@
 import SwiftUI
 import RealityKit
 import BeagleCore
+import Observation
+
+// MARK: - SpatialSpaceCoordinator
+
+/// Coordinates exclusive transitions across visionOS ImmersiveSpaces so opening one space
+/// while another is active cleanly dismisses the previous space first instead of failing.
+@MainActor
+@Observable
+final class SpatialSpaceCoordinator {
+    private(set) var activeImmersiveSpaceID: String?
+    private(set) var isTransitioning = false
+
+    func isOpen(_ id: String) -> Bool {
+        activeImmersiveSpaceID == id
+    }
+
+    func noteDismissed(id: String) {
+        if activeImmersiveSpaceID == id {
+            activeImmersiveSpaceID = nil
+        }
+    }
+
+    func dismissActive(using dismiss: DismissImmersiveSpaceAction) async {
+        guard !isTransitioning, activeImmersiveSpaceID != nil else { return }
+        isTransitioning = true
+        defer { isTransitioning = false }
+        await dismiss()
+        activeImmersiveSpaceID = nil
+    }
+
+    func toggle(
+        id: String,
+        open: OpenImmersiveSpaceAction,
+        dismiss: DismissImmersiveSpaceAction
+    ) async {
+        guard !isTransitioning else { return }
+        isTransitioning = true
+        defer { isTransitioning = false }
+
+        if activeImmersiveSpaceID == id {
+            await dismiss()
+            activeImmersiveSpaceID = nil
+            return
+        }
+
+        if activeImmersiveSpaceID != nil {
+            await dismiss()
+            activeImmersiveSpaceID = nil
+        }
+
+        switch await open(id: id) {
+        case .opened:
+            activeImmersiveSpaceID = id
+        case .userCancelled, .error:
+            activeImmersiveSpaceID = nil
+        @unknown default:
+            activeImmersiveSpaceID = nil
+        }
+    }
+}
 
 @main
 struct BeagleVisionOSApp: App {
@@ -22,6 +82,7 @@ struct BeagleVisionOSApp: App {
     @State private var cognitive = CognitiveStore()
     @State private var physio = PhysioStore()
     @State private var hpc = HPCStore()
+    @State private var spaceCoordinator = SpatialSpaceCoordinator()
 
     var body: some SwiftUI.Scene {
 
@@ -33,12 +94,13 @@ struct BeagleVisionOSApp: App {
                 .environment(cognitive)
                 .environment(physio)
                 .environment(hpc)
+                .environment(spaceCoordinator)
                 .task { await catalog.refresh() }
                 .task { await physio.refresh(requestAuthorization: true) }
                 .preferredColorScheme(.dark)
                 .tint(BeagleTheme.truthObserved)
         }
-        .defaultSize(width: 1000, height: 700)
+        .defaultSize(width: 1060, height: 740)
 
         // MARK: - Cognitive Gauge Volume — floating readiness indicator
 
@@ -53,7 +115,11 @@ struct BeagleVisionOSApp: App {
 
         ImmersiveSpace(id: "go-deep") {
             GoDeepSpatialView()
+                .environment(catalog)
                 .environment(cognitive)
+                .environment(physio)
+                .environment(hpc)
+                .environment(spaceCoordinator)
         }
         .immersionStyle(selection: .constant(.mixed), in: .mixed)
 
@@ -61,7 +127,11 @@ struct BeagleVisionOSApp: App {
 
         ImmersiveSpace(id: "triad-debate") {
             SpatialTriadView()
+                .environment(catalog)
                 .environment(cognitive)
+                .environment(physio)
+                .environment(hpc)
+                .environment(spaceCoordinator)
         }
         .immersionStyle(selection: .constant(.mixed), in: .mixed)
 
@@ -71,6 +141,11 @@ struct BeagleVisionOSApp: App {
             NavigationStack {
                 SpatialControlRoomView()
             }
+            .environment(catalog)
+            .environment(cognitive)
+            .environment(physio)
+            .environment(hpc)
+            .environment(spaceCoordinator)
             .preferredColorScheme(.dark)
             .tint(BeagleTheme.truthObserved)
         }
@@ -78,6 +153,11 @@ struct BeagleVisionOSApp: App {
 
         ImmersiveSpace(id: "beagle-control-room") {
             SpatialControlRoomImmersiveView()
+                .environment(catalog)
+                .environment(cognitive)
+                .environment(physio)
+                .environment(hpc)
+                .environment(spaceCoordinator)
         }
         .immersionStyle(selection: .constant(.mixed), in: .mixed)
 
@@ -87,6 +167,11 @@ struct BeagleVisionOSApp: App {
             NavigationStack {
                 MindPalaceSpatialDeskView()
             }
+            .environment(catalog)
+            .environment(cognitive)
+            .environment(physio)
+            .environment(hpc)
+            .environment(spaceCoordinator)
             .preferredColorScheme(.dark)
             .tint(BeagleTheme.truthObserved)
         }
@@ -94,6 +179,11 @@ struct BeagleVisionOSApp: App {
 
         ImmersiveSpace(id: "beagle-mind-palace") {
             MindPalaceImmersiveView()
+                .environment(catalog)
+                .environment(cognitive)
+                .environment(physio)
+                .environment(hpc)
+                .environment(spaceCoordinator)
         }
         .immersionStyle(selection: .constant(.mixed), in: .mixed)
 
@@ -129,13 +219,16 @@ struct BeagleVisionOSApp: App {
 // MARK: - SpatialMindView (Main Window)
 
 /// NavigationSplitView with sidebar tabs matching the iOS 4-tab structure:
-/// Mind, Capture, Deep, Work. Adapted for spatial glass panels.
+/// Mind, Capture, Deep, Work, plus structured spatial volume/workspace launchers
+/// and a bottom ornament bar for exclusive ImmersiveSpace transitions.
 struct SpatialMindView: View {
     @Environment(CatalogStore.self) private var catalog
     @Environment(CognitiveStore.self) private var cognitive
     @Environment(PhysioStore.self) private var physio
+    @Environment(SpatialSpaceCoordinator.self) private var spaceCoordinator
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var selectedSection: SpatialSection = .mind
 
     enum SpatialSection: String, CaseIterable, Identifiable {
@@ -158,96 +251,122 @@ struct SpatialMindView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(SpatialSection.allCases) { section in
-                Button {
-                    selectedSection = section
-                } label: {
-                    Label(section.rawValue, systemImage: section.icon)
-                        .font(BeagleTheme.uiFont(size: 15, weight: .medium))
-                        .foregroundStyle(
-                            selectedSection == section
-                            ? BeagleTheme.truthObserved
-                            : BeagleTheme.textPrimary
-                        )
+            List {
+                Section("Exocortex") {
+                    ForEach(SpatialSection.allCases) { section in
+                        Button {
+                            selectedSection = section
+                        } label: {
+                            HStack {
+                                Label(section.rawValue, systemImage: section.icon)
+                                    .font(BeagleTheme.uiFont(size: 15, weight: selectedSection == section ? .semibold : .medium))
+                                    .foregroundStyle(
+                                        selectedSection == section
+                                        ? BeagleTheme.truthObserved
+                                        : BeagleTheme.textPrimary
+                                    )
+                                Spacer()
+                                if selectedSection == section {
+                                    Circle()
+                                        .fill(BeagleTheme.truthObserved)
+                                        .frame(width: 6, height: 6)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
+
+                Section("Spatial Volumes") {
+                    sidebarWindowButton("Readiness Gauge", icon: "heart.circle.fill", windowID: "cognitive-gauge")
+                    sidebarWindowButton("Cluster Volume", icon: "cube.fill", windowID: "cluster-volume")
+                    sidebarWindowButton("Knowledge Graph", icon: "point.3.connected.trianglepath.dotted", windowID: "knowledge-graph")
+                    sidebarWindowButton("Thought Stream", icon: "note.text", windowID: "thought-stream")
+                }
+
+                Section("Workspaces") {
+                    sidebarWindowButton("Spatial Control Room", icon: "visionpro", windowID: "spatial-control-room")
+                    sidebarWindowButton("Mind Palace", icon: "rectangle.3.group.bubble.left", windowID: "mind-palace")
+                }
             }
             .navigationTitle("Beagle")
             .listStyle(.sidebar)
-
-            // Spatial controls at bottom of sidebar
-            VStack(spacing: 12) {
-                Divider()
-
-                Button {
-                    openWindow(id: "cognitive-gauge")
-                } label: {
-                    Label("Readiness Gauge", systemImage: "heart.circle.fill")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    openWindow(id: "cluster-volume")
-                } label: {
-                    Label("Cluster Volume", systemImage: "cube.fill")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    openWindow(id: "knowledge-graph")
-                } label: {
-                    Label("Knowledge Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    openWindow(id: "thought-stream")
-                } label: {
-                    Label("Thought Stream", systemImage: "note.text")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    Task { await openImmersiveSpace(id: "go-deep") }
-                } label: {
-                    Label("Immersive Deep", systemImage: "cube.transparent")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    Task { await openImmersiveSpace(id: "triad-debate") }
-                } label: {
-                    Label("Triad Debate", systemImage: "scalemass")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    openWindow(id: "spatial-control-room")
-                } label: {
-                    Label("Spatial Control Room", systemImage: "visionpro")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    openWindow(id: "mind-palace")
-                } label: {
-                    Label("Mind Palace", systemImage: "rectangle.3.group.bubble.left")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(BeagleTheme.truthObserved)
-            }
-            .padding(.horizontal)
-            .padding(.bottom)
         } detail: {
             detailView
+        }
+        .ornament(attachmentAnchor: .scene(.bottom)) {
+            HStack(spacing: 12) {
+                immersiveToggleButton(
+                    id: "go-deep",
+                    title: "Immersive Deep",
+                    icon: "cube.transparent"
+                )
+                immersiveToggleButton(
+                    id: "triad-debate",
+                    title: "Triad Debate",
+                    icon: "scalemass"
+                )
+                immersiveToggleButton(
+                    id: "beagle-control-room",
+                    title: "Control Room",
+                    icon: "visionpro"
+                )
+                immersiveToggleButton(
+                    id: "beagle-mind-palace",
+                    title: "Mind Palace",
+                    icon: "rectangle.3.group.bubble.left"
+                )
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .glassBackgroundEffect()
+        }
+    }
+
+    private func sidebarWindowButton(_ title: String, icon: String, windowID: String) -> some View {
+        Button {
+            openWindow(id: windowID)
+        } label: {
+            Label(title, systemImage: icon)
+                .font(BeagleTheme.uiFont(size: 14, weight: .medium))
+                .foregroundStyle(BeagleTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func immersiveToggleButton(id: String, title: String, icon: String) -> some View {
+        let active = spaceCoordinator.isOpen(id)
+        if active {
+            Button {
+                Task {
+                    await spaceCoordinator.toggle(
+                        id: id,
+                        open: openImmersiveSpace,
+                        dismiss: dismissImmersiveSpace
+                    )
+                }
+            } label: {
+                Label("Exit \(title)", systemImage: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(BeagleTheme.truthObserved)
+            .disabled(spaceCoordinator.isTransitioning)
+        } else {
+            Button {
+                Task {
+                    await spaceCoordinator.toggle(
+                        id: id,
+                        open: openImmersiveSpace,
+                        dismiss: dismissImmersiveSpace
+                    )
+                }
+            } label: {
+                Label(title, systemImage: icon)
+            }
+            .buttonStyle(.bordered)
+            .disabled(spaceCoordinator.isTransitioning)
         }
     }
 
@@ -366,8 +485,9 @@ struct SpatialMindDashboard: View {
         }
         .background(.regularMaterial)
         .task {
+            let activeSlug = catalog.primaryProject?.projectSlug ?? cognitive.activeProjectSlug
             async let homeRefresh: Void = exocortex.refresh(
-                activeProjectSlug: catalog.primaryProject?.projectSlug ?? cognitive.activeProjectSlug,
+                activeProjectSlug: activeSlug,
                 platform: "visionOS"
             )
             async let graphRefresh: Void = exocortex.refreshRecentGraph(limit: 18)
@@ -603,7 +723,9 @@ struct SpatialCaptureView: View {
 
 struct SpatialDeepExploration: View {
     @Environment(CognitiveStore.self) private var cognitive
+    @Environment(SpatialSpaceCoordinator.self) private var spaceCoordinator
     @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var goDeepStore = GoDeepStore()
     @State private var prompt = ""
 
@@ -645,18 +767,38 @@ struct SpatialDeepExploration: View {
                 .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 Button {
-                    Task { await openImmersiveSpace(id: "go-deep") }
+                    Task {
+                        await spaceCoordinator.toggle(
+                            id: "go-deep",
+                            open: openImmersiveSpace,
+                            dismiss: dismissImmersiveSpace
+                        )
+                    }
                 } label: {
-                    Label("Spatial Mode", systemImage: "cube.transparent")
+                    Label(
+                        spaceCoordinator.isOpen("go-deep") ? "Exit Spatial Mode" : "Spatial Mode",
+                        systemImage: "cube.transparent"
+                    )
                 }
                 .buttonStyle(.bordered)
+                .disabled(spaceCoordinator.isTransitioning)
 
                 Button {
-                    Task { await openImmersiveSpace(id: "triad-debate") }
+                    Task {
+                        await spaceCoordinator.toggle(
+                            id: "triad-debate",
+                            open: openImmersiveSpace,
+                            dismiss: dismissImmersiveSpace
+                        )
+                    }
                 } label: {
-                    Label("Triad Debate", systemImage: "scalemass")
+                    Label(
+                        spaceCoordinator.isOpen("triad-debate") ? "Exit Triad Debate" : "Triad Debate",
+                        systemImage: "scalemass"
+                    )
                 }
                 .buttonStyle(.bordered)
+                .disabled(spaceCoordinator.isTransitioning)
             }
 
             // Active session results
@@ -894,6 +1036,8 @@ struct CognitiveGaugeVolume: View {
 /// Floating glass panels around the user showing modality results.
 struct GoDeepSpatialView: View {
     @Environment(CognitiveStore.self) private var cognitive
+    @Environment(SpatialSpaceCoordinator.self) private var spaceCoordinator
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @State private var goDeepStore = GoDeepStore()
     @State private var prompt = ""
 
@@ -942,18 +1086,30 @@ struct GoDeepSpatialView: View {
                 .lineLimit(2...4)
                 .frame(maxWidth: 400)
 
-            Button {
-                guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-                Task { goDeepStore.goDeeper(prompt: prompt) }
-            } label: {
-                Label("Go Deep", systemImage: "sparkles")
+            HStack(spacing: 12) {
+                Button {
+                    guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    Task { goDeepStore.goDeeper(prompt: prompt) }
+                } label: {
+                    Label("Go Deep", systemImage: "sparkles")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(BeagleTheme.truthObserved)
+                .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button {
+                    Task { await spaceCoordinator.dismissActive(using: dismissImmersiveSpace) }
+                } label: {
+                    Label("Exit Space", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BeagleTheme.truthObserved)
-            .disabled(prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
         .padding(40)
         .glassBackgroundEffect()
+        .onDisappear {
+            spaceCoordinator.noteDismissed(id: "go-deep")
+        }
     }
 
     private func modalityOrb(name: String, icon: String, active: Bool, resolved: Bool = false) -> some View {
@@ -978,23 +1134,10 @@ struct ClusterVolumeView: View {
 
     var body: some View {
         RealityView { content in
-            let positions = layoutPositions(count: max(nodes.count, 3))
-            let renderNodes = nodes.isEmpty
-                ? defaultNodes
-                : nodes
-
-            for (i, node) in renderNodes.prefix(positions.count).enumerated() {
-                let color = node.healthy == true ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared
-                let entity = makeNode(name: node.hostname ?? node.name ?? "node-\(i)", color: color, position: positions[i])
-                content.add(entity)
-            }
-
-            // Edges: connect all pairs
-            for i in 0..<min(renderNodes.count, positions.count) {
-                for j in (i + 1)..<min(renderNodes.count, positions.count) {
-                    content.add(makeEdge(from: positions[i], to: positions[j]))
-                }
-            }
+            populateCluster(content: content)
+        } update: { content in
+            content.entities.removeAll()
+            populateCluster(content: content)
         }
         .installGestures()
         .task {
@@ -1003,6 +1146,23 @@ struct ClusterVolumeView: View {
                 if let fetched = result.value?.nodes, !fetched.isEmpty {
                     nodes = fetched
                 }
+            }
+        }
+    }
+
+    private func populateCluster(content: RealityViewContent) {
+        let renderNodes = nodes.isEmpty ? defaultNodes : nodes
+        let positions = layoutPositions(count: max(renderNodes.count, 3))
+
+        for (i, node) in renderNodes.prefix(positions.count).enumerated() {
+            let color = node.healthy == true ? BeagleTheme.truthObserved : BeagleTheme.truthDeclared
+            let entity = makeNode(name: node.hostname ?? node.name ?? "node-\(i)", color: color, position: positions[i])
+            content.add(entity)
+        }
+
+        for i in 0..<min(renderNodes.count, positions.count) {
+            for j in (i + 1)..<min(renderNodes.count, positions.count) {
+                content.add(makeEdge(from: positions[i], to: positions[j]))
             }
         }
     }

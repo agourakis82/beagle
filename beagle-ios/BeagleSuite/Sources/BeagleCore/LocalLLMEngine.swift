@@ -55,7 +55,11 @@ public enum ModelPersonality: String, CaseIterable, Sendable {
 public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
 
     // Reasoning
+    case qwen3_8B_Uncensored = "qwen3-8b-abliterated-4bit"
+    case llama3_1_8B_Uncensored = "llama3.1-8b-abliterated-4bit"
+    case qwen2_5_7B_Uncensored = "qwen2.5-7b-abliterated-4bit"
     case qwen3_8B        = "qwen3-8b-4bit"
+    case qwen3_14B       = "qwen3-14b-4bit"
     case deepseekR1      = "deepseek-r1-7b-4bit"
     case aceReason7B     = "acereason-nemotron-7b-4bit"
     case gemma2_9B       = "gemma2-9b-4bit"
@@ -129,7 +133,11 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return "Mamba 130M"
         case .mamba370m:      return "Mamba 370M"
         case .mamba790m:      return "Mamba 790M"
+        case .qwen3_8B_Uncensored: return "Qwen 3 8B Uncensored (Abliterated)"
+        case .llama3_1_8B_Uncensored: return "Llama 3.1 8B Uncensored (Abliterated)"
+        case .qwen2_5_7B_Uncensored: return "Qwen 2.5 7B Uncensored (Abliterated)"
         case .qwen3_8B:      return "Qwen 3 8B"
+        case .qwen3_14B:     return "Qwen 3 14B"
         case .deepseekR1:    return "DeepSeek-R1 7B"
         case .aceReason7B:   return "AceReason 7B"
         case .gemma2_9B:     return "Gemma 2 9B"
@@ -173,7 +181,9 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
 
     public var category: ModelCategory {
         switch self {
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored: return .reasoning
         case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B: return .reasoning
+        case .qwen3_14B: return .reasoning
         case .mimo7B, .phi35Mini, .qwen2_5_7B, .codeQwen7B: return .code
         case .bioMistral7B, .openBioLLM7B, .meditron7B: return .medical
         case .mamba130m, .mamba370m, .mamba790m: return .ssm
@@ -194,7 +204,11 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return "~100 MB"
         case .mamba370m:      return "~280 MB"
         case .mamba790m:      return "~500 MB"
+        case .qwen3_8B_Uncensored: return "~4.8 GB"
+        case .llama3_1_8B_Uncensored: return "~4.8 GB"
+        case .qwen2_5_7B_Uncensored: return "~4.5 GB"
         case .qwen3_8B:      return "~5 GB"
+        case .qwen3_14B:     return "~8,3 GB"
         case .deepseekR1:    return "~5 GB"
         case .aceReason7B:   return "~4.5 GB"
         case .gemma2_9B:     return "~5.5 GB"
@@ -241,7 +255,9 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m: return "130M"
         case .mamba370m: return "370M"
         case .mamba790m: return "790M"
-        case .qwen3_8B, .llama3_1_8B: return "8B"
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen3_8B, .llama3_1_8B: return "8B"
+        case .qwen2_5_7B_Uncensored: return "7B"
+        case .qwen3_14B: return "14B"
         case .deepseekR1, .aceReason7B, .falconH1_7B, .mimo7B, .qwen2_5_7B, .mistral7B, .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B, .olmo2_7B, .xlstm7B: return "7B"
         case .gemma2_9B, .yi1_5_9B, .recurrentGemma: return "9B"
         case .exaone3_8B, .internLM3_8B: return "7.8B"
@@ -265,7 +281,11 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return "Tier -1 draft model. O(1) memory, 86+ tok/s. Pre-screening, speculative decoding drafts, stream-of-consciousness capture. Fits on any device."
         case .mamba370m:      return "Mid-size Mamba draft. Better triage accuracy than 130M while still extremely fast. Good speculative acceptance rate."
         case .mamba790m:      return "Largest Mamba draft. Highest standalone quality for SSM-only generation. Best triage accuracy for prompt complexity routing."
+        case .qwen3_8B_Uncensored: return "Sem censura (abliterated). Escuta crua, debate médico/psiquiátrico, farmacologia, neurociência e ideias sem filtro moralista. Forte em PT-BR e raciocínio."
+        case .llama3_1_8B_Uncensored: return "Llama 3.1 8B abliterated (sem recusas). Excelente para brainstorming direto, hipóteses científicas radicais e escuta sem filtros."
+        case .qwen2_5_7B_Uncensored: return "Qwen 2.5 7B abliterated. Raciocínio técnico, código e clínica sem bloqueios de segurança artificiais."
         case .qwen3_8B:      return "Top-tier reasoning: math proofs, scientific analysis, multi-step logic. Best overall quality on-device."
+        case .qwen3_14B:     return "O maior que cabe no aparelho. Raciocínio clínico e técnico mais longo, português mais firme. Custa RAM e o primeiro carregamento é lento."
         case .deepseekR1:    return "Chain-of-thought specialist. Shows its work step-by-step. Strongest at formal derivations."
         case .aceReason7B:   return "NVIDIA’s math champion. Outperforms larger models on MATH/GSM8K benchmarks."
         case .gemma2_9B:     return "Google’s most careful model. Strong instruction following with safety guardrails."
@@ -312,7 +332,11 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return "Draft lightning"
         case .mamba370m:      return "Fast triage"
         case .mamba790m:      return "Best draft"
+        case .qwen3_8B_Uncensored: return "Sem censura · PT-BR"
+        case .llama3_1_8B_Uncensored: return "Sem censura · Direto"
+        case .qwen2_5_7B_Uncensored: return "Sem censura · Técnico"
         case .qwen3_8B:      return "Best overall"
+        case .qwen3_14B:     return "O mais forte offline"
         case .deepseekR1:    return "Shows its work"
         case .aceReason7B:   return "Math champion"
         case .gemma2_9B:     return "Most careful"
@@ -356,6 +380,10 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
 
     public var minimumRAMGB: UInt64 {
         switch self {
+        case .qwen3_14B:
+            return 11
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored:
+            return 8
         case .qwen3_8B, .deepseekR1, .aceReason7B, .llama3_1_8B, .gemma2_9B,
              .qwen2_5_7B, .falconH1_7B, .mimo7B, .mistral7B,
              .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B,
@@ -417,6 +445,9 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
     public var personality: ModelPersonality {
         switch self {
         // Reasoning — analytical by nature
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored:
+            return .analytical
+        case .qwen3_14B: fallthrough
         case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B:
             return .analytical
 
@@ -499,7 +530,11 @@ public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
         case .mamba130m:      return ModelConfiguration(id: "state-spaces/mamba-130m-hf")
         case .mamba370m:      return ModelConfiguration(id: "state-spaces/mamba-370m-hf")
         case .mamba790m:      return ModelConfiguration(id: "state-spaces/mamba-790m-hf")
+        case .qwen3_8B_Uncensored: return ModelConfiguration(id: "mlx-community/Josiefied-Qwen3-8B-abliterated-v1-4bit")
+        case .llama3_1_8B_Uncensored: return ModelConfiguration(id: "mlx-community/Meta-Llama-3.1-8B-Instruct-abliterated-4bit")
+        case .qwen2_5_7B_Uncensored: return ModelConfiguration(id: "mlx-community/Qwen2.5-7B-Instruct-abliterated-v2-4bit")
         case .qwen3_8B:      return LLMRegistry.qwen3_8b_4bit
+        case .qwen3_14B:     return ModelConfiguration(id: "mlx-community/Qwen3-14B-4bit")
         case .deepseekR1:    return LLMRegistry.deepSeekR1_7B_4bit
         case .aceReason7B:   return ModelConfiguration(id: "mlx-community/AceReason-Nemotron-7B-4bit")
         case .gemma2_9B:     return LLMRegistry.gemma_2_9b_it_4bit
@@ -580,6 +615,12 @@ public final class LocalLLMEngine {
     private static let defaultGenerateParameters = GenerateParameters(maxTokens: 2048, temperature: 0.7)
     #endif
 
+    /// RAM física em GB, medida. O gate de modelo depende disso e divisão
+    /// inteira já quase custou a recusa do 14B num aparelho que o comporta.
+    nonisolated public static var ramGBMedida: Double {
+        Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
+    }
+
     public private(set) var loadState: LoadState = .idle
     public private(set) var currentModel: OnDeviceModel? {
         didSet {
@@ -593,6 +634,73 @@ public final class LocalLLMEngine {
     public var lastSelectedModel: OnDeviceModel? {
         guard let raw = UserDefaults.standard.string(forKey: "lastSelectedModel") else { return nil }
         return OnDeviceModel(rawValue: raw)
+    }
+
+    // MARK: - Sobreviver ao fechamento do app e à falta de rede
+
+    /// Onde os pesos ficam. **Não** em Caches: o iOS esvazia o diretório de
+    /// Caches sob pressão de armazenamento, e o modelo sumiria exatamente no
+    /// momento em que ele está sem rede, dentro do hospital.
+    nonisolated public static var pesosBase: URL {
+        let fm = FileManager.default
+        let raiz = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                appropriateFor: nil, create: true))
+            ?? fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = raiz.appendingPathComponent("modelos-locais", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        var url = dir
+        var rv = URLResourceValues()
+        rv.isExcludedFromBackup = true          // pesos são re-baixáveis; backup não
+        try? url.setResourceValues(rv)
+        return dir
+    }
+
+    /// Move o que já foi baixado para Caches, uma vez. Sem isto, a mudança de
+    /// diretório obrigaria a re-baixar vários GB — possivelmente no 5G.
+    nonisolated public static func migrarPesosDeCaches() {
+        let fm = FileManager.default
+        guard let velho = fm.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("models", isDirectory: true),
+              fm.fileExists(atPath: velho.path) else { return }
+        let novo = pesosBase.appendingPathComponent("models", isDirectory: true)
+        if fm.fileExists(atPath: novo.path) { return }
+        try? fm.createDirectory(at: novo.deletingLastPathComponent(),
+                                withIntermediateDirectories: true)
+        try? fm.moveItem(at: velho, to: novo)
+    }
+
+    /// Os pesos deste modelo estão no aparelho? Config sozinho não basta —
+    /// um download interrompido deixa config.json e nenhum peso.
+    public func pesosPresentes(_ model: OnDeviceModel) -> Bool {
+        // Sem MLX não há runtime local (macOS, por exemplo): a resposta honesta
+        // é "não tenho pesos", não uma exceção de compilação.
+        #if !canImport(MLXLLM)
+        return false
+        #else
+        let repo = model.mlxConfiguration.name
+        let dir = Self.pesosBase.appendingPathComponent("models/\(repo)", isDirectory: true)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dir.appendingPathComponent("config.json").path) else { return false }
+        let itens = (try? fm.contentsOfDirectory(atPath: dir.path)) ?? []
+        return itens.contains { $0.hasSuffix(".safetensors") || $0.hasSuffix(".npz") }
+        #endif
+    }
+
+    /// Recarrega o último modelo escolhido, **só** se os pesos já estiverem aqui.
+    ///
+    /// O engine sempre guardou qual modelo ele escolheu, mas ninguém recarregava
+    /// ao abrir o app: `isReady` voltava a false a cada abertura e o caminho
+    /// offline caía silenciosamente para a nuvem, que sem rede falha. Este é o
+    /// conserto. A checagem de pesos presentes existe para nunca disparar um
+    /// download de vários GB no celular sem ele pedir.
+    @discardableResult
+    public func restaurarUltimoModelo() async -> Bool {
+        if isReady { return true }
+        if case .loading = loadState { return false }
+        Self.migrarPesosDeCaches()
+        guard let model = lastSelectedModel, pesosPresentes(model) else { return false }
+        await load(model)
+        return isReady
     }
     public private(set) var downloadProgress: Double = 0
     public private(set) var isGenerating: Bool = false
@@ -628,19 +736,66 @@ public final class LocalLLMEngine {
 
     private init() {
         #if canImport(MLXLLM) && !targetEnvironment(simulator)
-        Memory.cacheLimit = 20 * 1024 * 1024
+        // The GPU buffer cache. A 20 MB cap is right for a memory-constrained
+        // iPhone, but on a Mac it throttles generation to a crawl — each token
+        // thrashes the cache, so a full 2048-token turn can take many minutes and
+        // read as an "eternal spinner". This bites BOTH Mac flavors: iOS-app-on-Mac
+        // ("Designed for iPad") AND the native macOS build (where `isiOSAppOnMac` is
+        // false). The Mac has RAM to spare; give the GPU a real cache there.
+        #if os(macOS)
+        Memory.cacheLimit = 512 * 1024 * 1024
+        #else
+        Memory.cacheLimit = ProcessInfo.processInfo.isiOSAppOnMac ? 512 * 1024 * 1024 : 20 * 1024 * 1024
+        #endif
         #endif
     }
     
     #if canImport(MLXLLM)
-    private func makeChatSession(with container: ModelContainer) -> ChatSession {
+    private func makeChatSession(with container: ModelContainer, instructions: String? = nil) -> ChatSession {
         ChatSession(
             container,
-            instructions: Self.defaultInstructions,
+            instructions: instructions ?? Self.defaultInstructions,
             generateParameters: Self.defaultGenerateParameters
         )
     }
+
+
     #endif
+
+    /// Desliga o raciocínio no modelo, quando ele entende o pedido.
+    ///
+    /// O Qwen3 é híbrido: por padrão emite um bloco <think> que costuma ser
+    /// VÁRIAS VEZES maior que a resposta. Filtrar depois resolve o vazamento na
+    /// tela, mas não o tempo — e o tempo é o que dói num corredor de hospital.
+    /// `/no_think` é o interruptor suave do Qwen; em modelo que não conhece, seria
+    /// texto solto no sistema, então só entra quando o modelo é da família.
+    public var sufixoSemRaciocinio: String {
+        guard let m = currentModel else { return "" }
+        return m.rawValue.hasPrefix("qwen3") ? "\n\n/no_think" : ""
+    }
+
+    /// Instruções de SISTEMA em vigor na sessão local.
+    private var instrucoesAtuais: String?
+
+    /// Põe o grounding onde ele pertence: no papel de SISTEMA.
+    ///
+    /// Antes o offline mandava o grounding inteiro dentro do turno do USUÁRIO
+    /// (`streamResponse(to:)` trata tudo como fala dele). O modelo então recebia
+    /// 9 KB de "Você é o Beagle, não é assistente..." como se ELE tivesse dito
+    /// aquilo — e respondia continuando o documento de persona. Foi o que ele viu
+    /// na tela: o companion escrevendo longamente sobre como devia se comportar,
+    /// sem que nada tivesse sido perguntado.
+    ///
+    /// Trocar de papel custa recriar a sessão (perde o histórico interno), então
+    /// só recria quando o texto realmente muda.
+    public func aplicarInstrucoes(_ texto: String) {
+        #if canImport(MLXLLM)
+        let novo = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !novo.isEmpty, novo != instrucoesAtuais, let container = modelContainer else { return }
+        chatSession = makeChatSession(with: container, instructions: novo)
+        instrucoesAtuais = novo
+        #endif
+    }
 
     // MARK: - Load
 
@@ -720,7 +875,11 @@ public final class LocalLLMEngine {
         let stream = session.streamResponse(to: prompt)
 
         return AsyncThrowingStream { [weak self] continuation in
-            Task { @MainActor [weak self] in
+            // Run generation OFF the main actor. The whole engine is @MainActor, so a
+            // plain `Task {}` here inherits the main executor and the MLX prefill/decode
+            // blocks the UI thread — that is the "frozen spinner, zero tokens" symptom.
+            // Detach, stream tokens out, and hop back to main only to publish state.
+            Task.detached { [weak self] in
                 var tokenCount = 0
                 let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -731,14 +890,17 @@ public final class LocalLLMEngine {
 
                         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
                         if elapsed > 0 {
-                            self?.tokensPerSecond = Double(tokenCount) / elapsed
+                            let tps = Double(tokenCount) / elapsed
+                            await MainActor.run { self?.tokensPerSecond = tps }
                         }
                     }
                 } catch {
+                    await MainActor.run { self?.isGenerating = false }
                     continuation.finish(throwing: error)
+                    return
                 }
 
-                self?.isGenerating = false
+                await MainActor.run { self?.isGenerating = false }
                 continuation.finish()
             }
         }
@@ -1185,7 +1347,7 @@ struct HubApiDownloader: Downloader, Sendable {
         // Use stored HF token for gated models (medical, etc.)
         let token = UserDefaults.standard.string(forKey: "hfToken")
         self.hub = HubApi(
-            downloadBase: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first,
+            downloadBase: LocalLLMEngine.pesosBase,
             hfToken: token
         )
     }

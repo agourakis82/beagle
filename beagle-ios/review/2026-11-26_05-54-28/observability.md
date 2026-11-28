@@ -1,0 +1,1 @@
+Ver R4; logs de erro devem preservar diagnóstico sem copiar conteúdo.

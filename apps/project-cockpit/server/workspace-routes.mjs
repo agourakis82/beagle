@@ -454,7 +454,7 @@ function workspaceAgentBaseUrl(project = {}, slug = "sounio") {
   return `http://${service}.${namespace}.svc.cluster.local:${port}`;
 }
 
-async function proxyWorkspaceAgentJson(req, res, project, agentPath) {
+async function proxyWorkspaceAgentJson(req, res, project, agentPath, authToken = null) {
   if (WORKBENCH_AUTHORITY !== "workspace-agent") return false;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), WORKSPACE_AGENT_TIMEOUT_MS);
@@ -465,6 +465,9 @@ async function proxyWorkspaceAgentJson(req, res, project, agentPath) {
         "accept": "application/json",
         "content-type": "application/json",
         "x-beagle-workbench-gateway": "project-cockpit",
+        // Credential-bearing endpoints (e.g. provider-config) authenticate the
+        // cockpit→agent hop with the operator token; harmless on other routes.
+        ...(authToken ? { authorization: `Bearer ${authToken}` } : {}),
       },
       body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body || {}),
       signal: controller.signal,
@@ -485,6 +488,10 @@ async function proxyWorkspaceAgentJson(req, res, project, agentPath) {
     if (!res.headersSent) res.status(response.status).json(payload);
     return true;
   } catch (error) {
+    console.warn(
+      `[workbench] workspace-agent proxy ${agentPath} -> ${workspaceAgentBaseUrl(project, req.params.slug)} failed: ` +
+      `${error?.name || "?"}/${error?.code || "?"}: ${error?.message || error} (cause: ${error?.cause?.code || error?.cause?.message || "n/a"})`
+    );
     if (error?.name === "AbortError" || error?.code === "ECONNREFUSED" || error?.code === "ENOTFOUND") {
       return false;
     }
@@ -795,6 +802,63 @@ export function registerWorkspaceRoutes(app, deps = {}) {
     const project = await getProjectOrThrow(req.params.slug);
     if (await proxyWorkspaceAgentJson(req, res, project, `/v1/agents/${encodeURIComponent(req.params.roleOrKind)}/start`)) return undefined;
     const error = new Error("workspace-agent start unavailable; cockpit-local fallback cannot start Agent Fabric lanes");
+    error.statusCode = 503;
+    throw error;
+  }));
+
+  // POST /api/workspaces/:slug/agents/:roleOrKind/provider-config
+  // Receives {slot?, base_url, api_key, model?} from the iOS set-up form and proxies
+  // the write to the workspace-agent, which is the only pod that owns the PVC.
+  // api_key is NEVER logged or echoed back; the proxy forwards it in the request body
+  // to the agent over the cluster-internal HTTP path only.
+  // On proxy success the agent returns a MASKED view (apiKeyConfigured:true, no raw key).
+  // On proxy-false (agent unreachable or cockpit-local mode) we return 503 — never a
+  // stale 200 that the iOS client would silently misinterpret as success.
+  app.post("/api/workspaces/:slug/agents/:roleOrKind/provider-config", jsonResponse(async (req, res) => {
+    const slug = safeId(req.params.slug, "default");
+    const roleOrKind = cleanString(req.params.roleOrKind);
+    // Defense-in-depth: the role id is interpolated into the upstream agent path.
+    // Reject anything that isn't a plain identifier before proxying.
+    if (!/^[a-z0-9_-]{1,64}$/i.test(roleOrKind)) {
+      const error = new Error("invalid role identifier");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Require only base_url here; the workspace-agent decides whether api_key is
+    // mandatory (it is for *_API_KEY slots, optional for self-hosted *_PROVIDER_URL
+    // slots). Keeping that authority in the agent avoids blocking base-URL-only
+    // (qwen/glm local) lanes that need no secret. api_key is never logged.
+    const baseUrl = cleanString(req.body?.base_url || req.body?.baseUrl);
+    if (!baseUrl) {
+      const error = new Error("provider-config missing required field: base_url");
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // Proxy the write to the workspace-agent — it owns the PVC and the in-process
+    // override map. The proxy helper adds x-beagle-workbench-gateway: project-cockpit
+    // and forwards method + body verbatim.
+    const project = await getProjectOrThrow(slug);
+    // This writes API credentials — authenticate the cockpit→agent hop with the
+    // operator token (best-effort: the agent enforces it when configured, so a
+    // missing token surfaces as a loud 401 from the agent rather than a silent bypass).
+    const tokenResult = await fetchOperatorToken().catch((error) => ({ error: error?.message }));
+    const proxied = await proxyWorkspaceAgentJson(
+      req,
+      res,
+      project,
+      `/v1/agents/${encodeURIComponent(roleOrKind)}/provider-config`,
+      tokenResult?.token || null
+    );
+    if (proxied) return undefined; // agent responded; proxy already sent the reply.
+
+    // Proxy returned false: WORKBENCH_AUTHORITY !== "workspace-agent" or agent
+    // is unreachable.  Never return a fake 200 — the iOS form must not appear to
+    // succeed when nothing was persisted.
+    const error = new Error(
+      "workspace-agent provider-config unavailable; cannot persist credentials without a live workspace-agent"
+    );
     error.statusCode = 503;
     throw error;
   }));
@@ -1186,7 +1250,14 @@ export function registerWorkspaceWebSocket(wss, deps = {}) {
           return;
         }
         if (message.type === "resize") {
-          proc.resize(Number(message.cols || 120), Number(message.rows || 34));
+          // Clamp to a sane range: node-pty passes these straight to the TIOCSWINSZ
+          // ioctl, where 0 / negative / absurdly large values can crash or wedge the
+          // pty. Fall back to defaults on NaN.
+          const clampDim = (value, fallback) => {
+            const n = Math.floor(Number(value));
+            return Number.isFinite(n) && n >= 1 && n <= 1000 ? n : fallback;
+          };
+          proc.resize(clampDim(message.cols, 120), clampDim(message.rows, 34));
           return;
         }
         if (message.type === "signal") {
@@ -1221,7 +1292,11 @@ export function registerWorkspaceWebSocket(wss, deps = {}) {
             sourceModel: "beagle",
             bridgeVersion: WORKBENCH_BRIDGE_VERSION,
           });
-          proc.write(String(message.data || "y\n"));
+          // Cap length: an approval answers a y/n-style prompt, not a vehicle for a
+          // huge payload. (This is not a security boundary — the `input` handler already
+          // streams arbitrary keystrokes to the PTY by design; the real boundary is the
+          // tailnet auth perimeter.)
+          proc.write(String(message.data || "y\n").slice(0, 256));
           return;
         }
         if (message.type === "start_process") {

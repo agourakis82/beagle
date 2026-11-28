@@ -17,6 +17,8 @@ struct ConversationView: View {
     let onRefresh: (() async -> Void)?
     @State private var inputText = ""
     @State private var userScrolledUp = false
+    @State private var showVoiceMode = false
+    @State private var moshi = MoshiSessionManager()
 
     init(conversation: ConversationStore, onRefresh: (() async -> Void)? = nil) {
         self.conversation = conversation
@@ -24,26 +26,80 @@ struct ConversationView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            discussionProfileStrip
-            messageList
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                discussionProfileStrip
+                messageList
 
-            // "New messages" indicator when scrolled up during streaming
-            if userScrolledUp && conversation.isStreaming {
-                newMessagePill
-            }
-
-            BeagleInputBar(
-                text: $inputText,
-                placeholder: "Talk to Beagle...",
-                mode: .chat,
-                isEnabled: !conversation.isStreaming,
-                onSubmit: { text in
-                    userScrolledUp = false
-                    Task { await conversation.sendMessage(text) }
+                // "New messages" indicator when scrolled up during streaming
+                if userScrolledUp && conversation.isStreaming {
+                    newMessagePill
                 }
+
+                BeagleInputBar(
+                    text: $inputText,
+                    placeholder: "Talk to Beagle...",
+                    mode: .chat,
+                    isEnabled: !conversation.isStreaming,
+                    onSubmit: { text in
+                        userScrolledUp = false
+                        Task { await conversation.sendMessage(text) }
+                    }
+                )
+            }
+            micButton
+        }
+#if os(iOS)
+        .fullScreenCover(isPresented: $showVoiceMode) {
+            VoiceModeView(
+                moshi: moshi,
+                profileColor: conversation.discussionProfile.moshiWaveformColor
             )
         }
+#else
+        .sheet(isPresented: $showVoiceMode) {
+            VoiceModeView(
+                moshi: moshi,
+                profileColor: conversation.discussionProfile.moshiWaveformColor
+            )
+            .frame(minWidth: 480, minHeight: 640)
+        }
+#endif
+        .onDisappear { moshi.disconnect() }
+    }
+
+    // MARK: - Mic button
+
+    private var micButton: some View {
+        Button {
+            Task {
+                let wsURL = URL(string: "wss://beagle.chiuratto.ai/api/moshi/v1/session")!
+                let token = await BeagleClient.shared.resolvedBearerToken()
+                await moshi.connect(serverURL: wsURL, bearerToken: token)
+                showVoiceMode = true
+            }
+        } label: {
+            Image(systemName: "waveform.and.mic")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(
+                    moshi.connectionState == .active
+                    ? conversation.discussionProfile.moshiWaveformColor
+                    : BeagleTheme.textSecondary
+                )
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(BeagleTheme.surface1.opacity(0.6)))
+                .overlay(
+                    Circle().strokeBorder(
+                        moshi.connectionState == .active
+                        ? conversation.discussionProfile.moshiWaveformColor.opacity(0.3)
+                        : BeagleTheme.hairline,
+                        lineWidth: 1
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .padding(.top, BeagleSpacing.sm)
+        .padding(.trailing, BeagleSpacing.lg)
     }
 
     private var discussionProfileStrip: some View {

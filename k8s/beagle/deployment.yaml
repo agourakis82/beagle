@@ -25,7 +25,7 @@ spec:
         fsGroup: 10001
       containers:
         - name: core-server
-          image: 192.168.3.207:5003/beagle-core-exocortex:modernization-601b8e31
+          image: 192.168.3.207:5003/beagle-core-exocortex:reconcile-e752c9b4
           imagePullPolicy: Always
           ports:
             - name: http
@@ -70,21 +70,28 @@ spec:
               value: http://sounio-inference.beagle.svc.cluster.local:80
             - name: XAI_BASE_URL
               value: http://router.llm-router.svc.cluster.local:4000/v1/chat/completions
+            # 2026-06-26 SOVEREIGNTY-FIRST model allocation. Sensitive paths that touch the
+            # user's memory/biography/raw thoughts route to the SELF-HOSTED DGX Spark (data
+            # never leaves the cluster); only non-sensitive deep reasoning uses paid SaaS plans.
+            #   • SOVEREIGN  → qwen2.5-14b = Spark Ollama (192.168.3.24:11434, qwen2.5:14b pinned
+            #                  warm via OLLAMA_KEEP_ALIVE=-1, ~1.3s). Sole user of the infra, so
+            #                  the in-cluster endpoint needs no auth.
+            #   • SaaS deep  → glm-5.2 (Z.ai coding plan, ZAI_API_KEY) — non-sensitive reasoning.
+            # Escalation/heavy (GrokClient) + Triad debate = non-sensitive reasoning → glm-5.2:
             - name: BEAGLE_GROK_MODEL
-              value: deepseek-chat
+              value: glm-5.2
             - name: BEAGLE_GROK_HEAVY_MODEL
-              value: deepseek-chat
-            # Fleet default = fast non-reasoning workhorse for draft-gen + utilities
-            # (reasoning models truncate at low max_tokens; draft-gen uses complete()/2048):
+              value: glm-5.2
+            # Fleet default drives recall SYNTHESIS (reads memory atoms) + capture/refine (raw
+            # personal thoughts) — SENSITIVE, so routed to the sovereign Spark, NOT external SaaS:
             - name: BEAGLE_LLM_FLEET_MODEL
-              value: deepseek-chat
-            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge) explicitly use a robust reasoning model
-            # (beagle-triad calls them with max_tokens=8000 so reasoning_content has headroom):
+              value: qwen2.5-14b
+            # Triad AGENTS (ATHENA/HERMES/ARGOS/Judge), called with max_tokens=8000 → glm-5.2:
             - name: BEAGLE_TRIAD_AGENT_MODEL
-              value: glm-5.1
-            # smt.check claim-extraction pinned to a fast structured-JSON model:
+              value: glm-5.2
+            # smt.check claim-extraction reads draft claims (may be memory-derived) → sovereign Spark:
             - name: BEAGLE_TRIAD_EXTRACTION_MODEL
-              value: deepseek-chat
+              value: qwen2.5-14b
           volumeMounts:
             - name: beagle-data
               mountPath: /var/lib/beagle

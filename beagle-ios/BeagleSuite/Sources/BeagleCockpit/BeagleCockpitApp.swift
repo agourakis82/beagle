@@ -14,9 +14,17 @@ import SwiftUI
 import SwiftData
 import BeagleCore
 import BeagleWorkbenchKit
+#if canImport(CoreSpotlight) && !os(watchOS)
+import CoreSpotlight
+#endif
 #if os(iOS)
 import UIKit
+import BackgroundTasks
 #endif
+
+/// Identifier for the overnight dream-consolidation background task.
+/// Must match the `BGTaskSchedulerPermittedIdentifiers` Info.plist entry.
+let beagleDreamTaskIdentifier = "dev.sounio.cockpit.dream"
 
 @main
 struct BeagleCockpitApp: App {
@@ -28,16 +36,24 @@ struct BeagleCockpitApp: App {
     @State private var bootError: String?
     @State private var launchOverrides = LaunchOverrides.current
     @AppStorage("hasCompletedOnboarding") private var hasCompletedOnboarding = false
+    @State private var forceOnboardingInSession = ProcessInfo.processInfo.arguments.contains("--reset-onboarding")
 
     init() {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("--reset-onboarding") {
+            UserDefaults.standard.removeObject(forKey: "hasCompletedOnboarding")
+        }
         #if os(iOS)
+        if args.contains("--ui-testing") {
+            UIView.setAnimationsEnabled(false)
+        }
         Self.configureShellChrome()
         #endif
     }
 
     var body: some Scene {
         WindowGroup {
-            if hasCompletedOnboarding {
+            if hasCompletedOnboarding && !forceOnboardingInSession {
                 RootView(path: $navigationPath, bootError: $bootError, launchOverrides: launchOverrides)
                 .environment(catalog)
                 .environment(cognitive)
@@ -46,10 +62,32 @@ struct BeagleCockpitApp: App {
                 .modelContainer(for: [
                     PersistedThought.self,
                     PersistedMessage.self,
+                    PersistedConversation.self,
                     PersistedDeepSession.self,
                     PersistedExocortexHomeSnapshot.self,
                     PersistedAssistedImportOutbox.self,
                 ])
+                .sheet(isPresented: Binding(
+                    get: { MemorySearchNavigation.shared.episodeID != nil },
+                    set: { if !$0 { MemorySearchNavigation.shared.episodeID = nil } }
+                )) {
+                    if let id = MemorySearchNavigation.shared.episodeID {
+                        MemorySearchDetailView(episodeID: id)
+                    }
+                }
+                .sheet(isPresented: Binding(
+                    get: { ResearchRunSearchNavigation.shared.runID != nil },
+                    set: { if !$0 { ResearchRunSearchNavigation.shared.runID = nil } }
+                )) {
+                    if let runID = ResearchRunSearchNavigation.shared.runID {
+                        ResearchRunSearchDetailView(runID: runID)
+                    }
+                }
+                .task {
+                    guard !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { return }
+                    await LiveActivityManager.shared.restoreClusterActivitiesAfterLaunch()
+                    await MemorySearchIndex.refresh()
+                }
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
@@ -63,13 +101,40 @@ struct BeagleCockpitApp: App {
                         navigateToProject(slug)
                     }
                 }
+                #if canImport(CoreSpotlight) && !os(watchOS)
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let rawId = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+                       let convId = ConversationSpotlightIndexer.conversationId(fromSpotlightIdentifier: rawId) {
+                        navigationPath = NavigationPath()
+                        DeepLinkRouter.shared.requestCompanionAction(
+                            CompanionLaunchAction(conversationId: convId)
+                        )
+                    }
+                }
+                #endif
                 .preferredColorScheme(.dark)
-                .tint(BeagleTheme.truthObserved)
+        .tint(BeagleTheme.truthObserved)
             } else {
-                OnboardingView(isComplete: $hasCompletedOnboarding)
+                OnboardingView(isComplete: Binding(
+                    get: { hasCompletedOnboarding && !forceOnboardingInSession },
+                    set: { completed in
+                        hasCompletedOnboarding = completed
+                        if completed { forceOnboardingInSession = false }
+                    }
+                ))
                     .preferredColorScheme(.dark)
             }
         }
+        #if os(iOS)
+        .backgroundTask(.appRefresh(beagleDreamTaskIdentifier)) {
+            await runDreamConsolidation()
+            // Piggybacks on this task's ~8h cadence rather than registering a second
+            // BGTaskSchedulerPermittedIdentifiers entry — comfortably inside the ~2-day
+            // window CMSensorRecorder needs to not lose its rolling 3-day buffer.
+            await ActigraphySyncEngine.shared.pullAndProcess(uploader: PhysiomeUploader.shared)
+            await scheduleDreamConsolidation()
+        }
+        #endif
         #if os(macOS)
         .windowStyle(.automatic)
         .commands {
@@ -91,12 +156,48 @@ struct BeagleCockpitApp: App {
         #endif
     }
 
+    // MARK: - Dream consolidation (BGTask)
+
+    #if os(iOS)
+    /// Run an overnight dream-synthesis pass from the background task.
+    /// Reads the latest thoughts/posture from the app stores (MainActor) and
+    /// recombines them via the DreamSynthesisEngine.
+    @MainActor
+    private func runDreamConsolidation() async {
+        guard DreamSynthesisEngine.shared.shouldDreamAgain else { return }
+        await cognitive.refresh()
+        await physio.refresh()
+        await DreamSynthesisEngine.shared.synthesize(
+            thoughts: cognitive.recentThoughts,
+            cognitivePosture: physio.cognitivePosture,
+            neuralSynthesizer: { candidateThoughts in
+                await FoundationModelsAgent.shared.synthesizeDreamBridge(thoughts: candidateThoughts)
+            }
+        )
+    }
+
+    /// Submit the next dream-consolidation background refresh request.
+    /// Earliest fire ~8h out so it lands during an overnight/idle window.
+    private func scheduleDreamConsolidation() async {
+        let request = BGAppRefreshTaskRequest(identifier: beagleDreamTaskIdentifier)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 3600)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("[BeagleCockpit] dream BGTask submit failed: \(error)")
+        }
+    }
+    #endif
+
     // MARK: - Deep link handling
 
     private func handleDeepLink(_ url: URL) {
         // beagle://project/{slug}
         // beagle://project/{slug}/agent/{kind}
         guard url.scheme == "beagle" else { return }
+        // beagle://frota | beagle://oficina | beagle://work — parked for whichever layout can
+        // present them (iPhone drawer sheet vs iPad sidebar). See DeepLinkRouter.
+        if DeepLinkRouter.shared.open(url) { return }
         let components = url.pathComponents.filter { $0 != "/" }
 
         if components.count >= 2, components[0] == "project" {
@@ -174,6 +275,7 @@ struct RootView: View {
     @State private var showCognitiveState = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -189,6 +291,28 @@ struct RootView: View {
         }
         .onChange(of: selectedTab) { _, newValue in
             persistedSelectedTab = newValue
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                guard !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { break }
+                // Returning to foreground (connectivity likely restored):
+                // re-fetch credentials and auto-drain any queued captures/messages.
+                Task {
+                    _ = await BeagleClient.shared.ensureAuth()
+                    await cognitive.drainSharedThoughtQueue()
+                    await cognitive.drainAssistedImportOutbox()
+                }
+            case .background:
+                // Queue the overnight dream-consolidation background task.
+                #if os(iOS)
+                let request = BGAppRefreshTaskRequest(identifier: beagleDreamTaskIdentifier)
+                request.earliestBeginDate = Date(timeIntervalSinceNow: 8 * 3600)
+                try? BGTaskScheduler.shared.submit(request)
+                #endif
+            default:
+                break
+            }
         }
     }
 
@@ -208,10 +332,16 @@ struct RootView: View {
         #if canImport(WatchConnectivity)
         WatchExocortexBridge.shared.activate()
         #endif
-        SemanticSearchEngine.shared.warmup()
+        let isUITesting = ProcessInfo.processInfo.arguments.contains("--ui-testing")
+        if !isUITesting {
+            SemanticSearchEngine.shared.warmup()
+        }
         cognitive.loadPersistedThoughts()
         DreamSynthesisEngine.shared.loadPersistedInsights()
         cognitive.activeProjectSlug = launchOverrides.projectSlug ?? cognitive.activeProjectSlug ?? "sounio"
+        if isUITesting {
+            return
+        }
 
         let authReady = await BeagleClient.shared.ensureAuth()
         startPhysiomeRealtimeSync()
@@ -219,8 +349,9 @@ struct RootView: View {
         async let cognitiveTask: () = cognitive.refresh()
         async let physioTask: () = physio.refresh()
         async let sharedQueueTask: () = cognitive.drainSharedThoughtQueue()
+        async let outboxDrainTask: Int = cognitive.drainAssistedImportOutbox()
         async let warmTask: () = FoundationModelsAgent.shared.prewarm()
-        _ = await (catalogTask, cognitiveTask, physioTask, sharedQueueTask, warmTask)
+        _ = await (catalogTask, cognitiveTask, physioTask, sharedQueueTask, outboxDrainTask, warmTask)
         cognitive.activeProjectSlug =
             launchOverrides.projectSlug
             ?? cognitive.activeProjectSlug
@@ -249,7 +380,7 @@ struct RootView: View {
         // Demo/screenshot mode: never trigger the system HealthKit auth sheet — it would
         // cover the chat UI being previewed. Real launches authorize as normal.
         let args = ProcessInfo.processInfo.arguments
-        if args.contains("--demo") || args.contains("--demo-chat") { return }
+        if args.contains("--demo") || args.contains("--demo-chat") || args.contains("--beagle-skip-physio-auth") { return }
         Task.detached(priority: .utility) {
             let uploader = PhysiomeUploader.shared
             await uploader.recoverAndFlush()
@@ -264,58 +395,46 @@ struct RootView: View {
             #if os(iOS)
             // Device barometer → exact local atmospheric pressure (indoor, no network).
             await BaroSyncEngine.shared.start(uploader: uploader)
+            // Driving-time proxy (CarPlay/Waze integration confirmed infeasible — see
+            // DrivingSyncEngine's header comment for why).
+            await DrivingSyncEngine.shared.start(uploader: uploader)
+            // Opportunistic pull — also runs from the dream BGTask (see .backgroundTask
+            // above), this is the foreground half of the same ~2-day-max cadence. Own
+            // detached Task (not awaited here): bucketing 2 days of 50Hz accelerometer +
+            // DFA/sample-entropy is real CPU work that shouldn't delay AQI/other engines
+            // starting right behind it.
+            Task.detached(priority: .utility) {
+                await ActigraphySyncEngine.shared.pullAndProcess(uploader: uploader)
+            }
             #endif
+            // AQI — WeatherKit doesn't provide it; direct API fallback chain instead.
+            await AQISyncEngine.shared.start(uploader: uploader)
         }
     }
 
     // MARK: - iPhone Layout (4 tabs)
 
+    // 2026-06-28: simplified to companion-only per design doc IA
+    // ("Companion-pure + Trabalho drawer"). The other tabs (Fleet/Capture/Deep/
+    // Agents/Recall) were triggering an AttributeGraph cycle in their bodies —
+    // even when offscreen — causing 12M cycles/22s and SIGKILL. The TabView
+    // returns when one or more of those tabs' cycles are fixed and we
+    // re-introduce them behind a proper drawer (per the IA design doc).
     private var iPhoneLayout: some View {
-        TabView(selection: $selectedTab) {
-            Tab("Mind", systemImage: "brain.head.profile", value: 0) {
-                BeagleSurface(bootError: $bootError)
-            }
-            Tab("Capture", systemImage: "mic.fill", value: 1) {
-                NavigationStack {
-                    ThoughtCaptureView()
-                }
-            }
-            Tab("Deep", systemImage: "sparkles", value: 2) {
-                NavigationStack {
-                    DeepExplorationView()
-                        .navigationDestination(for: String.self) { _ in
-                            TriadReviewView()
-                        }
-                }
-            }
-            Tab("Work", systemImage: "apple.terminal", value: 3) {
-                NavigationStack {
-                    WorkView(bootError: $bootError)
-                }
-            }
-            Tab("Recall", systemImage: "sparkle.magnifyingglass", value: 4) {
-                NavigationStack {
-                    CognitiveRecallView()
-                }
-            }
-            Tab("Fleet", systemImage: "terminal", value: 5) {
-                NavigationStack {
-                    FleetTerminalsView()
-                }
-            }
-        }
-        .tint(BeagleTheme.truthObserved)
+        BeagleSurface(bootError: $bootError)
     }
 
     // MARK: - iPad Layout (sidebar + detail)
 
     enum SidebarItem: String, CaseIterable, Identifiable {
         case mind     = "Mind"
+        case frota    = "Frota"
+        case oficina  = "Oficina"
+        case fleet    = "Fleet"
         case capture  = "Capture"
         case deep     = "Go Deep"
         case work     = "Work"
         case recall   = "Recall"
-        case fleet    = "Fleet"
         case settings = "Settings"
 
         var id: String { rawValue }
@@ -323,6 +442,8 @@ struct RootView: View {
         var icon: String {
             switch self {
             case .mind:     return "brain.head.profile"
+            case .frota:    return "dot.radiowaves.left.and.right"
+            case .oficina:  return "wrench.and.screwdriver"
             case .capture:  return "mic.fill"
             case .deep:     return "sparkles"
             case .work:     return "apple.terminal"
@@ -334,6 +455,10 @@ struct RootView: View {
     }
 
     @State private var sidebarSelection: SidebarItem? = .mind
+    /// Set when the Frota hands a lane to the Terminals screen ("open this one").
+    @State private var openLane: String?
+    /// A deep link parked by `onOpenURL` (Live Activity, Shortcut, notification tap).
+    private let deepLink = DeepLinkRouter.shared
 
     private var iPadLayout: some View {
         NavigationSplitView {
@@ -360,14 +485,35 @@ struct RootView: View {
                         WorkView(bootError: $bootError)
                     case .recall:
                         CognitiveRecallView()
+                    case .frota:
+                        FrotaView(onOpenLane: { lane in
+                            openLane = lane
+                            sidebarSelection = .fleet
+                        })
+                    case .oficina:
+                        OficinaView()
                     case .fleet:
-                        FleetTerminalsView()
+                        FleetTerminalsView(initialAgent: openLane)
                     case .settings:
                         ModelSettingsView()
                     case nil:
                         SpatialDeskMissionControlView()
                     }
                 }
+            }
+        }
+        .onChange(of: deepLink.pending) { _, _ in
+            if deepLink.pending == .capture {
+                sidebarSelection = .mind
+                return
+            }
+            guard let d = deepLink.consume() else { return }
+            switch d {
+            case .chat, .capture, .sintese: sidebarSelection = .mind
+            case .fundo:                    sidebarSelection = .deep
+            case .frota:                    sidebarSelection = .frota
+            case .oficina:                  sidebarSelection = .oficina
+            case .work:                     sidebarSelection = .work
             }
         }
         .tint(BeagleTheme.truthObserved)
@@ -447,7 +593,7 @@ struct RootView: View {
         case 0:  return "Mind"
         case 1:  return "Capture"
         case 2:  return "Deep"
-        case 3:  return "Work"
+        case 3:  return "Agents"
         default: return "Mind"
         }
     }

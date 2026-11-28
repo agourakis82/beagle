@@ -15,6 +15,7 @@ import BeagleCore
 
 /// Agent type — extensible registry of persistent agent kinds.
 public enum AgentKind: String, CaseIterable, Identifiable, Sendable {
+    case openAIAgent = "openai-agents"
     case claudeCode = "claude-code"
     case codex
     case localSGLang = "local-sglang"
@@ -24,6 +25,7 @@ public enum AgentKind: String, CaseIterable, Identifiable, Sendable {
 
     public var displayName: String {
         switch self {
+        case .openAIAgent: return "OpenAI Astra Agent"
         case .claudeCode:  return "Claude Code"
         case .codex:       return "Codex"
         case .localSGLang: return "Local SGLang"
@@ -33,6 +35,7 @@ public enum AgentKind: String, CaseIterable, Identifiable, Sendable {
 
     public var iconSystemName: String {
         switch self {
+        case .openAIAgent: return "brain.head.profile"
         case .claudeCode:  return "sparkles"
         case .codex:       return "curlybraces"
         case .localSGLang: return "cpu"
@@ -42,6 +45,8 @@ public enum AgentKind: String, CaseIterable, Identifiable, Sendable {
 
     public var description: String {
         switch self {
+        case .openAIAgent:
+            return "OpenAI Agents API (v1/agents/sessions) com sandbox hospedado, GPT-6.2 Astra/Sol, SSE e steering ao vivo."
         case .claudeCode:
             return "Anthropic Claude Code in a persistent pod. Full tool use + MCP."
         case .codex:
@@ -544,6 +549,29 @@ struct AgentSessionView: View {
     ///  2c. No session → deploy via startAgentSession, then poll until ready
     ///  3. Error reaching cockpit → show actionable message
     private func spawnSession() async {
+        if selectedKind == .openAIAgent {
+            guard DirectBrainCredentials.hasOpenAI else {
+                sessionState = .error("Chave OpenAI ausente. Abra Ajustes → Cérebro · MoE · Voz para configurar sua sk-…")
+                return
+            }
+            let activeModel = DirectBrainCredentials.openAIModel
+            let sessionLabel = OpenAIAgentsSessionClient.savedSessionId(forProject: currentSlug)
+                ?? "openai-hosted · \(activeModel)"
+            sessionState = .running(podName: sessionLabel)
+            terminal.connectOpenAIAgentSession(
+                slug: currentSlug,
+                model: activeModel,
+                initialPrompt: pinnedLaneQuestions[currentSlug]
+            )
+            LiveActivityManager.shared.startAgentActivity(
+                slug: currentSlug,
+                kind: selectedKind.rawValue,
+                sessionId: sessionLabel
+            )
+            persistShellObjective()
+            return
+        }
+
         sessionState = .pending(message: "Checking session state...")
 
         // Fetch real sessions from cockpit
@@ -703,6 +731,10 @@ struct AgentSessionView: View {
     }
 
     private func reconnectTerminal() async {
+        if selectedKind == .openAIAgent {
+            await spawnSession()
+            return
+        }
         guard sessionState.isRunning else {
             await spawnSession()
             return
@@ -801,6 +833,12 @@ struct AgentSessionView: View {
 
     /// Pause the remote session and detach the terminal.
     private func pauseSession() async {
+        if selectedKind == .openAIAgent {
+            terminal.disconnect()
+            sessionState = .paused
+            LiveActivityManager.shared.updateAgentActivity(status: "paused", tokens: 0, snippet: "OpenAI Agents session paused")
+            return
+        }
         sessionState = .pending(message: "Pausing session...")
         let paused = await CockpitClient.shared.pauseAgentSession(slug: currentSlug, kind: selectedKind.rawValue)
         guard paused.mode == .observed else {
@@ -818,6 +856,13 @@ struct AgentSessionView: View {
 
     /// Stop the remote session and return to idle.
     private func stopSession() async {
+        if selectedKind == .openAIAgent {
+            terminal.stopProcess()
+            terminal.resetOpenAIAgentSession(for: currentSlug)
+            sessionState = .idle
+            LiveActivityManager.shared.endAgentActivity(finalStatus: "stopped")
+            return
+        }
         let stopped = await CockpitClient.shared.stopAgentSession(slug: currentSlug, kind: selectedKind.rawValue)
         guard stopped.mode == .observed else {
             sessionState = .error("Could not stop session: \(stopped.error ?? "unknown")")

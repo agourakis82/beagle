@@ -3,6 +3,7 @@ kind: Kustomization
 namespace: beagle
 resources:
   - role.yaml
+  - pvc.yaml
   - deployment.yaml
   - service.yaml
 labels:

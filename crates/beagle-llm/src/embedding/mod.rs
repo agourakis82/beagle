@@ -16,6 +16,7 @@ pub type Embedding = Vec<f64>;
 pub struct EmbeddingClient {
     client: Client,
     base_url: String,
+    model: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,10 +39,23 @@ struct EmbeddingData {
 
 impl EmbeddingClient {
     pub fn new(base_url: impl Into<String>) -> Self {
+        // Honor the cluster-configured embedding model (the LiteLLM router enforces model
+        // names; e.g. bge-m3). Falls back to the historical default off-cluster.
+        let model = std::env::var("BEAGLE_EMBEDDING_MODEL")
+            .ok()
+            .filter(|m| !m.trim().is_empty())
+            .unwrap_or_else(|| "BAAI/bge-large-en-v1.5".to_string());
         Self {
             client: Client::new(),
             base_url: base_url.into(),
+            model,
         }
+    }
+
+    /// Override the embedding model name (otherwise from BEAGLE_EMBEDDING_MODEL env).
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = model.into();
+        self
     }
 
     pub fn default() -> Self {
@@ -53,7 +67,7 @@ impl EmbeddingClient {
         let url = format!("{}/embeddings", self.base_url);
 
         let request = EmbeddingRequest {
-            model: "BAAI/bge-large-en-v1.5".to_string(),
+            model: self.model.clone(),
             input: vec![text.to_string()],
         };
 
@@ -97,7 +111,7 @@ impl EmbeddingClient {
         let url = format!("{}/embeddings", self.base_url);
 
         let request = EmbeddingRequest {
-            model: "BAAI/bge-large-en-v1.5".to_string(),
+            model: self.model.clone(),
             input: texts.iter().map(|s| s.to_string()).collect(),
         };
 

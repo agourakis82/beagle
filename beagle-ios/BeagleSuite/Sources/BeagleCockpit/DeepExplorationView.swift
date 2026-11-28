@@ -14,10 +14,25 @@ import BeagleCore
 struct DeepExplorationView: View {
     @State private var store = GoDeepStore()
     @State private var inputText = ""
+    @State private var searchQuery = ""
     @State private var showActiveSession = false
+    @State private var isComparing = false
+    @State private var selectedForCompare: [PersistedDeepSession] = []
+    @State private var showComparisonSheet = false
+    @State private var comparisonMarkdown = ""
+    @State private var isRunningComparison = false
     @Query(sort: \PersistedDeepSession.startedAt, order: .reverse)
     private var sessions: [PersistedDeepSession]
     @Environment(\.modelContext) private var modelContext
+
+    private var filteredSessions: [PersistedDeepSession] {
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return Array(sessions.prefix(40)) }
+        return sessions.filter { s in
+            s.prompt.localizedCaseInsensitiveContains(q)
+                || (s.synthesisText?.localizedCaseInsensitiveContains(q) ?? false)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -39,19 +54,46 @@ struct DeepExplorationView: View {
                 .padding(.bottom, BeagleSpacing.jumbo)
             }
 
-            // Always-visible input
-            deepInput
+            if isComparing {
+                comparisonBottomBar
+            } else {
+                // Always-visible input
+                deepInput
+            }
         }
         .background { DeepExplorationGradient(hasHistory: !sessions.isEmpty, isRunning: store.isRunning) }
-        .navigationTitle("Go Deeper")
+        .navigationTitle("Modo Fundo")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                NavigationLink(value: "triad-review") {
-                    Label("Triad Review", systemImage: "person.3.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(BeagleTheme.textSecondary)
+                HStack(spacing: BeagleSpacing.sm) {
+                    if sessions.filter(\.isComplete).count >= 2 {
+                        Button {
+                            withAnimation(BeagleMotion.snappy) {
+                                isComparing.toggle()
+                                if !isComparing {
+                                    selectedForCompare.removeAll()
+                                }
+                            }
+                        } label: {
+                            Label(
+                                isComparing ? "Concluir" : "Comparar",
+                                systemImage: isComparing ? "checkmark.circle.fill" : "arrow.left.arrow.right"
+                            )
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(isComparing ? BeagleTheme.truthObserved : BeagleTheme.textSecondary)
+                        }
+                    }
+
+                    NavigationLink(value: "triad-review") {
+                        Label("Tríade", systemImage: "person.3.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(BeagleTheme.textSecondary)
+                    }
                 }
             }
+        }
+        .sheet(isPresented: $showComparisonSheet) {
+            comparisonSheetView
         }
     }
 
@@ -59,13 +101,13 @@ struct DeepExplorationView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
-            Text("Explore any question through multiple reasoning modalities simultaneously.")
+            Text("Explore qualquer questão simultaneamente com GPT-6.2 Astra (xhigh), GPT-Rosalind (Bio/PBPK), enxame e grafos causais.")
                 .font(BeagleFont.footnote.font)
                 .foregroundStyle(BeagleTheme.textSecondary)
                 .lineSpacing(2)
 
             if !sessions.isEmpty {
-                Text("\(sessions.count) exploration\(sessions.count == 1 ? "" : "s") in your history")
+                Text("\(sessions.count) exploraç\(sessions.count == 1 ? "ão" : "ões") no histórico")
                     .font(BeagleFont.caption.font)
                     .foregroundStyle(BeagleTheme.textTertiary)
             }
@@ -136,51 +178,151 @@ struct DeepExplorationView: View {
 
     private var historySection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
-            Text("History")
-                .font(BeagleFont.caption.font)
-                .fontWeight(.medium)
-                .foregroundStyle(BeagleTheme.textTertiary)
-                .textCase(.uppercase)
-                .tracking(0.5)
+            HStack {
+                Text(isComparing ? "Selecione 2 explorações para comparar" : "Histórico")
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.medium)
+                    .foregroundStyle(isComparing ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+                Spacer()
+                if isComparing {
+                    Text("\(selectedForCompare.count)/2")
+                        .font(BeagleFont.dataSmall.font)
+                        .foregroundStyle(BeagleTheme.truthObserved)
+                }
+            }
 
-            ForEach(sessions.prefix(20)) { session in
+            if sessions.count >= 3 {
+                HStack(spacing: BeagleSpacing.xs) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                    TextField("Filtrar hipóteses, fármacos ou sínteses…", text: $searchQuery)
+                        .font(BeagleFont.footnote.font)
+                        .foregroundStyle(BeagleTheme.textPrimary)
+                    if !searchQuery.isEmpty {
+                        Button {
+                            searchQuery = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(BeagleTheme.textTertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, BeagleSpacing.md)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: BeagleRadius.md)
+                        .fill(BeagleTheme.surface1.opacity(0.65))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: BeagleRadius.md)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.75)
+                )
+            }
+
+            ForEach(filteredSessions) { session in
                 historyCard(session)
             }
         }
     }
 
-    private func historyCard(_ session: PersistedDeepSession) -> some View {
-        Button {
-            // Reopen this exploration
-            store = GoDeepStore()
+    private func openSavedSession(_ session: PersistedDeepSession) {
+        if session.isComplete && (session.synthesisText != nil || session.modalityResults != nil) {
+            let hydrated = GoDeepStore()
+            hydrated.hydrateFromPersisted(
+                prompt: session.prompt,
+                startedAt: session.startedAt,
+                completedAt: session.completedAt,
+                synthesis: session.synthesisText,
+                modalityResultsJSON: session.modalityResults,
+                simulationOutput: session.simulationOutput
+            )
+            persistResults(into: session, from: hydrated)
+            store = hydrated
             showActiveSession = true
-            store.goDeeper(prompt: session.prompt)
+        } else {
+            rerunSession(session)
+        }
+    }
+
+    private func rerunSession(_ session: PersistedDeepSession) {
+        let fresh = GoDeepStore()
+        persistResults(into: session, from: fresh)
+        store = fresh
+        showActiveSession = true
+        fresh.goDeeper(prompt: session.prompt)
+    }
+
+    private func toggleCompareSelection(_ session: PersistedDeepSession) {
+        if let idx = selectedForCompare.firstIndex(where: { $0.persistentModelID == session.persistentModelID }) {
+            selectedForCompare.remove(at: idx)
+        } else if selectedForCompare.count < 2 {
+            selectedForCompare.append(session)
+        } else {
+            selectedForCompare[1] = session
+        }
+    }
+
+    private func historyCard(_ session: PersistedDeepSession) -> some View {
+        let isSelected = selectedForCompare.contains(where: { $0.persistentModelID == session.persistentModelID })
+
+        return Button {
+            if isComparing {
+                guard session.isComplete else { return }
+                toggleCompareSelection(session)
+            } else {
+                openSavedSession(session)
+            }
         } label: {
             HStack(alignment: .top, spacing: BeagleSpacing.sm) {
-                Image(systemName: session.isComplete ? "checkmark.circle" : "clock")
-                    .font(.system(size: 12))
-                    .foregroundStyle(session.isComplete ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
-                    .padding(.top, 2)
+                if isComparing {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(isSelected ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                        .padding(.top, 2)
+                } else {
+                    Image(systemName: session.isComplete ? "checkmark.circle.fill" : "clock")
+                        .font(.system(size: 13))
+                        .foregroundStyle(session.isComplete ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
+                        .padding(.top, 2)
+                }
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(session.prompt)
                         .font(BeagleFont.footnote.font)
+                        .fontWeight(.medium)
                         .foregroundStyle(BeagleTheme.textPrimary)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
 
-                    HStack(spacing: BeagleSpacing.sm) {
+                    HStack(spacing: BeagleSpacing.xs + 2) {
                         Text(session.startedAt, style: .relative)
                             .font(BeagleFont.caption2.font)
                             .foregroundStyle(BeagleTheme.textTertiary)
 
                         if session.modalityCount > 0 {
-                            Text("\(session.modalityCount) modalities")
+                            Text("\(session.modalityCount) lentes")
                                 .font(BeagleFont.caption2.font)
                                 .foregroundStyle(BeagleTheme.textTertiary)
                         }
 
-                        if let duration = session.duration {
+                        if session.citationCount > 0 {
+                            Text("\(session.citationCount) ref\(session.citationCount == 1 ? "" : "s")")
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.truthObserved)
+                        }
+
+                        if session.simulationOutput != nil {
+                            Text("Simulação")
+                                .font(BeagleFont.caption2.font)
+                                .foregroundStyle(BeagleTheme.truthRemembered)
+                        }
+
+                        if let duration = session.duration, duration > 0 {
                             Text("\(Int(duration))s")
                                 .font(BeagleFont.caption2.font)
                                 .foregroundStyle(BeagleTheme.textTertiary)
@@ -190,18 +332,203 @@ struct DeepExplorationView: View {
                     if let synthesis = session.synthesisText {
                         Text(synthesis)
                             .font(BeagleFont.caption.font)
-                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .foregroundStyle(BeagleTheme.textSecondary)
                             .lineLimit(2)
                             .lineSpacing(1)
                     }
                 }
 
-                Spacer()
+                Spacer(minLength: 4)
+
+                if !isComparing {
+                    Menu {
+                        Button {
+                            openSavedSession(session)
+                        } label: {
+                            Label("Abrir Dossiê Salvo", systemImage: "doc.text.magnifyingglass")
+                        }
+
+                        Button {
+                            rerunSession(session)
+                        } label: {
+                            Label("Reexecutar Lentes ao Vivo", systemImage: "arrow.clockwise")
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive) {
+                            modelContext.delete(session)
+                            try? modelContext.save()
+                        } label: {
+                            Label("Excluir do Histórico", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 15))
+                            .foregroundStyle(BeagleTheme.textTertiary)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .frame(minHeight: 44)
-            .padding(.vertical, BeagleSpacing.xxs)
+            .padding(.horizontal, BeagleSpacing.md)
+            .padding(.vertical, BeagleSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: BeagleRadius.md)
+                    .fill(isSelected ? BeagleTheme.truthObserved.opacity(0.10) : BeagleTheme.surface1.opacity(0.45))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: BeagleRadius.md)
+                    .strokeBorder(
+                        isSelected ? BeagleTheme.truthObserved.opacity(0.45) : Color.white.opacity(0.06),
+                        lineWidth: isSelected ? 1.0 : 0.6
+                    )
+            )
         }
         .buttonStyle(.plain)
+    }
+
+    private var comparisonBottomBar: some View {
+        HStack(spacing: BeagleSpacing.sm) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Comparação Longitudinal")
+                    .font(BeagleFont.caption.font.weight(.semibold))
+                    .foregroundStyle(BeagleTheme.textPrimary)
+                Text(selectedForCompare.count == 2 ? "Pronto para cruzar convergências e deslocamentos" : "Toque em 2 explorações concluídas")
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.textSecondary)
+            }
+            Spacer()
+            Button {
+                launchComparison()
+            } label: {
+                Label("Comparar (2)", systemImage: "sparkles")
+                    .font(BeagleFont.caption.font.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(
+                        Capsule()
+                            .fill(selectedForCompare.count == 2 ? BeagleTheme.truthObserved : Color.white.opacity(0.08))
+                    )
+                    .foregroundStyle(selectedForCompare.count == 2 ? Color.black : BeagleTheme.textTertiary)
+            }
+            .buttonStyle(.plain)
+            .disabled(selectedForCompare.count != 2)
+        }
+        .padding(.horizontal, BeagleSpacing.lg)
+        .padding(.vertical, BeagleSpacing.sm)
+        .background(.ultraThinMaterial)
+    }
+
+    private func launchComparison() {
+        guard selectedForCompare.count == 2 else { return }
+        let sorted = selectedForCompare.sorted(by: { $0.startedAt < $1.startedAt })
+        let a = sorted[0]
+        let b = sorted[1]
+        comparisonMarkdown = ""
+        isRunningComparison = true
+        showComparisonSheet = true
+
+        Task {
+            let final = await GoDeepStore.compareExplorations(
+                firstPrompt: a.prompt,
+                firstDate: a.startedAt,
+                firstSynthesis: a.synthesisText ?? a.prompt,
+                secondPrompt: b.prompt,
+                secondDate: b.startedAt,
+                secondSynthesis: b.synthesisText ?? b.prompt,
+                onToken: { delta in
+                    await MainActor.run {
+                        comparisonMarkdown += delta
+                    }
+                }
+            )
+            await MainActor.run {
+                if comparisonMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    comparisonMarkdown = final
+                }
+                isRunningComparison = false
+            }
+        }
+    }
+
+    private var comparisonSheetView: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: BeagleSpacing.md) {
+                    if selectedForCompare.count == 2 {
+                        let sorted = selectedForCompare.sorted(by: { $0.startedAt < $1.startedAt })
+                        GlassPanel(elevation: .flush) {
+                            VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+                                Text("Exploração A · \(sorted[0].startedAt.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(BeagleFont.caption2.font.weight(.semibold))
+                                    .foregroundStyle(BeagleTheme.truthRemembered)
+                                Text(sorted[0].prompt)
+                                    .font(BeagleFont.footnote.font)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .lineLimit(2)
+                                Divider().opacity(0.2)
+                                Text("Exploração B · \(sorted[1].startedAt.formatted(date: .abbreviated, time: .shortened))")
+                                    .font(BeagleFont.caption2.font.weight(.semibold))
+                                    .foregroundStyle(BeagleTheme.truthObserved)
+                                Text(sorted[1].prompt)
+                                    .font(BeagleFont.footnote.font)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+
+                    GlassPanel(elevation: .raised, truth: isRunningComparison ? nil : .observed) {
+                        VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
+                            HStack {
+                                Image(systemName: "arrow.left.arrow.right.circle.fill")
+                                    .foregroundStyle(BeagleTheme.truthObserved)
+                                Text("Análise Longitudinal · Astra")
+                                    .font(BeagleFont.headline.font)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                Spacer()
+                                if isRunningComparison {
+                                    ProgressView().controlSize(.small)
+                                }
+                            }
+
+                            if comparisonMarkdown.isEmpty && isRunningComparison {
+                                Text("Cruzando invariantes, mudanças de hipótese e novas evidências entre A e B…")
+                                    .font(BeagleFont.footnote.font)
+                                    .foregroundStyle(BeagleTheme.textSecondary)
+                                    .italic()
+                            } else {
+                                Text(LocalizedStringKey(comparisonMarkdown))
+                                    .font(BeagleFont.body.font)
+                                    .foregroundStyle(BeagleTheme.textPrimary)
+                                    .textSelection(.enabled)
+                                    .lineSpacing(3)
+                            }
+                        }
+                    }
+                }
+                .padding(BeagleSpacing.lg)
+            }
+            .background { BeagleTheme.surface0.ignoresSafeArea() }
+            .navigationTitle("Comparar Explorações")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fechar") { showComparisonSheet = false }
+                }
+                if !comparisonMarkdown.isEmpty && !isRunningComparison {
+                    ToolbarItem(placement: .primaryAction) {
+                        ShareLink(item: comparisonMarkdown, subject: Text("Comparação Modo Fundo")) {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Empty State
@@ -219,11 +546,11 @@ struct DeepExplorationView: View {
                     )
                 )
 
-            Text("Go Deeper")
+            Text("Modo Fundo")
                 .font(BeagleFont.title2.font)
                 .foregroundStyle(BeagleTheme.textPrimary)
 
-            Text("Type any question below and explore it through deep research, quantum reasoning, swarm consensus, causal graphs, and more — all at once.")
+            Text("Digite qualquer questão científica, clínica ou arquitetural abaixo para disparar GPT-6.2 Astra (xhigh), GPT-Rosalind (Bio/PBPK), consenso de enxame e grafos causais em paralelo.")
                 .font(BeagleFont.footnote.font)
                 .foregroundStyle(BeagleTheme.textTertiary)
                 .multilineTextAlignment(.center)
@@ -240,20 +567,38 @@ struct DeepExplorationView: View {
     private var deepInput: some View {
         BeagleInputBar(
             text: $inputText,
-            placeholder: "What do you want to explore deeply?",
+            placeholder: "O que você quer explorar a fundo?",
             mode: .chat,
             isEnabled: !store.isRunning,
             onSubmit: { text in
                 store = GoDeepStore()
-                store.goDeeper(prompt: text)
-                showActiveSession = true
 
-                // Persist session
+                // Persist the session shell now; fill in results on completion.
                 let persisted = PersistedDeepSession(prompt: text, modalityCount: store.totalCount)
                 modelContext.insert(persisted)
                 try? modelContext.save()
+                persistResults(into: persisted, from: store)
+
+                store.goDeeper(prompt: text)
+                showActiveSession = true
             }
         )
+    }
+
+    // MARK: - Persistence
+
+    /// Wire the store so the full session result (synthesis + per-modality
+    /// summaries) is written back into the SwiftData row when it completes.
+    private func persistResults(into session: PersistedDeepSession, from store: GoDeepStore) {
+        store.onSessionComplete = { payload in
+            session.synthesisText = payload.synthesis
+            session.modalityResults = payload.modalityResultsJSON
+            session.citationsJSON = payload.citationsJSON
+            session.simulationOutput = payload.simulationOutput
+            session.modalityCount = payload.modalityCount
+            session.completedAt = payload.completedAt
+            try? modelContext.save()
+        }
     }
 }
 

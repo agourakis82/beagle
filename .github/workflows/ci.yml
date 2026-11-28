@@ -12,6 +12,7 @@ jobs:
     env:
       SQLX_OFFLINE: true
       RUST_BACKTRACE: 1
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
 
     steps:
       - uses: actions/checkout@v4

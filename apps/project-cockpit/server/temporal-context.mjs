@@ -89,6 +89,18 @@ export function formatTempoAgora(ctx) {
 // prompt (token-cost / context overflow). k bounds the count; this bounds the size.
 const MAX_SNIPPET = 600;
 
+/**
+ * Trust gate for biography grounding (provenance design §4): drop `unverified`
+ * memories (orphaned/model-generated content) so they are never injected as
+ * "what I know about him". A hit with no tier is kept (fail-open: non-personal
+ * recall and pre-P2 rows are not penalized).
+ * @param {Array<{trust_tier?: string}>} results
+ */
+export function filterTrustedMemories(results) {
+  if (!Array.isArray(results)) return [];
+  return results.filter((r) => r?.trust_tier !== "unverified");
+}
+
 /** Prefix each memory snippet with its relative date; drop empties; leave
  *  date-less snippets unstamped; cap each snippet's length. `results` =
  *  memory-pg /query `.results`. */

@@ -1,0 +1,44 @@
+import Foundation
+import Network
+import Observation
+
+public extension Notification.Name {
+    /// Posted on MainActor whenever `NetworkMonitor` observes an offline → online transition.
+    static let beagleNetworkDidReconnect = Notification.Name("dev.sounio.cockpit.networkDidReconnect")
+}
+
+/// Observable connectivity signal. `isOnline` flips with the real network path so the companion
+/// can route to the cloud when reachable and the on-device model when not, and flush its outbox
+/// the moment connectivity returns. MainActor-isolated (→ Sendable), so the NWPathMonitor's
+/// @Sendable update handler can capture it and hop back to the main actor to mutate state.
+@MainActor
+@Observable
+public final class NetworkMonitor {
+    public static let shared = NetworkMonitor()
+    public private(set) var isOnline: Bool = true
+    /// Called on an offline→online transition (e.g. to trigger an outbox flush).
+    @ObservationIgnored public var onReconnect: (() -> Void)?
+    /// Chamado na transição online→offline. É o momento certo de carregar o
+    /// modelo local: antes disso ele só ocupa memória que o iOS cobra de volta.
+    @ObservationIgnored public var onDisconnect: (() -> Void)?
+
+    @ObservationIgnored private let monitor = NWPathMonitor()
+    @ObservationIgnored private let queue = DispatchQueue(label: "dev.sounio.networkmonitor")
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            let online = path.status == .satisfied
+            Task { @MainActor in
+                guard let self else { return }
+                let was = self.isOnline
+                self.isOnline = online
+                if online && !was {
+                    self.onReconnect?()
+                    NotificationCenter.default.post(name: .beagleNetworkDidReconnect, object: nil)
+                }
+                if !online && was { self.onDisconnect?() }
+            }
+        }
+        monitor.start(queue: queue)
+    }
+}

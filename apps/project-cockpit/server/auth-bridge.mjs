@@ -697,10 +697,21 @@ async function proxyBeagleRequest(method, req) {
   }
 }
 
+// In-memory cache for the biography digest. It is "pinned" and changes slowly
+// (the user re-distills it occasionally), so re-fetching it on every companion
+// turn just adds a ~3s memory/query to the personal-chat latency for no benefit.
+// 5-minute TTL keeps it fresh enough without that cost on each message.
+let _bioDigestCache = { digest: "", at: 0 };
+const BIO_DIGEST_TTL_MS = 5 * 60 * 1000;
+
 // Fetch the latest pinned biography digest from beagle-core memory.
 // Used by the Personal space to ground the companion in who the user actually is.
 // Best-effort: returns { digest: "" } on any failure so chat is never blocked.
+// Caches a successful digest for BIO_DIGEST_TTL_MS to keep personal chat snappy.
 export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
+  if (_bioDigestCache.digest && Date.now() - _bioDigestCache.at < BIO_DIGEST_TTL_MS) {
+    return { digest: _bioDigestCache.digest, cached: true };
+  }
   const tokenResult = await fetchOperatorToken();
   if (tokenResult.error || !tokenResult.token) {
     return { digest: "", error: tokenResult.error || "beagle token unavailable" };
@@ -733,7 +744,9 @@ export async function fetchBiographyDigest({ timeoutMs = 8000 } = {}) {
     const sorted = highlights
       .filter((h) => cleanString(h?.snippet))
       .sort((a, b) => cleanString(b?.date).localeCompare(cleanString(a?.date)));
-    return { digest: cleanString(sorted[0]?.snippet) };
+    const digest = cleanString(sorted[0]?.snippet);
+    if (digest) _bioDigestCache = { digest, at: Date.now() };
+    return { digest };
   } catch (err) {
     return { digest: "", error: err.message };
   } finally {
@@ -1814,4 +1827,62 @@ export function registerAuthBridgeRoutes(app) {
     const result = await proxyBeagleRequest("POST", req);
     res.status(result.status).json(result.payload);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Exocortex RAG grounding (ported from fix/mobile-summary-timeout)
+// ---------------------------------------------------------------------------
+export async function fetchExocortexContext(query, { limit = 6, timeoutMs = 6000 } = {}) {
+  const q = cleanString(query);
+  if (!q) return "";
+  try {
+    // beagle-core's /api/memory routes accept the operator token from
+    // beagle-core-tokens (injected here as env via secretKeyRef). The shared
+    // fetchOperatorToken() reads beagle-core-secrets, whose token beagle-core
+    // rejects with 401. Prefer the explicit env token; fall back to the shared.
+    let token = cleanString(process.env.BEAGLE_MEMORY_API_TOKEN);
+    if (!token) {
+      const tokenResult = await fetchOperatorToken();
+      token = tokenResult?.token || "";
+    }
+    if (!token) return "";
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(`${BEAGLE_INTERNAL_URL}/api/memory/query`, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "content-type": "application/json",
+          "X-Beagle-Consumer": "beagle-operator",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ query: q }),
+        signal: ctrl.signal
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) return "";
+    const payload = parseJsonResponse(await res.text());
+    const highlights = Array.isArray(payload?.highlights) ? payload.highlights : [];
+    const lines = highlights
+      .slice(0, limit)
+      .map((h) => {
+        const snippet = cleanString(h?.snippet).replace(/\s+/g, " ").slice(0, 300);
+        if (!snippet) return null;
+        const date = cleanString(h?.date).slice(0, 10);
+        return `- ${date ? `[${date}] ` : ""}${snippet}`;
+      })
+      .filter(Boolean);
+    if (lines.length === 0) return "";
+    return [
+      "## Exocortex memory — the user's own recorded context",
+      "Ground your answer in the facts below. Do NOT ask the user for information that is already present here; treat it as known. Cite or build on it where relevant.",
+      ...lines
+    ].join("\n");
+  } catch {
+    return "";
+  }
 }

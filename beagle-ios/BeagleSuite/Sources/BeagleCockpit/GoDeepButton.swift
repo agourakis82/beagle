@@ -11,6 +11,7 @@ import BeagleCore
 
 struct GoDeepButton: View {
     let prompt: String
+    var compact: Bool = false
     @State private var showGoDeep = false
     @State private var store = GoDeepStore()
 

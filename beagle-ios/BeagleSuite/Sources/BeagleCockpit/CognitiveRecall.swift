@@ -6,13 +6,20 @@
 //   • Recall  — composed, cited recall (POST /api/recall/answer → beagle-core native synthesis)
 //   • Next    — the fleet proposes next steps (POST /api/propose), accept logs to the board
 //
-//  Visual identity ported from the cockpit-web surfaces (/recall, /next): plum canvas, amber/turquoise
-//  accents, project-colored scope dots, confidence ring, tappable [n] citations that scroll+flash the
+//  Visual identity follows the shared BeagleTheme (neutral plaster / deep navy surfaces) with the
+//  cockpit-web amber/turquoise accents, project-colored scope dots, confidence ring, tappable [n]
+//  citations that scroll+flash the
 //  source, and a vertical source timeline. The app is just another client of the cockpit-web API over
 //  the tailnet — no token in the app (cockpit/coord-mcp hold the operator token).
 //
 
 import SwiftUI
+import BeagleCore
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
 // MARK: - Models (match the cockpit-web JSON)
 
@@ -51,8 +58,30 @@ private struct AcceptResult: Codable, Sendable { let ok: Bool? }
 
 // MARK: - API client (tailnet, no auth — cockpit handles backend auth)
 
+/// Typed backend error so the UI can show the real HTTP status + body (not a generic URLError).
+struct CognitiveError: LocalizedError {
+    let status: Int
+    let body: String
+    var errorDescription: String? {
+        let b = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return b.isEmpty ? "HTTP \(status)" : "\(status): \(b.prefix(180))"
+    }
+}
+
 struct CognitiveAPI: Sendable {
-    var baseURL: String
+    /// Preferred URL first, then the standard cockpit fallback chain (public gateway → tailnet
+    /// → IP → in-cluster). Mirrors CockpitClient's resolution so Recall works off-tailnet too.
+    var baseURLs: [String]
+
+    static let fallbackChain: [String] = BeagleEndpoints.cockpitURLs.map(\.absoluteString)
+
+    init(preferred: String) {
+        var urls: [String] = []
+        let p = preferred.trimmingCharacters(in: .whitespaces)
+        if !p.isEmpty { urls.append(p) }
+        for u in Self.fallbackChain where !urls.contains(u) { urls.append(u) }
+        baseURLs = urls
+    }
 
     func recall(query: String, scope: String) async throws -> RecallAnswer {
         try await post("/api/recall/answer", ["query": query, "scope": scope])
@@ -68,46 +97,66 @@ struct CognitiveAPI: Sendable {
     }
 
     private func post<T: Decodable & Sendable>(_ path: String, _ body: [String: String]) async throws -> T {
-        guard let url = URL(string: baseURL.trimmingCharacters(in: .whitespaces) + path) else {
-            throw URLError(.badURL)
+        var lastError: Error = URLError(.badServerResponse)
+        for base in baseURLs {
+            guard let url = URL(string: base + path) else { continue }
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            BeagleEndpoints.applyCockpitAuth(to: &req)
+            req.httpBody = try JSONSerialization.data(withJSONObject: body)
+            // Synthesis can take up to ~75s; dead hosts fail fast at the connection layer.
+            req.timeoutInterval = 75
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                guard let http = resp as? HTTPURLResponse else { lastError = URLError(.badServerResponse); continue }
+                if (200..<300).contains(http.statusCode) {
+                    return try JSONDecoder().decode(T.self, from: data)
+                }
+                let text = String(data: data, encoding: .utf8) ?? ""
+                let err = CognitiveError(status: http.statusCode, body: text)
+                // 4xx is deterministic (e.g. 400 "query required") — don't retry other hosts.
+                if (400..<500).contains(http.statusCode) { throw err }
+                lastError = err // 5xx/502/503 → try the next URL
+            } catch let e as CognitiveError {
+                throw e
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error // network/timeout → try the next URL
+            }
         }
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: body)
-        req.timeoutInterval = 75
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
-        return try JSONDecoder().decode(T.self, from: data)
+        throw lastError
     }
 }
 
 // MARK: - Cockpit visual identity (ported from cockpit-web CSS vars)
 
 private enum CK {
-    static let bg      = Color(hex: 0x1b1426)
-    static let bg2     = Color(hex: 0x21192d)
-    static let panel   = Color(hex: 0x271e36)
-    static let card    = Color(hex: 0x2a2038)
-    static let card2   = Color(hex: 0x352947)
-    static let line    = Color(hex: 0x3c2f50)
-    static let line2   = Color(hex: 0x54426b)
-    static let fg      = Color(hex: 0xfbf5ef)
-    static let txt     = Color(hex: 0xddd2e0)
-    static let dim     = Color(hex: 0xa596ad)
-    static let faint   = Color(hex: 0x7a6a82)
-    static let accent  = Color(hex: 0xffc24d)
-    static let accent2 = Color(hex: 0xff7a4c)
-    static let turq    = Color(hex: 0x2dd4bf)
-    static let ink     = Color(hex: 0x2a1a06)   // text on amber
-    static let ok      = Color(hex: 0x56d6a0)
-    static let warn    = Color(hex: 0xffb454)
-    static let lo      = Color(hex: 0xff7a6b)
-    static let beagle  = Color(hex: 0xffc24d)
-    static let sounio  = Color(hex: 0x7c9cff)
-    static let darwin  = Color(hex: 0x56d6a0)
+    // Surfaces & text defer to the shared BeagleTheme so Recall matches the rest of the
+    // app (neutral plaster / deep navy) instead of its old plum canvas. The warm semantic
+    // accents below (amber/turquoise/scope dots) are kept — they were never the problem.
+    static let bg      = BeagleTheme.surface0
+    static let bg2     = BeagleTheme.surface1
+    static let panel   = BeagleTheme.surface1
+    static let card    = BeagleTheme.surface2
+    static let card2   = BeagleTheme.surface3
+    static let line    = BeagleTheme.hairline
+    static let line2   = Color(light: .black.opacity(0.16), dark: .white.opacity(0.16))
+    static let fg      = BeagleTheme.textPrimary
+    static let txt     = BeagleTheme.textData
+    static let dim     = BeagleTheme.textSecondary
+    static let faint   = BeagleTheme.textTertiary
+    static let accent  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
+    static let accent2 = Color(lightHex: 0xCC4E28, darkHex: 0xff7a4c)
+    static let turq    = Color(lightHex: 0x0E9886, darkHex: 0x2dd4bf)
+    static let ink     = Color(hex: 0x2a1a06)   // text on amber (both modes)
+    static let ok      = Color(lightHex: 0x1B9D70, darkHex: 0x56d6a0)
+    static let warn    = Color(lightHex: 0xB9760A, darkHex: 0xffb454)
+    static let lo      = Color(lightHex: 0xCC4133, darkHex: 0xff7a6b)
+    static let beagle  = Color(lightHex: 0xA8620A, darkHex: 0xffc24d)
+    static let sounio  = Color(lightHex: 0x3A5BD0, darkHex: 0x7c9cff)
+    static let darwin  = Color(lightHex: 0x1B9D70, darkHex: 0x56d6a0)
 
     static func scopeColor(_ s: String) -> Color {
         switch s { case "beagle": return beagle; case "sounio": return sounio; case "darwin": return darwin; default: return fg }
@@ -132,6 +181,20 @@ extension Color {
                   green: Double((hex >> 8) & 0xff) / 255.0,
                   blue: Double(hex & 0xff) / 255.0,
                   opacity: 1)
+    }
+
+    /// Adaptive color from two hex values — light/dark aware, local to Recall
+    /// so its `CK` palette flips with the system appearance.
+    init(lightHex: UInt32, darkHex: UInt32) {
+        #if canImport(UIKit)
+        self.init(uiColor: UIColor { $0.userInterfaceStyle == .dark
+            ? UIColor(Color(hex: darkHex)) : UIColor(Color(hex: lightHex)) })
+        #elseif canImport(AppKit)
+        self.init(nsColor: NSColor(name: nil) { $0.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(Color(hex: darkHex)) : NSColor(Color(hex: lightHex)) })
+        #else
+        self.init(hex: darkHex)
+        #endif
     }
 }
 
@@ -220,10 +283,13 @@ private func composedLine(_ raw: String) -> AttributedString {
     return out
 }
 
-// MARK: - Tab root (Recall ⇄ Next)
+// MARK: - Tab root (Recall ⇄ Propor)
 
 struct CognitiveRecallView: View {
-    enum Mode: String, CaseIterable { case recall = "Recall", next = "Next" }
+    // "Next" used to collide with SpatialDeskMissionControlView's "Next Best Place" (a
+    // different concept — spatial navigation, not fleet task proposals). Renamed to
+    // "Propor", matching what this mode actually does (POST /api/propose).
+    enum Mode: String, CaseIterable { case recall = "Recall", next = "Propor" }
     @State private var mode: Mode = .recall
 
     var body: some View {
@@ -393,7 +459,7 @@ private struct SkeletonLines: View {
 // MARK: - Recall pane
 
 struct RecallPane: View {
-    @AppStorage("cognitiveBaseURL") private var baseURL = "http://cockpit-1.tail21cbc4.ts.net"
+    @AppStorage("cognitiveBaseURL") private var baseURL = "https://beagle.chiuratto.ai"
     @AppStorage("cognitiveScope") private var scope = "all"
     @AppStorage("cognitiveRecents") private var recentsJSON = "[]"
     /// Deep-link: launch arg `-cognitiveAutoQuery "…"` (NSUserDefaults argument domain) runs a recall on appear.
@@ -405,8 +471,20 @@ struct RecallPane: View {
     @State private var flash: Int?
     @State private var didAutoRun = false
     @FocusState private var focused: Bool
+    @State private var recallTask: Task<Void, Never>?
 
-    private var api: CognitiveAPI { CognitiveAPI(baseURL: baseURL) }
+    /// Programmatic entry point (e.g. SpatialDeskMissionControlView's Action Menu) — runs
+    /// this query on appear instead of relying on the `-cognitiveAutoQuery` launch-argument
+    /// deep link, which is meant for CLI/test automation, not in-app callers.
+    private let presetQuery: String?
+    private let presetScope: String?
+
+    init(presetQuery: String? = nil, presetScope: String? = nil) {
+        self.presetQuery = presetQuery
+        self.presetScope = presetScope
+    }
+
+    private var api: CognitiveAPI { CognitiveAPI(preferred: baseURL) }
 
     private let suggestions = [
         "What did we decide about fleet routing?",
@@ -425,7 +503,13 @@ struct RecallPane: View {
                 VStack(alignment: .leading, spacing: 16) {
                     askBar
                     ScopePills(scope: $scope) { if !query.isEmpty { run() } }
-                    if loading { ThinkingCard() }
+                    if loading {
+                        ThinkingCard()
+                        Button { recallTask?.cancel(); loading = false; error = "cancelled" } label: {
+                            Label("Cancel", systemImage: "xmark.circle").font(.caption)
+                        }
+                        .buttonStyle(.borderless).tint(CK.accent).padding(.top, 4)
+                    }
                     else if let error { errorCard(error) }
                     else if let result {
                         answerCard(result)
@@ -438,7 +522,13 @@ struct RecallPane: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .task {
-                if !didAutoRun, !autoQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                guard !didAutoRun else { return }
+                if let presetQuery, !presetQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+                    didAutoRun = true
+                    if let presetScope { scope = presetScope }
+                    query = presetQuery
+                    run()
+                } else if !autoQuery.trimmingCharacters(in: .whitespaces).isEmpty {
                     didAutoRun = true
                     query = autoQuery
                     run()
@@ -619,9 +709,10 @@ struct RecallPane: View {
         guard !q.isEmpty else { return }
         focused = false; loading = true; error = nil
         pushRecent(q)
-        Task {
+        recallTask = Task {
             do { result = try await api.recall(query: q, scope: scope) }
-            catch { self.error = "request failed: \(error.localizedDescription)" }
+            catch is CancellationError { /* user cancelled; state already reset */ }
+            catch { self.error = error.localizedDescription }
             loading = false
         }
     }
@@ -751,14 +842,14 @@ private struct FlowLayout: Layout {
 // MARK: - Next pane (propositor)
 
 struct NextPane: View {
-    @AppStorage("cognitiveBaseURL") private var baseURL = "http://cockpit-1.tail21cbc4.ts.net"
+    @AppStorage("cognitiveBaseURL") private var baseURL = "https://beagle.chiuratto.ai"
     @AppStorage("cognitiveScope") private var scope = "all"
     @State private var result: ProposeResult?
     @State private var loading = false
     @State private var error: String?
     @State private var accepted: Set<String> = []
 
-    private var api: CognitiveAPI { CognitiveAPI(baseURL: baseURL) }
+    private var api: CognitiveAPI { CognitiveAPI(preferred: baseURL) }
 
     var body: some View {
         ScrollView {
@@ -810,7 +901,7 @@ struct NextPane: View {
     private var idle: some View {
         VStack(spacing: 10) {
             Image(systemName: "bolt.fill").font(.system(size: 34)).foregroundStyle(CK.line2)
-            Text("Next steps").font(.title3.weight(.bold)).foregroundStyle(CK.fg)
+            Text("Próximos passos propostos").font(.title3.weight(.bold)).foregroundStyle(CK.fg)
             Text("The organism reads recent state + memory and the fleet proposes the next moves — you decide.")
                 .font(.subheadline).foregroundStyle(CK.dim).multilineTextAlignment(.center)
         }

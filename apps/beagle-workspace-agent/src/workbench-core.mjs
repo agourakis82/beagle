@@ -481,6 +481,41 @@ export async function writeJsonFile(filePath, payload) {
   await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 }
 
+export function providerConfigPath(rootDir, slug) {
+  return path.join(workspaceDir(rootDir, slug), "provider-config.json");
+}
+
+export async function readProviderConfig(rootDir, slug) {
+  const cfg = await readJsonFile(providerConfigPath(rootDir, slug), { version: 1, slots: {} });
+  if (!cfg || typeof cfg !== "object") return { version: 1, slots: {} };
+  return {
+    version: cfg.version || 1,
+    slots: cfg.slots && typeof cfg.slots === "object" ? cfg.slots : {},
+    updatedAt: cfg.updatedAt,
+  };
+}
+
+export async function writeProviderConfig(rootDir, slug, cfg) {
+  const payload = {
+    version: cfg?.version || 1,
+    slots: cfg?.slots && typeof cfg.slots === "object" ? cfg.slots : {},
+    updatedAt: nowIso(),
+  };
+  await writeJsonFile(providerConfigPath(rootDir, slug), payload);
+  return payload;
+}
+
+// Returns the config with every slot's secret replaced by apiKeyConfigured.
+// Never echoes the raw apiKey.
+export function maskProviderConfig(cfg) {
+  const slots = {};
+  for (const [id, slot] of Object.entries(cfg?.slots || {})) {
+    const { apiKey, ...rest } = slot || {};
+    slots[id] = { ...rest, apiKeyConfigured: Boolean(apiKey) };
+  }
+  return { version: cfg?.version || 1, slots, updatedAt: cfg?.updatedAt };
+}
+
 export async function readSessions(rootDir, slug) {
   return await readJsonFile(sessionsPath(rootDir, slug), { sessions: [] });
 }

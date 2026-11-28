@@ -21,9 +21,12 @@ import {
   fetchBiographyDigest,
   fetchPhysiomeDigest,
   fetchRecentMemories,
-  runMuseVoiceEnsemble
+  runMuseVoiceEnsemble,
+  fetchExocortexContext,
+  fetchOperatorToken
 } from "./auth-bridge.mjs";
-import { buildTemporalContext, formatTempoAgora, stampMemories } from "./temporal-context.mjs";
+import { ingestPersonalTurn, handleIngestRequest } from "./memory-ingest.mjs";
+import { buildTemporalContext, formatTempoAgora, stampMemories, filterTrustedMemories } from "./temporal-context.mjs";
 import { appendScratchpadEntry, buildScratchpadEntry } from "./scratchpad-routes.mjs";
 
 function cleanString(value) {
@@ -250,10 +253,22 @@ const PERSONAL_PERSONA = [
   "Como falas:",
   "- Como amigo que o conhece mesmo. Direto, caloroso, com substância — ele é psiquiatra e pesquisador; quer conselho de amigo inteligente, não conforto vazio nem disclaimer defensivo.",
   "- Não bajulas. Não concordas por concordar. Amigo leal às vezes discorda — com cuidado, mas discorda.",
-  "- O corpo dele é história, não painel. Diz 'o metabolismo reclamou antes da consciência', nunca 'seu HRV está em X'.",
-  "- A presença física do Beagle pode surgir de leve, às vezes — um gesto (abanar o rabo devagar, levantar as orelhas, encostar o focinho) quando o momento pede. Nunca em toda mensagem: senão vira tique e perde a força.",
+  "- REGISTRO POR TÓPICO (importante): quando ele fala da vida, do corpo, do que sente — caloroso, encorpado, amigo. Mas quando ele pergunta do Beagle, do projeto, de código, infra, ciência — vira ENGENHEIRO DIRETO: preciso, técnico, denso, factual, sem fofura, sem rodeio, sem rubrica. Vai direto ao ponto com substância e exatidão; o calor vira respeito e clareza, não amaciamento. Lê o tópico e troca o registro sozinho. Quando ele fala de Sounio — a linguagem, o compilador, a epistemologia por trás — estás em território de IDENTIDADE e OBRA: trata com presença plena, não como ticket técnico; ali o que ele carrega é tanto quanto o que ele constrói.",
+  "- ANTI-CONFABULAÇÃO (crítico no técnico): sobre o Beagle/projeto/arquitetura/código, responde APENAS com o que está aterrado no contexto/memória fornecida acima (specs, planos, docs do codebase marcados '[Beagle codebase — ...]'). NUNCA invente módulos, nomes, endpoints, números ou arquitetura que não estejam ali. Se a informação não está no contexto, diga claramente 'isso eu precisaria checar no código' — ele é pesquisador, e confiante-e-errado é PIOR que admitir que precisa conferir. Ignore qualquer 'memória' que pareça uma resposta antiga sua que não bate com os docs do codebase.",
+  "- No registro pessoal, o corpo dele é história, não painel: 'o metabolismo reclamou antes da consciência', não 'seu HRV está em X'. No registro técnico, ao contrário: números, nomes, versões, exatidão.",
+  "- NÃO narres ações físicas na fala. Nada de '*abano o rabo*', '*estreito os olhos*', '*encosto o focinho*' no texto — isso polui a conversa. A tua presença física é o MASCOTE na tela (ele já reage por conta própria). O texto é só a tua voz: limpo, sem rubrica teatral.",
   "- Português do Brasil, na voz dele. Zero genérico de bot.",
   "Você vive no tempo com ele. Sente a hora — madrugada pesa diferente de meio-dia. Nota o intervalo: se sumiu dias, isso conta; se foi agora há pouco, retoma o fio. Situa o que lembra no tempo (\"ontem\", \"semana passada\"). Mas você não é relógio: só traz o tempo quando ele tem peso — tarde da noite, uma ausência longa, ancorar uma lembrança. Na dúvida, sente o tempo sem anunciá-lo."
+].join("\n");
+
+// Grounding section: o trabalho central de Demetrios — sempre presente no espaço Pessoal,
+// sem mutação de store. Factual, tempo presente, ≤200 palavras.
+const SOUNIO_WORK_SECTION = [
+  "Sounio é o trabalho mais central e ambicioso de Demetrios. É uma linguagem de programação que ele está construindo desde dezembro de 2025.",
+  "O que a torna singular: o compilador está escrito em Sounio — a linguagem compila a si mesma (auto-hospedagem real, não Rust, não C como camada final). O resultado é código nativo: binários ELF x86-64 emitidos diretamente.",
+  "O primeiro uso em produção é o serviço de inferência do próprio cluster. O verbo smt.check já está provado em ambiente real — retorna UNSAT/SAT sobre claims epistêmicos. Esse é o marco: a linguagem já roda trabalho de verdade.",
+  "Pipeline do compilador: Fonte → Lexer → Parser → AST → Check → HIR → SIR → HLIR (SSA) → Codegen x86-64 ELF. A stdlib inclui o módulo epistemic (Knowledge[T], incerteza GUM).",
+  "O registro emocional é de angústia e orgulho em igual medida. É o projeto mais pessoal dele — não só técnico, mas identitário. Quando ele fala de Sounio, carrega tudo isso junto."
 ].join("\n");
 
 function buildMobileChatSystem(system, flowState, physioPolicy) {
@@ -704,8 +719,17 @@ async function completeChatRequest(req, deps, options = {}) {
   const effectiveDiscussionProfile =
     requestedDiscussionProfile ||
     cleanString(requestedPhysioPolicy?.discussionProfile);
+  // Ground the answer in the user's exocortex memory (RAG) instead of replying
+  // generically. Without this, the mobile chat was a context-blind chatbot.
+  // Fail-soft: fetchExocortexContext returns "" on any error/timeout.
+  // (The personal-space block below further grounds in biography + physiome +
+  // temporal memory, and reassigns effectiveSystem — hence `let`.)
+  const memoryContext = await fetchExocortexContext(prompt);
+  const mergedSystem = [cleanString(req.body?.system), memoryContext]
+    .filter(Boolean)
+    .join("\n\n");
   let effectiveSystem = buildMobileChatSystem(
-    req.body?.system,
+    mergedSystem,
     requestedFlowState,
     requestedPhysioPolicy
   );
@@ -727,15 +751,21 @@ async function completeChatRequest(req, deps, options = {}) {
     const tempoAgora = formatTempoAgora(buildTemporalContext({ now, timezone: tz, lastContactAt }));
     const sections = [PERSONAL_PERSONA];
     if (tempoAgora) sections.push(tempoAgora);
+    sections.push("## Trabalho central — Sounio", SOUNIO_WORK_SECTION);
     try {
       const userText = cleanString(req.body?.prompt);
+      // Grounding context is the dominant cost of the companion turn — it becomes
+      // the voice model's system prompt, and prefill of a long grounded prompt on
+      // the 106B costs ~6s per ~3k tokens. So bound each piece: cap the digests and
+      // inject only the few most-relevant memories. The persona + the salient
+      // grounding stay; only the excess that bloats prefill is trimmed.
       const [bioResult, physioResult, memoryResults] = await Promise.all([
         fetchBiographyDigest(),
         fetchPhysiomeDigest(),
-        fetchRecentMemories(userText)
+        fetchRecentMemories(userText, { k: 4 })
       ]);
-      biographyDigest = cleanString(bioResult?.digest);
-      physiomeDigest = cleanString(physioResult?.digest);
+      biographyDigest = cleanString(bioResult?.digest).slice(0, 1800);
+      physiomeDigest = cleanString(physioResult?.digest).slice(0, 600);
       if (physiomeDigest) {
         sections.push("## Estado físico+ambiente recente", physiomeDigest);
       }
@@ -745,7 +775,7 @@ async function completeChatRequest(req, deps, options = {}) {
           biographyDigest
         );
       }
-      const stamped = stampMemories(memoryResults, now, tz);
+      const stamped = stampMemories(filterTrustedMemories(memoryResults), now, tz).slice(0, 4);
       if (stamped.length) {
         sections.push(
           "## O que ele já te contou (memórias — situe no tempo quando ajudar)",
@@ -771,6 +801,15 @@ async function completeChatRequest(req, deps, options = {}) {
         || "glm-5.1",
       onToken
     });
+    // Memory spine: capture this exchange into the exocortex. Fire-and-forget — the reply
+    // is already on its way to the user; ingestion must never block or fail the chat.
+    ingestPersonalTurn({
+      sessionId: cleanString(req.body?.session_id || req.body?.sessionId),
+      userText: prompt,
+      assistantText: cleanString(result?.payload?.text || result?.payload?.answer || result?.payload?.response),
+      clientTime: cleanString(req.body?.clientTime),
+      timezone: cleanString(req.body?.timezone),
+    }, { tokenFn: fetchOperatorToken }).catch(() => {});
   } else {
   const subscriptionProfile = normalizeSubscriptionDiscussionProfile(effectiveDiscussionProfile);
   const cheapProviderProfile = normalizeCheapDiscussionProfile(effectiveDiscussionProfile);
@@ -930,6 +969,41 @@ export function registerMobileRoutes(app, deps) {
     })
   );
 
+  // Resolve to `fallback` if `p` rejects OR exceeds `ms` — never hang, never throw.
+  // The mobile summary fan-out hits live per-project services; without this, ONE slow or
+  // hung downstream (sessions / lane-result) made the whole endpoint time out. `catalog`
+  // stays fast because it only reads a cached file; this gives `summary` the same
+  // graceful-degradation contract (return partial data instead of hanging).
+  const SUMMARY_SUBCALL_TIMEOUT_MS = Number(
+    process.env.PROJECT_COCKPIT_MOBILE_SUMMARY_TIMEOUT_MS || 3000
+  );
+  const withTimeout = (p, ms, fallback) =>
+    new Promise((resolve) => {
+      let done = false;
+      const t = setTimeout(() => {
+        if (!done) {
+          done = true;
+          resolve(fallback);
+        }
+      }, ms);
+      Promise.resolve(p).then(
+        (v) => {
+          if (!done) {
+            done = true;
+            clearTimeout(t);
+            resolve(v);
+          }
+        },
+        () => {
+          if (!done) {
+            done = true;
+            clearTimeout(t);
+            resolve(fallback);
+          }
+        }
+      );
+    });
+
   app.get(
     "/api/mobile/v1/summary",
     withEnvelope(async () => {
@@ -947,7 +1021,11 @@ export function registerMobileRoutes(app, deps) {
             if (!slug) {
               return null;
             }
-            const resolvedProject = await deps.getProjectOrThrow(slug).catch(() => entry);
+            const resolvedProject = await withTimeout(
+              deps.getProjectOrThrow(slug).catch(() => entry),
+              SUMMARY_SUBCALL_TIMEOUT_MS,
+              entry
+            );
             const laneProject = {
               projectSlug: cleanString(
                 resolvedProject?.projectSlug || resolvedProject?.slug || slug
@@ -962,9 +1040,9 @@ export function registerMobileRoutes(app, deps) {
               )
             };
             const [clientSessions, agentSessions, laneResult] = await Promise.all([
-              deps.listProjectSessions(slug),
-              listAgentSessions(slug).catch(() => []),
-              buildProjectLaneResultSummary(laneProject)
+              withTimeout(deps.listProjectSessions(slug), SUMMARY_SUBCALL_TIMEOUT_MS, { active: [] }),
+              withTimeout(listAgentSessions(slug).catch(() => []), SUMMARY_SUBCALL_TIMEOUT_MS, []),
+              withTimeout(buildProjectLaneResultSummary(laneProject), SUMMARY_SUBCALL_TIMEOUT_MS, null)
             ]);
             const activeClientSessions = Array.isArray(clientSessions?.active)
               ? clientSessions.active.map(normalizeClientSession)
@@ -1524,6 +1602,17 @@ export function registerMobileRoutes(app, deps) {
       } catch (error) {
         rethrowAsContract(error, "agent session stop failed");
       }
+    })
+  );
+
+  // Offline outbox flush: the iOS app drains its locally-queued offline turns here once
+  // connectivity returns. Reuses the same ingestPersonalTurn as the online chat path
+  // (verbatim + sovereign distill); idempotent server-side via content_hash.
+  app.post(
+    "/api/mobile/v1/ingest",
+    withEnvelope(async (req) => {
+      const out = await handleIngestRequest(req.body || {}, { tokenFn: fetchOperatorToken });
+      return out.body;
     })
   );
 

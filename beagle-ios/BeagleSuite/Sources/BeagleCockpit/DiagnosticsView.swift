@@ -46,6 +46,7 @@ struct DiagnosticsView: View {
                             .font(BeagleFont.footnote.font)
                     }
                     .tint(BeagleTheme.truthObserved)
+                    .accessibilityIdentifier("diagnostics.runButton")
                 }
             }
         }
@@ -280,7 +281,7 @@ private struct DiagnosticsGradient: View {
         )
         .ignoresSafeArea()
         .onAppear {
-            guard !reduceMotion else { return }
+            guard !reduceMotion, !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { return }
             withAnimation(.easeInOut(duration: 6).repeatForever(autoreverses: true)) {
                 phase = 1
             }

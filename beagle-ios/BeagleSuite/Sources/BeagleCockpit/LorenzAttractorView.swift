@@ -14,7 +14,6 @@ struct LorenzAttractorView: View {
     let tintColor: Color
     @State private var points: [CGPoint] = []
     @State private var trailEnd: Int = 0
-    @State private var timer: Timer?
 
     // Lorenz system parameters
     private let sigma: Double = 10.0
@@ -66,15 +65,17 @@ struct LorenzAttractorView: View {
                 context.fill(dot, with: .color(tintColor))
             }
         }
-        .onAppear {
-            generatePoints()
-            startAnimation()
-        }
-        .onDisappear { stopAnimation() }
-        .onChange(of: stagnation) {
+        .task(id: stagnation) {
             generatePoints()
             trailEnd = 0
-            startAnimation()
+            let total = points.count
+            guard total > 0 else { return }
+            let batchSize = max(total / 60, 4)  // reveal over ~60 frames
+            while !Task.isCancelled && trailEnd < total {
+                try? await Task.sleep(for: .milliseconds(33))
+                guard !Task.isCancelled else { break }
+                trailEnd = min(trailEnd + batchSize, total)
+            }
         }
     }
 
@@ -96,27 +97,6 @@ struct LorenzAttractorView: View {
         }
 
         points = result
-    }
-
-    private func startAnimation() {
-        stopAnimation()
-        let total = points.count
-        guard total > 0 else { return }
-        let batchSize = max(total / 60, 4)  // reveal over ~60 frames
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
-            Task { @MainActor in
-                if trailEnd < total {
-                    trailEnd = min(trailEnd + batchSize, total)
-                } else {
-                    stopAnimation()
-                }
-            }
-        }
-    }
-
-    private func stopAnimation() {
-        timer?.invalidate()
-        timer = nil
     }
 }
 

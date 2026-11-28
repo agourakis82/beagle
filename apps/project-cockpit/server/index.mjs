@@ -21,7 +21,7 @@ import {
 import { registerScratchpadRoutes } from "./scratchpad-routes.mjs";
 import { registerJobRoutes } from "./job-routes.mjs";
 import { registerQueueRoutes } from "./queue-routes.mjs";
-import { registerAuthBridgeRoutes } from "./auth-bridge.mjs";
+import { registerAuthBridgeRoutes, fetchOperatorToken } from "./auth-bridge.mjs";
 import { startJobReconciler } from "./job-reconciler.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -10236,6 +10236,10 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Physiome HealthKit/WeatherKit uploads arrive in multi-MB 5000-sample chunks;
+// give that path a large body limit BEFORE the default 100kb json parser (which
+// would 413 the upload). express.json() skips bodies already parsed (req._body).
+app.use("/api/physiome", express.json({ limit: "25mb" }));
 app.use(express.json());
 
 // ─── Security middleware ────────────────────────────────────────────
@@ -11625,7 +11629,68 @@ function renderProjectLaunchPage(project) {
       .row { display: grid; }
       .row strong { text-align: left; }
     }
+    /* ── Fleet Terminal (xterm.js) ───────────────────────────────────────── */
+    .fleet-terminal-wrap {
+      height: 420px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0d1117;
+      border: 1px solid var(--line);
+    }
+    #fleet-terminal {
+      height: 100%;
+      width: 100%;
+    }
+    .fleet-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .fleet-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      background: rgba(0, 0, 0, 0.18);
+    }
+    .fleet-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    .fleet-pill.connected .dot  { background: var(--accent); }
+    .fleet-pill.connected       { color: var(--accent); }
+    .fleet-pill.disconnected .dot { background: #ff5f5f; }
+    .fleet-pill.disconnected    { color: #ff8a8a; }
+    #fleet-reconnect { margin-left: auto; }
+    @media (max-width: 760px) {
+      .fleet-header { flex-wrap: wrap; }
+      #fleet-reconnect { margin-left: 0; width: 100%; }
+      .fleet-terminal-wrap { height: 300px; }
+    }
   </style>
+  <!-- xterm.js Fleet Terminal — loaded from CDN (unpkg).                     -->
+  <!-- SRI hashes pinned to @xterm/xterm@5.x and @xterm/addon-fit@0.10.x.    -->
+  <!-- TODO air-gap hardening: vendor these files under                        -->
+  <!--      apps/project-cockpit/public/ and serve them as static assets.      -->
+  <link rel="stylesheet"
+        href="https://unpkg.com/@xterm/xterm@5/css/xterm.css"
+        integrity="sha384-8Xk9wy/gzEDUKrXtrmCFa2bBuK3BpjpDuL/p0SeKQX19Khl/M+lHOgD/CyYf7efP"
+        crossorigin="anonymous" />
+  <script src="https://unpkg.com/@xterm/xterm@5/lib/xterm.js"
+          integrity="sha384-M169f14mRZOXm3hD/v2Ti0ThIT/RnAQagXA9nlE15yHAtrW19gdePJh/HaTzUOe/"
+          crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@xterm/addon-fit@0.10/lib/addon-fit.js"
+          integrity="sha384-iF+jqbuti4XlB64clWgFWYEscb+UnSRv3VgVikGYZu+otNFnSHr7y7NcKfBnGizn"
+          crossorigin="anonymous"></script>
 </head>
 <body>
   <main>
@@ -11675,6 +11740,17 @@ function renderProjectLaunchPage(project) {
         <button id="connect-terminal" type="button">Connect Latest Shell</button>
         <button id="interrupt-terminal" type="button">Interrupt</button>
         <button id="remember-block" type="button">Remember Last Block</button>
+      </div>
+    </section>
+
+    <section style="margin-top: 18px;">
+      <div class="fleet-header">
+        <h2 style="margin:0;">Fleet Terminal</h2>
+        <span id="fleet-pill" class="fleet-pill"><span class="dot"></span><span id="fleet-pill-text">connecting…</span></span>
+        <button id="fleet-reconnect" type="button">Reconnect</button>
+      </div>
+      <div class="fleet-terminal-wrap">
+        <div id="fleet-terminal"></div>
       </div>
     </section>
 
@@ -12083,6 +12159,131 @@ function renderProjectLaunchPage(project) {
       terminalInput.focus();
     });
     refresh();
+
+    // ── Fleet Terminal (xterm.js → /ws/terminal PTY) ─────────────────────────
+    // Connects to the shared interactive PTY for pod sounio-workspace-control-0.
+    // Auth uses the tailscale-user-login header the browser already sends on the
+    // upgrade request (same gate as the page) — NOT a token in the URL, which
+    // would leak into cloudflared/proxy access logs. The old Shell Lane <pre>
+    // above is intentionally kept; both coexist.
+    (function () {
+      const fleetPillEl      = document.getElementById("fleet-pill");
+      const fleetPillText    = document.getElementById("fleet-pill-text");
+      const fleetReconnectBtn = document.getElementById("fleet-reconnect");
+
+      let fleetWs        = null;
+      let fleetTerm      = null;
+      let fleetFit       = null;
+      let fleetResizeObs = null;
+
+      function fleetSetPill(state, label) {
+        fleetPillEl.className = "fleet-pill" + (state ? " " + state : "");
+        fleetPillText.textContent = label;
+      }
+
+      function fleetConnect() {
+        if (fleetWs) {
+          try { fleetWs.close(); } catch (_) {}
+          fleetWs = null;
+        }
+        fleetSetPill("", "connecting\\u2026");
+        const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+        const params = new URLSearchParams({ project: slug });
+        const url = scheme + "//" + location.host + "/ws/terminal?" + params.toString();
+        fleetWs = new WebSocket(url);
+
+        fleetWs.addEventListener("open", () => {
+          if (fleetTerm && fleetFit) {
+            try { fleetFit.fit(); } catch (_) {}
+            fleetWs.send(JSON.stringify({ type: "resize", cols: fleetTerm.cols, rows: fleetTerm.rows }));
+          }
+        });
+
+        fleetWs.addEventListener("message", (event) => {
+          let msg = {};
+          try { msg = JSON.parse(String(event.data)); } catch (_) {
+            fleetTerm && fleetTerm.write(String(event.data));
+            return;
+          }
+          if (msg.type === "data")  { fleetTerm && fleetTerm.write(msg.data); return; }
+          if (msg.type === "ready") {
+            fleetSetPill("connected", "connected \\u00b7 " + (msg.data && msg.data.projectSlug ? msg.data.projectSlug : slug));
+            return;
+          }
+          if (msg.type === "exit")  {
+            fleetSetPill("disconnected", "exited \\u00b7 " + (msg.data || ""));
+            return;
+          }
+          if (msg.type === "error") {
+            fleetSetPill("disconnected", "error \\u00b7 " + (msg.data || msg.error || ""));
+            return;
+          }
+        });
+
+        fleetWs.addEventListener("close", () => fleetSetPill("disconnected", "disconnected"));
+        fleetWs.addEventListener("error", () => fleetSetPill("disconnected", "ws error"));
+      }
+
+      function fleetInit() {
+        const container = document.getElementById("fleet-terminal");
+        if (!container) return;
+
+        // Dispose previous instance if reconnecting
+        if (fleetResizeObs) { try { fleetResizeObs.disconnect(); } catch (_) {} fleetResizeObs = null; }
+        if (fleetTerm)      { try { fleetTerm.dispose(); }          catch (_) {} fleetTerm = null; }
+
+        fleetTerm = new Terminal({
+          cursorBlink: true,
+          theme: {
+            background:          "#0d1117",
+            foreground:          "#f6f7fb",
+            cursor:              "#79f2c0",
+            selectionBackground: "rgba(121, 242, 192, 0.25)"
+          },
+          fontFamily: '"SF Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace',
+          fontSize: 13,
+          lineHeight: 1.35,
+          scrollback: 5000,
+          allowTransparency: false
+        });
+
+        fleetFit = new FitAddon.FitAddon();
+        fleetTerm.loadAddon(fleetFit);
+        fleetTerm.open(container);
+        try { fleetFit.fit(); } catch (_) {}
+
+        // Relay user keystrokes / paste to the PTY
+        fleetTerm.onData((d) => {
+          if (fleetWs && fleetWs.readyState === WebSocket.OPEN) {
+            fleetWs.send(JSON.stringify({ type: "input", data: d }));
+          }
+        });
+
+        // Track container resizes and notify the server PTY
+        fleetResizeObs = new ResizeObserver(() => {
+          try { fleetFit && fleetFit.fit(); } catch (_) {}
+          if (fleetWs && fleetWs.readyState === WebSocket.OPEN && fleetTerm) {
+            fleetWs.send(JSON.stringify({ type: "resize", cols: fleetTerm.cols, rows: fleetTerm.rows }));
+          }
+        });
+        fleetResizeObs.observe(container);
+
+        fleetConnect();
+      }
+
+      fleetReconnectBtn.addEventListener("click", () => {
+        // Full re-init so the terminal canvas is fresh after a reconnect
+        fleetInit();
+      });
+
+      // xterm.js scripts are synchronous in <head>; Terminal is defined by now.
+      // Fallback to window load if a browser extension somehow defers them.
+      if (typeof Terminal !== "undefined" && typeof FitAddon !== "undefined") {
+        fleetInit();
+      } else {
+        window.addEventListener("load", fleetInit);
+      }
+    })();
   </script>
 </body>
 </html>`;
@@ -14767,6 +14968,93 @@ registerQueueRoutes(app);
 
 // ─── Auth bridge to beagle-server (iOS gets token via cockpit) ──────────
 registerAuthBridgeRoutes(app);
+
+// ─── Physiome ingest proxy — /api/physiome/* → physiome-ingest ──────────
+// The iOS Physiome uploader (PhysiomeUploader.swift) posts HealthKit and
+// WeatherKit samples to beagle.chiuratto.ai/api/physiome/ingest (this cockpit,
+// behind the cloudflared tunnel). The cockpit gate validates the operator Bearer;
+// this handler substitutes the physiome-specific ingest token (physiome-secrets)
+// before forwarding to the in-cluster ingest service.
+//   Service:  physiome-ingest.beagle.svc.cluster.local:8080
+//   Endpoint: POST /api/physiome/ingest
+(function registerPhysiomeProxyRoutes() {
+  const PHYSIOME_INGEST_INTERNAL_URL =
+    process.env.PROJECT_COCKPIT_PHYSIOME_INGEST_URL ||
+    "http://physiome-ingest.beagle.svc.cluster.local:8080";
+  const PHYSIOME_SECRET = "physiome-secrets";
+  const PHYSIOME_TOKEN_KEY = "PHYSIOME_INGEST_TOKEN";
+  const PHYSIOME_TOKEN_TTL_MS = 5 * 60 * 1000; // 5-minute cache
+
+  let physiomeTokenCache = null;
+  let physiomeTokenCachedAt = 0;
+
+  async function fetchPhysiomeToken() {
+    const now = Date.now();
+    if (physiomeTokenCache && (now - physiomeTokenCachedAt) < PHYSIOME_TOKEN_TTL_MS) {
+      return physiomeTokenCache;
+    }
+    try {
+      const { stdout } = await runKubectl(
+        ["-n", "beagle", "get", "secret", PHYSIOME_SECRET,
+         "-o", `jsonpath={.data.${PHYSIOME_TOKEN_KEY}}`],
+        { timeoutMs: 5000 }
+      );
+      const decoded = Buffer.from(String(stdout || "").trim(), "base64").toString("utf8").trim();
+      if (decoded) {
+        physiomeTokenCache = decoded;
+        physiomeTokenCachedAt = now;
+        return decoded;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  app.post("/api/physiome/*", async (req, res) => {
+    // Validate the incoming operator token against the known beagle token so this
+    // endpoint cannot be abused by any bearer that merely passed the cockpit gate.
+    const incoming = (req.headers["authorization"] || "").replace(/^Bearer\s+/i, "").trim();
+    const tokenResult = await fetchOperatorToken();
+    if (tokenResult.error || !tokenResult.token || incoming !== tokenResult.token) {
+      return res.status(401).json({ ok: false, error: "invalid operator token for physiome ingest" });
+    }
+
+    // Fetch the physiome-ingest-specific token (a different secret).
+    const physToken = await fetchPhysiomeToken();
+    if (!physToken) {
+      return res.status(503).json({ ok: false, error: "physiome-ingest token unavailable (check physiome-secrets)" });
+    }
+
+    // Strip the /api/physiome prefix and forward to the ingest service.
+    const tail = req.originalUrl.replace(/^\/api\/physiome/, "") || "/";
+    const target = `${PHYSIOME_INGEST_INTERNAL_URL}/api/physiome${tail}`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    try {
+      const upstream = await fetch(target, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${physToken}`,
+          "X-Beagle-Consumer": "beagle-operator"
+        },
+        body: JSON.stringify(req.body ?? {}),
+        signal: ctrl.signal
+      });
+      const text = await upstream.text();
+      res
+        .status(upstream.status)
+        .set("Content-Type", upstream.headers.get("content-type") || "application/json")
+        .send(text);
+    } catch (err) {
+      res.status(503).json({
+        ok: false,
+        error: err.name === "AbortError" ? "physiome-ingest timeout (60s)" : err.message
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+})();
 
 const server = http.createServer(app);
 

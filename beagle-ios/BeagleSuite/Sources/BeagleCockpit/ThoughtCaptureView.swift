@@ -25,15 +25,13 @@ struct ThoughtCaptureView: View {
     @State private var composerTimeline: [ChatMemoryTimelineEvent] = []
     @State private var showingThinkingAloud = false
     @State private var showingVisualEvidence = false
+    @State private var showingDailySynthesis = false
     @State private var lastRefined: String?
     @State private var lastTranslation: String?
     @State private var refinedPersisted = false
     @State private var conversation: ConversationStore
     @State private var hermesPhase = ""
     @State private var hermesPhaseIndex = 0
-    #if os(iOS)
-    @State private var speechRecognizer = SpeechRecognizer()
-    #endif
     @FocusState private var inputFocused: Bool
 
     private static let hermesMessages = [
@@ -67,8 +65,12 @@ struct ThoughtCaptureView: View {
         }
     }
 
-    init() {
-        _conversation = State(initialValue: ConversationStore(preferLocal: false))
+    /// "Talk" mode used to always spin up its OWN ConversationStore — a second, invisible
+    /// conversation history disconnected from the main chat, depending on which button you
+    /// tapped to start talking. Callers with an existing store (BeagleSurface) should pass
+    /// it in so "Talk" is just another entry point into the SAME conversation, not a fork.
+    init(sharedConversation: ConversationStore? = nil) {
+        _conversation = State(initialValue: sharedConversation ?? ConversationStore(preferLocal: false))
     }
 
     var body: some View {
@@ -85,9 +87,6 @@ struct ThoughtCaptureView: View {
                 }
                 .background { captureBackground }
                 .navigationTitle("Talk")
-                #if os(iOS)
-                .task { await speechRecognizer.setup() }
-                #endif
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: BeagleSpacing.xl) {
@@ -125,6 +124,9 @@ struct ThoughtCaptureView: View {
             VisualEvidenceCaptureView(projectSlug: cognitive.activeProjectSlug ?? "sounio") { candidates in
                 Task { await promoteCaptureCandidates(candidates, sourceSurface: "beagle-ios-visual-evidence") }
             }
+        }
+        .sheet(isPresented: $showingDailySynthesis) {
+            DailySynthesisView(captureLines: cognitive.todaysCaptureLines())
         }
         .translationTask(TranslationEngine.shared.activeConfiguration) { session in
             let batch = TranslationEngine.shared.drainPending()
@@ -292,109 +294,6 @@ struct ThoughtCaptureView: View {
         }
     }
 
-    // MARK: - Voice
-
-    private var voiceSection: some View {
-        #if os(iOS)
-        VStack(spacing: BeagleSpacing.md) {
-            // Whisper status
-            if speechRecognizer.isWhisperReady {
-                HStack(spacing: BeagleSpacing.xxs) {
-                    Image(systemName: "waveform.badge.microphone")
-                        .font(.system(size: 10))
-                    Text("Whisper on-device")
-                        .font(BeagleFont.caption2.font)
-                }
-                .foregroundStyle(BeagleTheme.truthObserved.opacity(0.7))
-            }
-
-            // Mic icon with live waveform animation
-            ZStack {
-                // Breathing ring when recording
-                if speechRecognizer.isRecording {
-                    Circle()
-                        .strokeBorder(BeagleTheme.truthObserved.opacity(0.2), lineWidth: 2)
-                        .frame(width: 72, height: 72)
-                        .scaleEffect(speechRecognizer.isRecording ? 1.15 : 1.0)
-                        .animation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: speechRecognizer.isRecording)
-                }
-
-                Image(systemName: speechRecognizer.isRecording ? "waveform" : "mic.fill")
-                    .font(.system(size: 32))
-                    .foregroundStyle(speechRecognizer.isRecording ? BeagleTheme.truthObserved : BeagleTheme.textTertiary)
-                    .symbolEffect(.variableColor.iterative, isActive: speechRecognizer.isRecording)
-            }
-            .frame(height: 76)
-            .sensoryFeedback(.impact(weight: .light), trigger: speechRecognizer.isRecording)
-
-            // Live transcript
-            if speechRecognizer.isRecording || !speechRecognizer.transcript.isEmpty {
-                Text(speechRecognizer.transcript.isEmpty ? "Listening..." : speechRecognizer.transcript)
-                    .font(BeagleFont.body.font)
-                    .foregroundStyle(BeagleTheme.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-            }
-
-            // Error
-            if let error = speechRecognizer.error {
-                HStack(spacing: BeagleSpacing.xs) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(BeagleTheme.stateError)
-                    Text(error)
-                        .font(BeagleFont.caption.font)
-                        .foregroundStyle(BeagleTheme.stateError)
-                        .lineLimit(2)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            // Controls
-            if speechRecognizer.isRecording {
-                HStack(spacing: BeagleSpacing.sm) {
-                    Button {
-                        speechRecognizer.stopRecording()
-                        inputText = speechRecognizer.transcript
-                        if !inputText.isEmpty {
-                            Task { await captureThought() }
-                        }
-                    } label: {
-                        Label("Capture", systemImage: "sparkles")
-                    }
-                    .buttonStyle(PrimaryButton())
-                    .disabled(speechRecognizer.transcript.isEmpty)
-
-                    Button {
-                        speechRecognizer.stopRecording()
-                    } label: {
-                        Label("Cancel", systemImage: "xmark")
-                    }
-                    .buttonStyle(SecondaryButton(color: BeagleTheme.stateError))
-                }
-            } else {
-                Button {
-                    Task { await speechRecognizer.startRecording() }
-                } label: {
-                    Label("Start Recording", systemImage: "mic.fill")
-                }
-                .buttonStyle(PrimaryButton())
-            }
-        }
-        .frame(minHeight: 100)
-        #else
-        VStack(spacing: BeagleSpacing.md) {
-            Image(systemName: "mic.slash")
-                .font(.system(size: 32))
-                .foregroundStyle(BeagleTheme.textTertiary)
-            Text("Voice capture requires iOS")
-                .font(BeagleFont.footnote.font)
-                .foregroundStyle(BeagleTheme.textTertiary)
-        }
-        .frame(minHeight: 100)
-        #endif
-    }
-
     // MARK: - Refined Result
 
     private func refinedSection(_ refined: String) -> some View {
@@ -474,12 +373,29 @@ struct ThoughtCaptureView: View {
     private var recentThoughtsSection: some View {
         VStack(alignment: .leading, spacing: BeagleSpacing.sm) {
             if !cognitive.recentThoughts.isEmpty {
-                Text("Recent")
-                    .font(BeagleFont.caption.font)
-                    .fontWeight(.medium)
-                    .foregroundStyle(BeagleTheme.textTertiary)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
+                HStack(spacing: BeagleSpacing.xs) {
+                    Text("Recent")
+                        .font(BeagleFont.caption.font)
+                        .fontWeight(.medium)
+                        .foregroundStyle(BeagleTheme.textTertiary)
+                        .textCase(.uppercase)
+                        .tracking(0.5)
+
+                    Spacer()
+
+                    if !cognitive.todaysCaptureLines().isEmpty {
+                        Button {
+                            showingDailySynthesis = true
+                        } label: {
+                            PresencePill(
+                                label: "Sintetizar hoje",
+                                systemImage: "sparkles.rectangle.stack",
+                                tint: BeagleTheme.truthRemembered
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
 
                 ForEach(cognitive.recentThoughts.prefix(10)) { thought in
                     let thoughtText = thought.refinedText ?? thought.rawText ?? ""

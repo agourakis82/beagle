@@ -24,14 +24,17 @@ public struct CompanionMotion: Sendable {
     public var flowState: String?
     public var sleepQuality01: Double?
     public var listening: Bool
-    public var breathRate: Double?  // breaths/min; nil → resting default
+    /// Ritmo DECLARADO: `.measured(bpm:at:)` quando o Physiome falou, `.neutral`
+    /// quando não falou. Era `Double?` com fallback silencioso em 4.4 — o companion
+    /// respirava um ritmo inventado que parecia medido.
+    public var breath: PresenceBreath
 
     public init(flowState: String? = nil, sleepQuality01: Double? = nil,
-                listening: Bool = false, breathRate: Double? = nil) {
+                listening: Bool = false, breath: PresenceBreath = .neutral) {
         self.flowState = flowState
         self.sleepQuality01 = sleepQuality01
         self.listening = listening
-        self.breathRate = breathRate
+        self.breath = breath
     }
 
     /// Overall liveliness, 0…1. FLOW is lively, STRESS is subdued; listening adds attentiveness.
@@ -45,19 +48,18 @@ public struct CompanionMotion: Sendable {
         return min(1, base + (listening ? 0.25 : 0))
     }
 
-    /// Breath cycle length in seconds — rides the user's real breath rate when known,
-    /// else a calm resting default. Clamped so absurd HR-derived rates can't break it.
-    public var breathPeriod: Double {
-        guard let r = breathRate, r >= 4 else { return 4.4 }
-        return 60.0 / r
-    }
+    /// Duração do ciclo, em segundos. Vem inteira de `PresenceBreath` — inclusive
+    /// o grampo de 4–20 bpm e o período neutro declarado.
+    public var breathPeriod: Double { breath.period }
 
     public func pose(at t: TimeInterval) -> CompanionPose {
         let e = energy
         let twoPi = 2 * Double.pi
 
         let breath = sin(twoPi * t / breathPeriod)          // -1…1
-        let breathScale = 1 + 0.02 * breath                 // gentle chest expansion
+        // Amplitude cai no caso neutro: "não sei o teu ritmo" precisa PARECER
+        // diferente de "sei o teu ritmo", não só ter outro período.
+        let breathScale = 1 + 0.02 * self.breath.amplitude * breath
 
         let earPerk = min(1, max(0, (e - 0.30) / 0.55))     // FLOW→up, STRESS→drooped
 

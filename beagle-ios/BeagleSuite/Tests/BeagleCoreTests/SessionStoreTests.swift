@@ -1,0 +1,326 @@
+import Foundation
+import Testing
+@testable import BeagleCore
+
+/// A lógica da Sessão, sem rede.
+///
+/// 🚨 POR QUE ESTES TESTES FALTAVAM, e é a dívida que eles pagam: a Sessão foi construída com
+/// RETRATO (PNG) e prova ao vivo. As duas coisas são necessárias e nenhuma cobre isto — o retrato
+/// mostra um estado parado, e a prova ao vivo mostra o caminho felizes. O que decide se a tela
+/// mente é a redução: cursor que não anda, evento repetido que duplica a fala, turno que agrupa
+/// errado. Nada disso aparece num PNG bonito nem num turno que deu certo.
+@Suite
+struct SessionStoreTests {
+
+    private func ev(_ seq: Int, _ kind: String, text: String? = nil, diff: String? = nil,
+                    tool: String? = nil, approval: SessionStep.ApprovalKind? = nil) -> TramaEvent {
+        var o: [String: Any] = ["seq": seq, "ts_ms": 1_786_000_000_000.0 + Double(seq) * 1000,
+                                "lane": "codex-4", "kind": kind]
+        if let text { o["text"] = text }
+        if let diff { o["diff"] = diff }
+        if let tool { o["tool"] = tool }
+        if let approval { o["approval_kind"] = approval.rawValue }
+        let data = try! JSONSerialization.data(withJSONObject: o)
+        return try! JSONDecoder().decode(TramaEvent.self, from: data)
+    }
+
+    private func page(_ eventos: [TramaEvent], since: Int = 0, cursor: Int? = nil,
+                      streaming: String? = nil, turnRunning: Bool? = nil) -> SessionStore.Page {
+        let c = cursor ?? (eventos.map(\.seq).max() ?? since)
+        var o: [String: Any] = ["lane": "codex-4", "since": since, "cursor": c,
+                                "events": eventos.map { e -> [String: Any] in
+                                    var d: [String: Any] = ["seq": e.seq, "ts_ms": e.tsMs,
+                                                            "lane": e.lane, "kind": e.kind]
+                                    if let t = e.text { d["text"] = t }
+                                    if let d2 = e.diff { d["diff"] = d2 }
+                                    if let t = e.tool { d["tool"] = t }
+                                    if let a = e.approvalKind { d["approval_kind"] = a.rawValue }
+                                    return d
+                                }]
+        if let streaming { o["streaming"] = streaming }
+        if let turnRunning { o["turnRunning"] = turnRunning }
+        let data = try! JSONSerialization.data(withJSONObject: o)
+        return try! JSONDecoder().decode(SessionStore.Page.self, from: data)
+    }
+
+    // ─── tradução ────────────────────────────────────────────────────────────────────────
+
+    @Test @MainActor
+    func testDeltaNuncaViraPasso() {
+        // O loomd coalesce os 70 deltas de um turno e manda o parcial em `streaming`. Se `delta`
+        // também virasse passo, a mesma frase apareceria N vezes na trilha — e a lista piscaria a
+        // cada volta do poll.
+        #expect(SessionStore.step(from: ev(1, "delta", text: "Vou")) == nil)
+        for ruido in ["turn_started", "turn_ended", "session_started", "session_ended",
+                      "idle", "approval_answered", "unknown"] {
+            #expect(SessionStore.step(from: ev(2, ruido)) == nil,
+                    "\(ruido) é ciclo de vida, não conteúdo nem decisão")
+        }
+    }
+
+    @Test @MainActor
+    func testDiffVazioNaoViraPasso() {
+        // Um `diff_proposed` sem texto desenharia um bloco de código em branco, que lê como
+        // "o agente propôs nada" em vez de "não houve diff".
+        #expect(SessionStore.step(from: ev(1, "diff_proposed")) == nil)
+        #expect(SessionStore.step(from: ev(2, "diff_proposed", diff: "")) == nil)
+        #expect(SessionStore.step(from: ev(3, "diff_proposed", diff: "--- a\n+++ b\n")) != nil)
+    }
+
+    @Test @MainActor
+    func testErroSemDescricaoAindaDizAlgo() {
+        // Erro é conteúdo de primeira classe. Um erro vazio na tela é pior que nenhum: some sem
+        // deixar rastro de que houve falha.
+        guard case .failure(_, let t, _)? = SessionStore.step(from: ev(1, "error")) else {
+            Issue.record("erro deveria virar passo")
+            return
+        }
+        #expect(!t.isEmpty)
+    }
+
+    @Test @MainActor
+    func testAprovacaoSemTipoCaiEmOther() {
+        // Um evento antigo, relido de um diário escrito antes de `approval_kind` existir, não pode
+        // virar `patch` por otimismo — patch diz "reversível por git", e isso decide se ele lê o
+        // comando antes de aprovar.
+        guard case .approval(_, let k, _, _, _)? = SessionStore.step(from: ev(1, "awaiting_approval")) else {
+            Issue.record("aprovação deveria virar passo")
+            return
+        }
+        #expect(k == .other)
+        #expect(!k.reversible, "sem saber o tipo, não prometa reversibilidade")
+    }
+
+    /// 🚨 A lane ACP NÃO emite `diff_proposed` — medido em `loomd/src/event.rs:486-500`, o patch
+    /// chega DENTRO do próprio evento `awaiting_approval`. Se este braço descartar `e.diff`, o
+    /// operador aprova uma mudança que nunca viu. Este é o achado mais sério da rodada de review:
+    /// a Step 3 anterior (afordância no `DiffView`) nunca disparava na lane ACP, porque `DiffView`
+    /// só existe para passos `.diff`, que a lane ACP não produz.
+    @Test @MainActor
+    func testAwaitingApprovalCarregaODiffQuandoOEventoTraz() {
+        let e = ev(1, "awaiting_approval", text: "aplicar mudança em alvo.txt",
+                   diff: "--- a/alvo.txt\n+++ b/alvo.txt\n-velho\n+novo", approval: .patch)
+        guard case .approval(_, let k, let detalhe, let diff, _)? = SessionStore.step(from: e) else {
+            Issue.record("aprovação com diff deveria virar passo")
+            return
+        }
+        #expect(k == .patch)
+        #expect(detalhe == "aplicar mudança em alvo.txt")
+        #expect(diff == "--- a/alvo.txt\n+++ b/alvo.txt\n-velho\n+novo",
+                "sem isto, o operador aprova uma mudança que nunca viu")
+    }
+
+    /// Codex continua funcionando sem regressão: `awaiting_approval` sem `diff` no evento (o
+    /// patch já chegou por um `.diff` avulso antes) não inventa um diff que não existe.
+    @Test @MainActor
+    func testAwaitingApprovalSemDiffNoEventoFicaNil() {
+        let e = ev(1, "awaiting_approval", text: "aplicar", approval: .patch)
+        guard case .approval(_, _, _, let diff, _)? = SessionStore.step(from: e) else {
+            Issue.record("aprovação deveria virar passo")
+            return
+        }
+        #expect(diff == nil, "sem diff no evento, o passo não inventa um")
+    }
+
+    // ─── cursor e dedup ──────────────────────────────────────────────────────────────────
+
+    @Test @MainActor
+    func testEventoRepetidoNaoDuplicaAFala() {
+        // O cursor vem do servidor e a trama é append-only, então repetição só acontece se um poll
+        // for reaplicado — o que acontece de verdade quando a resposta chega duas vezes. Sem a
+        // guarda por `seq`, a mesma fala aparece duas vezes na trilha.
+        let s = SessionStore(lane: "codex-4")
+        let p = page([ev(1, "user_prompt", text: "oi"), ev(2, "agent_message", text: "olá")])
+        s.apply(p)
+        s.apply(p)
+        #expect(s.steps.count == 2)
+    }
+
+    @Test @MainActor
+    func testCursorNuncaAndaParaTras() {
+        // Uma página que chega fora de ordem (rede) não pode reverter o cursor: reverter faria o
+        // próximo poll pedir de novo o que já se viu, e a dedup por `seq` esconderia o sintoma — a
+        // tela pararia de crescer sem dizer por quê.
+        //
+        // 🚨 A ASSERÇÃO É SOBRE O CURSOR, não sobre a contagem de passos. A primeira versão deste
+        // teste contava `steps` e ficava VERDE com a regressão: `apply` guarda o cursor mas não o
+        // usa para filtrar, então trocar `max(...)` por atribuição direta não mudava passo nenhum.
+        // Foi a mutação que revelou — e a lição é a de sempre: verde só vale se a condição foi
+        // exercida.
+        let s = SessionStore(lane: "codex-4")
+        s.apply(page([ev(10, "agent_message", text: "dez")], cursor: 10))
+        #expect(s.cursor == 10)
+        s.apply(page([], since: 3, cursor: 3))
+        #expect(s.cursor == 10, "uma página velha não pode fazer o cliente reler o diário")
+        s.apply(page([ev(11, "agent_message", text: "onze")], cursor: 11))
+        #expect(s.cursor == 11)
+        #expect(s.steps.count == 2)
+    }
+
+    @Test @MainActor
+    func testTurnoEmCursoVemDoServidorEnaoDoParcial() {
+        // 🚨 `turnRunning` é EXPLÍCITO. Um turno que ainda não emitiu texto também é um turno, e é
+        // justamente aí que mais se quer o botão de parar. Derivar do parcial perderia esse caso.
+        let s = SessionStore(lane: "codex-4")
+        s.apply(page([], turnRunning: true))
+        #expect(s.isTurnActive, "sem parcial nenhum, o servidor disse que há turno")
+        s.apply(page([], turnRunning: false))
+        #expect(!s.isTurnActive)
+    }
+
+    @Test @MainActor
+    func testOParcialSomeQuandoOServidorParaDeMandar() {
+        let s = SessionStore(lane: "codex-4")
+        s.apply(page([], streaming: "Vou ler os"))
+        #expect(s.streaming == "Vou ler os")
+        s.apply(page([ev(5, "agent_message", text: "Vou ler os módulos.")]))
+        #expect(s.streaming == nil, "a mensagem completa chegou; o parcial não pode ficar embaixo")
+        #expect(s.steps.count == 1)
+    }
+
+    // ─── agrupamento em turnos ───────────────────────────────────────────────────────────
+
+    @Test @MainActor
+    func testUmTurnoPorPEDIDO() {
+        let passos = [
+            SessionStep.prompt(id: 1, text: "a", at: .init()),
+            .message(id: 2, text: "ra", at: .init()),
+            .prompt(id: 3, text: "b", at: .init()),
+            .tool(id: 4, name: "Read", detail: "x", at: .init()),
+            .message(id: 5, text: "rb", at: .init()),
+        ]
+        let t = SessionTurn.group(passos)
+        #expect(t.count == 2)
+        #expect(t[0].prompt == "a")
+        #expect(t[1].prompt == "b")
+        #expect(t[1].steps.count == 3)
+        #expect(t[0].id == 1, "o id é o seq do primeiro passo — estável, então a lista não reordena")
+    }
+
+    @Test @MainActor
+    func testOQueVemANTESDoPrimeiroPedidoNaoEDoPedidoSEGUINTE() {
+        // 🚨 Sessão RETOMADA: o pedido está fora da janela do diário. Pendurar aquele trabalho no
+        // próximo pedido seria atribuí-lo ao pedido errado — e é o tipo de erro que faz alguém
+        // aprovar a coisa errada por ler o contexto trocado.
+        let t = SessionTurn.group([
+            .message(id: 90, text: "terminei a varredura", at: .init()),
+            .prompt(id: 91, text: "quais?", at: .init()),
+            .message(id: 92, text: "três", at: .init()),
+        ])
+        #expect(t.count == 2)
+        #expect(t[0].prompt == nil, "o primeiro bloco não tem pedido, e a tela precisa poder dizer isso")
+        #expect(t[0].steps.count == 1)
+        #expect(t[1].prompt == "quais?")
+    }
+
+    @Test @MainActor
+    func testTurnoSabeSeTemDiffESePedePermissao() {
+        // É o que o cabeçalho do turno resume — serve para decidir se vale abrir com o olho.
+        let t = SessionTurn.group([
+            .prompt(id: 1, text: "arruma", at: .init()),
+            .diff(id: 2, patch: "--- a\n+++ b\n", at: .init()),
+            .approval(id: 3, kind: .patch, detail: "x", at: .init()),
+        ])[0]
+        #expect(t.hasDiff)
+        #expect(t.requiresApproval)
+
+        let simples = SessionTurn.group([.prompt(id: 1, text: "oi", at: .init())])[0]
+        #expect(!simples.hasDiff)
+        #expect(!simples.requiresApproval)
+    }
+
+    @Test @MainActor
+    func testDuracaoNaoEAFIRMADAParaTurnoEmCurso() throws {
+        // Afirmar duração de algo que está correndo é dizer que acabou.
+        let t = SessionTurn.group([
+            .prompt(id: 1, text: "oi", at: Date(timeIntervalSince1970: 1000)),
+            .message(id: 2, text: "olá", at: Date(timeIntervalSince1970: 1042)),
+        ])[0]
+        #expect(t.duration(completed: false) == nil)
+        let duracao = try #require(t.duration(completed: true))
+        #expect(abs(duracao - 42) <= 0.001)
+    }
+
+    // ─── o roster vivo ───────────────────────────────────────────────────────────────────
+
+    @Test @MainActor
+    func testORosterVivoVemDoServidorMasNaoESVAZIANumaQueda() {
+        // 🚨 A dívida que isto paga: `loomdLanes` era constante espelhando o launcher do pod, e eu
+        // editei os dois lados à mão ao adotar `codex-4`. Agora quem manda é o servidor — MAS um
+        // roster vazio numa queda do loomd significa "não sei", não "não há lane". Tratar os dois
+        // igual esvaziaria o allowlist e toda ação seria descartada em silêncio.
+        let c = FleetStateStore.fixture(lanes: [], loomd: LoomdHealth(
+            mode: .observed, lanes: 2, roster: ["codex-4", "loom-1"], everObserved: true))
+        #expect(c.loomdRoster == ["codex-4", "loom-1"], "observado: manda o servidor")
+
+        let caido = FleetStateStore.fixture(lanes: [], loomd: LoomdHealth(
+            mode: .down, lanes: 0, roster: [], error: "connection refused", everObserved: true))
+        #expect(caido.loomdRoster == FleetEndpoint.loomdLanes,
+                "fonte caída: cai na semente em vez de esvaziar")
+
+        let vazioObservado = FleetStateStore.fixture(lanes: [], loomd: LoomdHealth(
+            mode: .observed, lanes: 0, roster: [], everObserved: true))
+        #expect(vazioObservado.loomdRoster == FleetEndpoint.loomdLanes,
+                "observado mas vazio também cai na semente — nunca uma lista vazia")
+    }
+
+    // MARK: - O card de aprovação DIZ o que está sendo aprovado
+
+    private func laneEsperando(detail: String = "Press enter to confirm or esc to cancel",
+                               diff: String? = nil,
+                               kind: SessionStep.ApprovalKind? = nil) -> LaneSnapshot {
+        LaneSnapshot(sid: "loom-1", title: "loom-1", state: .waiting, detail: detail,
+                     confidence: .exact, pendingApproval: true, diff: diff, approvalKind: kind)
+    }
+
+    /// Havendo patch, é o patch que se mostra. O `detail` de uma lane com diff é justamente a
+    /// linha de cromo do agente ("Press enter…"), e preferi-lo manteria o defeito com um campo
+    /// novo por baixo, sem uso.
+    @Test func testComDiffOCardMostraODiff() {
+        let patch = "diff --git a/x b/x\n@@ -0,0 +1 @@\n+oi\n"
+        let p = SessionStore.pedidoDoCard(laneEsperando(diff: patch, kind: .patch))
+        #expect(p.prova == .diff(patch))
+        #expect(!p.vazio)
+    }
+
+    /// Sem patch (aprovar um COMANDO não gera diff), a evidência do agente é o que se tem — e é
+    /// honesta: veio dele, não foi inventada aqui.
+    @Test func testSemDiffMasComDetalheOCardMostraODetalhe() {
+        let p = SessionStore.pedidoDoCard(laneEsperando(detail: "rm -rf target", kind: .command))
+        #expect(p.prova == .texto("rm -rf target"))
+    }
+
+    /// Sem nada, o card não afirma nada. Encher a área com cromo é o que ele fazia antes.
+    @Test func testSemDiffESemDetalheOCardNaoAfirmaNada() {
+        let p = SessionStore.pedidoDoCard(laneEsperando(detail: ""))
+        #expect(p.prova == .nenhuma)
+        #expect(p.rotulo == nil, "sem tipo declarado não se afirma natureza nenhuma")
+        #expect(p.vazio)
+    }
+
+    /// 🚨 O teste que PRENDE o conserto. Na frota real duas lanes esperando aprovação
+    /// produziam cards IDÊNTICOS — a mesma frase "Press enter to confirm or esc to cancel" —,
+    /// e para decidir o operador tinha de sair da tela. Tipos diferentes têm de produzir
+    /// rótulos diferentes, e a promessa sobre desfazer tem de acompanhá-los.
+    @Test func testDuasLanesComTiposDiferentesProduzemRotulosDIFERENTES() throws {
+        let mesmoDetalhe = "Press enter to confirm or esc to cancel"
+        let a = SessionStore.pedidoDoCard(laneEsperando(detail: mesmoDetalhe, kind: .patch))
+        let b = SessionStore.pedidoDoCard(laneEsperando(detail: mesmoDetalhe, kind: .command))
+        let rotuloA = try #require(a.rotulo)
+        let rotuloB = try #require(b.rotulo)
+        #expect(rotuloA != rotuloB, "dois pedidos opostos não podem ler igual")
+        #expect(rotuloA.contains(SessionStep.ApprovalKind.patch.label))
+        #expect(rotuloB.contains(SessionStep.ApprovalKind.command.label))
+        // Patch se desfaz por git; comando não — e o card diz isso ANTES do toque.
+        #expect(a.reversivel == true)
+        #expect(b.reversivel == false)
+    }
+
+    /// Sem tipo declarado o card fica CALADO sobre a natureza, mas ainda mostra a prova que tem.
+    @Test func testSemTipoDeclaradoNaoHaRotuloMasAindaHaProva() {
+        let p = SessionStore.pedidoDoCard(laneEsperando(detail: "algo aconteceu"))
+        #expect(p.rotulo == nil)
+        #expect(p.reversivel == nil)
+        #expect(p.prova == .texto("algo aconteceu"))
+    }
+}
