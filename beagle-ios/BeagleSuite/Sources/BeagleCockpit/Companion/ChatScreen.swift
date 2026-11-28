@@ -75,6 +75,9 @@ public struct ChatScreen: View {
     /// Accumulated scroll in the current direction — the bar only flips after a deliberate
     /// gesture (not a twitch), so it doesn't vanish on the slightest touch.
     @State var scrollAccum: CGFloat = 0
+    /// Smart auto-scroll state (R3): follows streaming only when near the bottom, and tracks
+    /// unseen updates while reading earlier messages.
+    @State var scrollFollowState = ConversationScrollPolicy.FollowState()
     /// Accessibility: when the user turns on Reduce Transparency, glass falls back to a
     /// solid material so text/controls stay legible (iOS 27's contrast guidance).
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -278,6 +281,9 @@ public struct ChatScreen: View {
         }
         .onChange(of: draft) { _, _ in lastInteraction = .now }
         .onChange(of: store.messages.count) { _, _ in lastInteraction = .now }
+        .onChange(of: store.currentConversationId) { _, _ in
+            scrollFollowState = ConversationScrollPolicy.resetForBottomJump()
+        }
         // 30s é grosso de propósito: só existe para a ociosidade poder virar
         // `adormecido`. Nada de animação depende disto.
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now in
