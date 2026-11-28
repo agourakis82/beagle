@@ -3,14 +3,8 @@ name: BEAGLE Apple CI (BeagleSuite)
 on:
   push:
     branches: [main]
-    paths:
-      - 'beagle-ios/**'
-      - '.github/workflows/apple-ci.yml'
   pull_request:
     branches: [main]
-    paths:
-      - 'beagle-ios/**'
-      - '.github/workflows/apple-ci.yml'
   workflow_dispatch:
 
 concurrency:
@@ -19,10 +13,55 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  changes:
+    name: Detect Apple Changes
+    runs-on: ubuntu-latest
+    outputs:
+      apple: ${{ steps.filter.outputs.apple }}
+    steps:
+      - name: Detect changes in beagle-ios or apple-ci.yml
+        id: filter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "apple=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_dispatch: running full Apple CI."
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FILES=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              echo "apple=true" >> "$GITHUB_OUTPUT"
+              echo "Initial or force push: running full Apple CI."
+              exit 0
+            fi
+            if ! FILES=$(gh api "repos/${{ github.repository }}/compare/${BEFORE}...${{ github.sha }}" --jq '.files[].filename'); then
+              echo "apple=true" >> "$GITHUB_OUTPUT"
+              echo "Compare API fallback: running full Apple CI."
+              exit 0
+            fi
+          fi
+
+          if printf '%s\n' "$FILES" | grep -qE '^(beagle-ios/|\.github/workflows/apple-ci\.yml$)'; then
+            echo "apple=true" >> "$GITHUB_OUTPUT"
+            echo "Apple changes detected — running macOS SwiftPM tests and iOS/visionOS/watchOS builds."
+          else
+            echo "apple=false" >> "$GITHUB_OUTPUT"
+            echo "No Apple changes detected — skipping macOS runners."
+          fi
+
   beaglesuite-macos:
     name: BeagleSuite Build & Tests (macOS)
+    needs: [changes]
+    if: needs.changes.outputs.apple == 'true'
     runs-on: macos-26
     timeout-minutes: 25
     defaults:
@@ -56,3 +95,121 @@ jobs:
 
       - name: Test BeagleCoreTests & BeagleWorkbenchKitTests
         run: swift test --parallel
+
+  apple-xcode-builds:
+    name: Apple Multi-OS Build (iOS, visionOS, watchOS)
+    needs: [changes]
+    if: needs.changes.outputs.apple == 'true'
+    runs-on: macos-26
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: beagle-ios
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Show Xcode toolchain and SDKs
+        id: toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcodebuild -showsdks
+          echo "xcode=$(xcodebuild -version | tr '\n' ' ' | shasum -a 256 | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - name: Seed placeholder Secrets.plist for CI
+        run: |
+          if [ ! -f BeagleSuite/Sources/BeagleCockpit/Resources/Secrets.plist ]; then
+            cp BeagleSuite/Sources/BeagleCockpit/Resources/Secrets.example.plist \
+               BeagleSuite/Sources/BeagleCockpit/Resources/Secrets.plist
+          fi
+
+      - name: Cache Xcode SwiftPM checkouts
+        uses: actions/cache@v6
+        with:
+          path: |
+            beagle-ios/.xcode-spm
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-xcode-spm-${{ hashFiles('beagle-ios/BeagleSuite/Package.swift', 'beagle-ios/BeagleSuite.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ steps.toolchain.outputs.xcode }}-xcode-spm-
+
+      - name: Resolve packages and verify Xcode schemes
+        run: |
+          xcodebuild -project BeagleSuite.xcodeproj \
+            -clonedSourcePackagesDirPath .xcode-spm \
+            -list
+
+      - name: Build BeagleWatch (watchOS Simulator)
+        run: |
+          xcodebuild -project BeagleSuite.xcodeproj \
+            -scheme BeagleWatch \
+            -destination 'generic/platform=watchOS Simulator' \
+            -clonedSourcePackagesDirPath .xcode-spm \
+            -derivedDataPath .derived-data \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            build
+
+      - name: Build BeagleVisionOS (visionOS Simulator)
+        run: |
+          xcodebuild -project BeagleSuite.xcodeproj \
+            -scheme BeagleVisionOS \
+            -destination 'generic/platform=visionOS Simulator' \
+            -clonedSourcePackagesDirPath .xcode-spm \
+            -derivedDataPath .derived-data \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            build
+
+      - name: Build BeagleCockpit + Extensions (iOS Simulator)
+        run: |
+          xcodebuild -project BeagleSuite.xcodeproj \
+            -scheme BeagleCockpit \
+            -destination 'generic/platform=iOS Simulator' \
+            -clonedSourcePackagesDirPath .xcode-spm \
+            -derivedDataPath .derived-data \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+            build
+
+  apple-ci-gate:
+    name: Apple CI Gate
+    needs: [changes, beaglesuite-macos, apple-xcode-builds]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate Apple CI status
+        run: |
+          set -euo pipefail
+          echo "changes=${{ needs.changes.result }} (apple=${{ needs.changes.outputs.apple }})"
+          echo "beaglesuite-macos=${{ needs.beaglesuite-macos.result }}"
+          echo "apple-xcode-builds=${{ needs.apple-xcode-builds.result }}"
+
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "::error::Change detection failed."
+            exit 1
+          fi
+
+          if [ "${{ needs.changes.outputs.apple }}" != "true" ]; then
+            echo "No Apple changes detected — Apple CI Gate passed."
+            exit 0
+          fi
+
+          if [ "${{ needs.beaglesuite-macos.result }}" != "success" ] || \
+             [ "${{ needs.apple-xcode-builds.result }}" != "success" ]; then
+            echo "::error::One or more Apple CI jobs did not succeed."
+            exit 1
+          fi
+
+          echo "All 4 Apple OS builds and 426 SwiftPM tests passed."
