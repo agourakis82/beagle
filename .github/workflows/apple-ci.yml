@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Show Apple toolchain
         id: toolchain
@@ -42,7 +42,7 @@ jobs:
           echo "swift=$(swift --version | head -n 1 | shasum -a 256 | cut -c1-12)" >> "$GITHUB_OUTPUT"
 
       - name: Cache SwiftPM dependencies and build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             beagle-ios/BeagleSuite/.build

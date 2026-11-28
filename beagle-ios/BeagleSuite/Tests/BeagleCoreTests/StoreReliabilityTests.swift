@@ -34,8 +34,9 @@ private final class StoreMockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
-        guard let host = request.url?.host else { return false }
-        return handlers.withLock { $0[host] != nil }
+        // Intercept every request on sessions built by makeSession() so unregistered
+        // hosts fail fast instead of leaking to live internet/Tailscale endpoints.
+        true
     }
 
     override class func canonicalRequest(for request: URLRequest) -> URLRequest {
