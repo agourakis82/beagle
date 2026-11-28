@@ -725,7 +725,7 @@ public final class CompanionVoice: NSObject {
     private func ativarSessaoDeAudio() async {
         #if os(iOS) || os(visionOS)
         audioSessionAtiva = true
-        await CompanionAudioSessionCoordinator.shared.activatePlayback()
+        await BeagleAudioSessionCoordinator.shared.activatePlayback()
         #endif
     }
 
@@ -734,7 +734,7 @@ public final class CompanionVoice: NSObject {
         guard audioSessionAtiva else { return }
         audioSessionAtiva = false
         Task.detached(priority: .utility) {
-            await CompanionAudioSessionCoordinator.shared.deactivate()
+            await BeagleAudioSessionCoordinator.shared.deactivate()
         }
         #endif
     }
@@ -766,22 +766,6 @@ public final class CompanionVoice: NSObject {
         #endif
     }
 }
-
-#if os(iOS) || os(visionOS)
-private actor CompanionAudioSessionCoordinator {
-    static let shared = CompanionAudioSessionCoordinator()
-
-    func activatePlayback() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-        try? session.setActive(true)
-    }
-
-    func deactivate() {
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-}
-#endif
 
 private extension Data {
     mutating func appendLittleEndian(_ value: UInt16) {

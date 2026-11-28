@@ -107,7 +107,7 @@ public final class LiveActivityManager {
         }
     }
 
-    private func observeClusterActivity<Attributes: ActivityAttributes>(
+    private func observeClusterActivity<Attributes: ActivityAttributes & Sendable>(
         _ act: Activity<Attributes>,
         kind: LiveActivityClusterKind,
         canonicalId: String,
@@ -146,18 +146,14 @@ public final class LiveActivityManager {
         let tokenUpdatesTask = Task.detached {
             for await tokenData in unsafeAct.pushTokenUpdates {
                 if Task.isCancelled { break }
-                await MainActor.run {
-                    Task { @MainActor in
-                        _ = await LiveActivityClusterCoordinator.shared.submitPushTokenData(
-                            tokenData,
-                            activityId: activityId,
-                            kind: kind,
-                            canonicalId: canonicalId,
-                            agentKind: agentKind,
-                            projectSlug: projectSlug
-                        )
-                    }
-                }
+                _ = await LiveActivityClusterCoordinator.shared.submitPushTokenData(
+                    tokenData,
+                    activityId: activityId,
+                    kind: kind,
+                    canonicalId: canonicalId,
+                    agentKind: agentKind,
+                    projectSlug: projectSlug
+                )
             }
         }
         tasks.append(tokenUpdatesTask)
@@ -176,13 +172,11 @@ public final class LiveActivityManager {
                             self.researchActivity = nil
                         }
                         self.cancelObserverTasks(for: activityId)
-                        Task { @MainActor in
-                            await LiveActivityClusterCoordinator.shared.revoke(
-                                activityId: activityId,
-                                reason: reason
-                            )
-                        }
                     }
+                    await LiveActivityClusterCoordinator.shared.revoke(
+                        activityId: activityId,
+                        reason: reason
+                    )
                     break
                 }
             }

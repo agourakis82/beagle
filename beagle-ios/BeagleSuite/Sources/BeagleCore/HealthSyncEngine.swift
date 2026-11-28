@@ -147,14 +147,13 @@ public actor HealthSyncEngine {
     // MARK: - State
 
     private let store = HKHealthStore()
-    // Static + nonisolated so the (nonisolated) HKAnchoredObjectQuery result closures can
-    // format dates without crossing actor isolation. ISO8601DateFormatter is thread-safe
-    // for formatting, so concurrent reads are safe.
-    nonisolated(unsafe) private static let iso8601: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
+    // Sendable value-type ISO-8601 formatter so nonisolated HKAnchoredObjectQuery
+    // result closures can format timestamps safely without `nonisolated(unsafe)`.
+    private static let iso8601Style = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
+    private static func iso8601String(from date: Date) -> String {
+        date.formatted(iso8601Style)
+    }
 
     private var observerTokens: [String: HKObserverQuery] = [:]
     private var isAuthorized = false
@@ -489,8 +488,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKQuantitySample] ?? []).map { s -> PhysioHealthSample in
                     PhysioHealthSample(
                         uuid: s.uuid.uuidString,
-                        ts: Self.iso8601.string(from: s.startDate),
-                        endTs: Self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601String(from: s.startDate),
+                        endTs: Self.iso8601String(from: s.endDate),
                         type: label,
                         value: s.quantity.doubleValue(for: unit),
                         unit: unit.unitString,
@@ -521,8 +520,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKCategorySample] ?? []).map { s in
                     PhysioSleepSample(
                         uuid: s.uuid.uuidString,
-                        ts: Self.iso8601.string(from: s.startDate),
-                        endTs: Self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601String(from: s.startDate),
+                        endTs: Self.iso8601String(from: s.endDate),
                         type: label,
                         value: s.value,
                         source: s.sourceRevision.source.bundleIdentifier,
@@ -555,8 +554,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKCategorySample] ?? []).map { s in
                     PhysioSleepSample(
                         uuid: s.uuid.uuidString,
-                        ts: Self.iso8601.string(from: s.startDate),
-                        endTs: Self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601String(from: s.startDate),
+                        endTs: Self.iso8601String(from: s.endDate),
                         type: label,
                         value: s.value,
                         source: s.sourceRevision.source.bundleIdentifier,
@@ -610,8 +609,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKCategorySample] ?? []).map { s in
                     PhysioSleepSample(
                         uuid: s.uuid.uuidString,
-                        ts: Self.iso8601.string(from: s.startDate),
-                        endTs: Self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601String(from: s.startDate),
+                        endTs: Self.iso8601String(from: s.endDate),
                         type: label,
                         value: s.value,
                         source: s.sourceRevision.source.bundleIdentifier,
@@ -662,8 +661,8 @@ public actor HealthSyncEngine {
                 let workouts = (added as? [HKWorkout] ?? []).map { w in
                     PhysioWorkoutSample(
                         uuid: w.uuid.uuidString,
-                        ts: Self.iso8601.string(from: w.startDate),
-                        endTs: Self.iso8601.string(from: w.endDate),
+                        ts: Self.iso8601String(from: w.startDate),
+                        endTs: Self.iso8601String(from: w.endDate),
                         type: label,
                         activityType: w.workoutActivityType.rawValue,
                         durationSeconds: w.duration,
@@ -702,8 +701,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKStateOfMind] ?? []).map { s -> PhysioHealthSample in
                     PhysioHealthSample(
                         uuid: s.uuid.uuidString,
-                        ts: Self.iso8601.string(from: s.startDate),
-                        endTs: Self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601String(from: s.startDate),
+                        endTs: Self.iso8601String(from: s.endDate),
                         type: label,
                         value: s.valence,
                         unit: "valence",
@@ -759,8 +758,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKGAD7Assessment] ?? []).map { s -> PhysioHealthSample in
                     PhysioHealthSample(
                         uuid: s.uuid.uuidString,
-                        ts: Self.iso8601.string(from: s.startDate),
-                        endTs: Self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601String(from: s.startDate),
+                        endTs: Self.iso8601String(from: s.endDate),
                         type: label,
                         value: Double(s.score),
                         unit: "score",
@@ -815,8 +814,8 @@ public actor HealthSyncEngine {
                 let samples = (added as? [HKPHQ9Assessment] ?? []).map { s -> PhysioHealthSample in
                     PhysioHealthSample(
                         uuid: s.uuid.uuidString,
-                        ts: Self.iso8601.string(from: s.startDate),
-                        endTs: Self.iso8601.string(from: s.endDate),
+                        ts: Self.iso8601String(from: s.startDate),
+                        endTs: Self.iso8601String(from: s.endDate),
                         type: label,
                         value: Double(s.score),
                         unit: "score",
@@ -949,8 +948,8 @@ public actor HealthSyncEngine {
                     }
                     return PhysioHealthSample(
                         uuid: ecg.uuid.uuidString,
-                        ts: Self.iso8601.string(from: ecg.startDate),
-                        endTs: Self.iso8601.string(from: ecg.endDate),
+                        ts: Self.iso8601String(from: ecg.startDate),
+                        endTs: Self.iso8601String(from: ecg.endDate),
                         type: label,
                         value: avg ?? 0,
                         unit: "count/min",

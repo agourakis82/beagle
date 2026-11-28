@@ -168,6 +168,14 @@
 		F8A4B0D0E4AE4701B2073E86 /* VoiceAcousticAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E19B0440E9914889AB0B8AF2 /* VoiceAcousticAnalyzer.swift */; };
 		FB770F638C6B2329AB979A4F /* BeagleCore in Frameworks */ = {isa = PBXBuildFile; productRef = 85AA837F77CBB98A5A3D1297 /* BeagleCore */; };
 		FD773EBDECB3C46EB77F7469 /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 95CF1CF3C4D7F429A2026E2C /* DiagnosticsView.swift */; };
+		BEAF00060000000000000101 /* SpatialMindView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00060000000000000001 /* SpatialMindView.swift */; };
+		BEAF00060000000000000102 /* SpatialWorkspaceTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00060000000000000002 /* SpatialWorkspaceTabs.swift */; };
+		BEAF00060000000000000103 /* SpatialVolumesAndSpaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00060000000000000003 /* SpatialVolumesAndSpaces.swift */; };
+		BEAF00060000000000000104 /* ClusterWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00060000000000000004 /* ClusterWidgets.swift */; };
+		BEAF00060000000000000105 /* MorningBriefingWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00060000000000000005 /* MorningBriefingWidget.swift */; };
+		BEAF00060000000000000106 /* FlowAndQuickActionWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00060000000000000006 /* FlowAndQuickActionWidgets.swift */; };
+		BEAF00060000000000000107 /* CompanionLiveActivities.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00060000000000000007 /* CompanionLiveActivities.swift */; };
+		BEAF00060000000000000108 /* AgentAndCognitiveLiveActivities.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00060000000000000008 /* AgentAndCognitiveLiveActivities.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -360,6 +368,14 @@
 		F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepButton.swift; sourceTree = "<group>"; };
 		F96E1A662D877979794235C0 /* BeagleInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleInputBar.swift; sourceTree = "<group>"; };
 		FCFA09876B0976760E929222 /* CognitiveRecall.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CognitiveRecall.swift; sourceTree = "<group>"; };
+		BEAF00060000000000000001 /* SpatialMindView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialMindView.swift; sourceTree = "<group>"; };
+		BEAF00060000000000000002 /* SpatialWorkspaceTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialWorkspaceTabs.swift; sourceTree = "<group>"; };
+		BEAF00060000000000000003 /* SpatialVolumesAndSpaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialVolumesAndSpaces.swift; sourceTree = "<group>"; };
+		BEAF00060000000000000004 /* ClusterWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClusterWidgets.swift; sourceTree = "<group>"; };
+		BEAF00060000000000000005 /* MorningBriefingWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorningBriefingWidget.swift; sourceTree = "<group>"; };
+		BEAF00060000000000000006 /* FlowAndQuickActionWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowAndQuickActionWidgets.swift; sourceTree = "<group>"; };
+		BEAF00060000000000000007 /* CompanionLiveActivities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionLiveActivities.swift; sourceTree = "<group>"; };
+		BEAF00060000000000000008 /* AgentAndCognitiveLiveActivities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAndCognitiveLiveActivities.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -595,6 +611,9 @@
 			isa = PBXGroup;
 			children = (
 				5FD31973BCB4D8C034C2023C /* BeagleVisionOSApp.swift */,
+				BEAF00060000000000000001 /* SpatialMindView.swift */,
+				BEAF00060000000000000002 /* SpatialWorkspaceTabs.swift */,
+				BEAF00060000000000000003 /* SpatialVolumesAndSpaces.swift */,
 				277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */,
 				116495C07A91879581E756AF /* MindPalaceSpatialDeskView.swift */,
 				5D3FB27D4E37CE6A23B06B09 /* SpatialControlRoomView.swift */,
@@ -690,6 +709,11 @@
 			isa = PBXGroup;
 			children = (
 				4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */,
+				BEAF00060000000000000004 /* ClusterWidgets.swift */,
+				BEAF00060000000000000005 /* MorningBriefingWidget.swift */,
+				BEAF00060000000000000006 /* FlowAndQuickActionWidgets.swift */,
+				BEAF00060000000000000007 /* CompanionLiveActivities.swift */,
+				BEAF00060000000000000008 /* AgentAndCognitiveLiveActivities.swift */,
 				A461CBF930B8892B00297321 /* Localizable.xcstrings */,
 			);
 			name = BeagleWidgets;
@@ -1132,6 +1156,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				BD252AA03538ED12C4AFE5D7 /* BeagleWidgets.swift in Sources */,
+				BEAF00060000000000000104 /* ClusterWidgets.swift in Sources */,
+				BEAF00060000000000000105 /* MorningBriefingWidget.swift in Sources */,
+				BEAF00060000000000000106 /* FlowAndQuickActionWidgets.swift in Sources */,
+				BEAF00060000000000000107 /* CompanionLiveActivities.swift in Sources */,
+				BEAF00060000000000000108 /* AgentAndCognitiveLiveActivities.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1162,6 +1191,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				9CC466E7952DB6517E30310A /* BeagleVisionOSApp.swift in Sources */,
+				BEAF00060000000000000101 /* SpatialMindView.swift in Sources */,
+				BEAF00060000000000000102 /* SpatialWorkspaceTabs.swift in Sources */,
+				BEAF00060000000000000103 /* SpatialVolumesAndSpaces.swift in Sources */,
 				357233B56EA6220C81DFC055 /* HyperbolicGraphView.swift in Sources */,
 				AD3EC51B746E458EE74D29B7 /* MindPalaceSpatialDeskView.swift in Sources */,
 				5F331BD1E2ED5220BA6CD405 /* SpatialControlRoomView.swift in Sources */,

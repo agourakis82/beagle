@@ -405,10 +405,11 @@ final class SpeechRecognizer {
 
     private func startAmbientAnalyzer() async {
         #if canImport(AVFoundation) && os(iOS)
-        let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            try await BeagleAudioSessionCoordinator.shared.activateSpeechRecording(
+                measurementProfile: true,
+                allowBluetoothForMeasurement: true
+            )
         } catch {
             self.error = "Audio session error: \(error.localizedDescription)"
             return
@@ -569,10 +570,11 @@ final class SpeechRecognizer {
 
     private func startAmbientLegacy() async {
         #if canImport(AVFoundation) && os(iOS)
-        let audioSession = AVAudioSession.sharedInstance()
         do {
-            try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers, .allowBluetoothHFP])
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            try await BeagleAudioSessionCoordinator.shared.activateSpeechRecording(
+                measurementProfile: true,
+                allowBluetoothForMeasurement: true
+            )
         } catch {
             self.error = "Audio session error: \(error.localizedDescription)"
             return
@@ -652,19 +654,11 @@ final class SpeechRecognizer {
 
     #if canImport(AVFoundation) && os(iOS)
     private func startAudioEngine() async {
-        let audioSession = AVAudioSession.sharedInstance()
         do {
-            switch captureProfile {
-            case .measurement:
-                // Unchanged on purpose: the VoiceAcoustic* series in collection was measured
-                // here. `.voiceChat` would switch on AGC + noise suppression and silently put
-                // a step change in rmsDb / f0 / pauseRatio.
-                try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            case .conversation:
-                try audioSession.setCategory(.playAndRecord, mode: .voiceChat,
-                                             options: [.duckOthers, .allowBluetoothHFP, .defaultToSpeaker])
-            }
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            try await BeagleAudioSessionCoordinator.shared.activateSpeechRecording(
+                measurementProfile: captureProfile == .measurement,
+                allowBluetoothForMeasurement: false
+            )
         } catch {
             self.error = "Audio session error: \(error.localizedDescription)"
             return
@@ -691,7 +685,9 @@ final class SpeechRecognizer {
         let formatoDeEntradaValido = formatoDeEntrada.sampleRate > 0 && formatoDeEntrada.channelCount > 0
         guard formatoDeEntradaValido else {
             self.error = "O microfone não abriu (rota de áudio indisponível). Tente de novo; se estiver com fone, desconecte e repita."
-            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            Task.detached(priority: .utility) {
+                await BeagleAudioSessionCoordinator.shared.deactivate()
+            }
             return
         }
 
@@ -708,11 +704,16 @@ final class SpeechRecognizer {
     }
 
     private func stopAudioEngine() {
+        let wasActive = audioEngine != nil || isRecording
         audioEngine?.stop()
         audioEngine?.inputNode.removeTap(onBus: 0)
         audioEngine = nil
         isRecording = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        if wasActive {
+            Task.detached(priority: .utility) {
+                await BeagleAudioSessionCoordinator.shared.deactivate()
+            }
+        }
     }
     #else
     private func startAudioEngine() async {
