@@ -421,6 +421,50 @@ struct OpenModoFundoIntent: AppIntent {
     }
 }
 
+// MARK: - 10. Delegar Tarefa para Rotina do Grok Bot (Webhook Autenticado)
+
+struct DelegateToGrokBotIntent: AppIntent {
+    static let title: LocalizedStringResource = "Delegar ao Grok Bot"
+    static let description: IntentDescription = IntentDescription(
+        "Envia uma tarefa ou automação diretamente para uma Routine do Grok Bot (xAI) via Webhook autenticado."
+    )
+    static let openAppWhenRun = false
+
+    @Parameter(
+        title: "Tarefa",
+        requestValueDialog: IntentDialog("O que você quer mandar o Grok Bot fazer?")
+    )
+    var task: String
+
+    @Parameter(title: "Rotina (opcional)")
+    var routineName: String?
+
+    func perform() async throws -> some IntentResult & ProvidesDialog & ReturnsValue<String> {
+        let trimmed = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            let msg = "Informe a tarefa para enviar ao Grok Bot."
+            return .result(value: msg, dialog: IntentDialog(stringLiteral: msg))
+        }
+
+        let result = await GrokBotBridgeClient.shared.dispatch(
+            task: trimmed,
+            routineNameOrId: routineName,
+            priority: "normal",
+            contextSummary: "Disparado via Siri / Atalhos do iPhone",
+            projectSlug: "sounio"
+        )
+
+        if result.ok {
+            let msg = "Tarefa enviada ao Grok Bot na rotina \(result.routineName)."
+            return .result(value: result.responsePreview.isEmpty ? msg : result.responsePreview,
+                           dialog: IntentDialog(stringLiteral: msg))
+        } else {
+            let msg = result.errorMessage ?? "Não foi possível acionar o Grok Bot agora."
+            return .result(value: msg, dialog: IntentDialog(stringLiteral: msg))
+        }
+    }
+}
+
 // MARK: - App Shortcuts Provider (Siri em Português + Inglês, Botão de Ação & Spotlight)
 
 struct BeagleShortcutsProvider: AppShortcutsProvider {
@@ -466,6 +510,16 @@ struct BeagleShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Perguntar ao Beagle",
             systemImageName: "bubble.left.and.text.bubble.right.fill"
+        )
+        AppShortcut(
+            intent: DelegateToGrokBotIntent(),
+            phrases: [
+                "Mandar pro Grok Bot no \(.applicationName)",
+                "Delegar ao Grok Bot no \(.applicationName)",
+                "Send to Grok Bot in \(.applicationName)"
+            ],
+            shortTitle: "Delegar ao Grok Bot",
+            systemImageName: "bolt.horizontal.circle.fill"
         )
         AppShortcut(
             intent: ConsultBulaIntent(),

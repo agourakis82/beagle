@@ -101,6 +101,10 @@ public final class AppleDeviceToolsBridge: @unchecked Sendable {
             return "Pesquisando na web nativa (OpenAI)…"
         case "openai_tool_search":
             return "Carregando ferramentas sob demanda (Tool Search)…"
+        case "delegate_to_grok_bot":
+            return "Acionando rotina do Grok Bot via Webhook…"
+        case "list_grok_bot_routines":
+            return "Listando rotinas do Grok Bot…"
         default:
             return "MCP · \(toolName)…"
         }
@@ -138,6 +142,8 @@ public final class AppleDeviceToolsBridge: @unchecked Sendable {
                 add("Web OpenAI")
             case "openai_tool_search":
                 add("Tool Search")
+            case "delegate_to_grok_bot", "list_grok_bot_routines":
+                add("Grok Bot")
             case "local_pdf_reader":
                 add("PDF")
             default:

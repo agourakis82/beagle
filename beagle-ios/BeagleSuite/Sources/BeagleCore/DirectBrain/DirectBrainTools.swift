@@ -68,10 +68,12 @@ extension DirectBrainClient {
 
         tools.append(contentsOf: ScienceAndWebBridge.openAIToolDefinitions())
         tools.append(contentsOf: AppleDeviceToolsBridge.openAIToolDefinitions())
+        tools.append(contentsOf: GrokBotBridgeClient.openAIToolDefinitions())
 
         var builtinNames: Set<String> = ["beagle_search_memory", "beagle_store_memory"]
         builtinNames.formUnion(ScienceAndWebBridge.toolNames)
         builtinNames.formUnion(AppleDeviceToolsBridge.nativeToolNames)
+        builtinNames.formUnion(GrokBotBridgeClient.toolNames)
         let encoder = JSONEncoder()
 
         for tool in mcpTools.prefix(20) where !builtinNames.contains(tool.name) {
@@ -158,10 +160,16 @@ extension DirectBrainClient {
             Self.flattenResponsesFunction(item, deferLoading: canUseToolSearch)
         }
 
-        // 4. Live Beagle MCP server tools (up to 32 tools, chunked < 10 per namespace)
+        // 4. Grok Bot Bridge tools (webhook routines)
+        let grokBotDefs = GrokBotBridgeClient.openAIToolDefinitions().compactMap { item -> [String: Any]? in
+            Self.flattenResponsesFunction(item, deferLoading: canUseToolSearch)
+        }
+
+        // 5. Live Beagle MCP server tools (up to 32 tools, chunked < 10 per namespace)
         var builtinNames: Set<String> = ["beagle_search_memory", "beagle_store_memory"]
         builtinNames.formUnion(ScienceAndWebBridge.toolNames)
         builtinNames.formUnion(AppleDeviceToolsBridge.nativeToolNames)
+        builtinNames.formUnion(GrokBotBridgeClient.toolNames)
         let encoder = JSONEncoder()
         var mcpDefs: [[String: Any]] = []
         for tool in mcpTools.prefix(32) where !builtinNames.contains(tool.name) {
@@ -216,6 +224,16 @@ extension DirectBrainClient {
                 }
             }
 
+            if !grokBotDefs.isEmpty {
+                responseTools.append([
+                    "type": "namespace",
+                    "name": "grok_bot",
+                    "description": "Delegação assíncrona e automação de rotinas no Grok Bot (xAI / SpaceXSI) via Webhook autenticado.",
+                    "tools": grokBotDefs
+                ])
+                addedDeferredNamespace = true
+            }
+
             if !mcpDefs.isEmpty {
                 for (idx, chunk) in Self.chunkTools(mcpDefs, size: 8).enumerated() {
                     let nsName = idx == 0 ? "beagle_mcp" : "beagle_mcp_\(idx + 1)"
@@ -235,6 +253,7 @@ extension DirectBrainClient {
         } else {
             responseTools.append(contentsOf: scienceDefs)
             responseTools.append(contentsOf: appleDefs)
+            responseTools.append(contentsOf: grokBotDefs)
             responseTools.append(contentsOf: mcpDefs.prefix(20))
         }
 
@@ -272,6 +291,14 @@ extension DirectBrainClient {
 
         if AppleDeviceToolsBridge.isNativeTool(name) {
             return await AppleDeviceToolsBridge.shared.execute(name: name, args: args)
+        }
+        if GrokBotBridgeClient.isGrokBotTool(name) {
+            var enrichedArgs = args
+            let fallbackText = argumentsJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+            if enrichedArgs.isEmpty && !fallbackText.isEmpty && name == "delegate_to_grok_bot" {
+                enrichedArgs["task"] = fallbackText
+            }
+            return await GrokBotBridgeClient.shared.execute(name: name, args: enrichedArgs, projectSlug: projectSlug)
         }
         if ScienceAndWebBridge.isScienceOrWebTool(name) {
             var enrichedArgs = args

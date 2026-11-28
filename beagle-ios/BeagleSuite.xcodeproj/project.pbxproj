@@ -105,6 +105,7 @@
 		D70800000000000000000014 /* SpeechRecognizer+Engines.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70800000000000000000004 /* SpeechRecognizer+Engines.swift */; };
 		D70800000000000000000015 /* WorkView+VisualStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70800000000000000000005 /* WorkView+VisualStage.swift */; };
 		D70800000000000000000016 /* WorkView+InspectorRails.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70800000000000000000006 /* WorkView+InspectorRails.swift */; };
+		D70800000000000000000017 /* ModelSettingsView+GrokBot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70800000000000000000007 /* ModelSettingsView+GrokBot.swift */; };
 		D70700000000000000000012 /* BeagleCockpitShellChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70700000000000000000002 /* BeagleCockpitShellChrome.swift */; };
 		D70700000000000000000013 /* VisualEvidenceCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70700000000000000000003 /* VisualEvidenceCaptureView.swift */; };
 		D70700000000000000000014 /* CaptureReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70700000000000000000004 /* CaptureReviewSheet.swift */; };
@@ -296,6 +297,7 @@
 		D70800000000000000000004 /* SpeechRecognizer+Engines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SpeechRecognizer+Engines.swift"; sourceTree = "<group>"; };
 		D70800000000000000000005 /* WorkView+VisualStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkView+VisualStage.swift"; sourceTree = "<group>"; };
 		D70800000000000000000006 /* WorkView+InspectorRails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkView+InspectorRails.swift"; sourceTree = "<group>"; };
+		D70800000000000000000007 /* ModelSettingsView+GrokBot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ModelSettingsView+GrokBot.swift"; sourceTree = "<group>"; };
 		D70700000000000000000002 /* BeagleCockpitShellChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleCockpitShellChrome.swift; sourceTree = "<group>"; };
 		D70700000000000000000003 /* VisualEvidenceCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEvidenceCaptureView.swift; sourceTree = "<group>"; };
 		D70700000000000000000004 /* CaptureReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureReviewSheet.swift; sourceTree = "<group>"; };
@@ -502,6 +504,7 @@
 				D70800000000000000000004 /* SpeechRecognizer+Engines.swift */,
 				D70800000000000000000005 /* WorkView+VisualStage.swift */,
 				D70800000000000000000006 /* WorkView+InspectorRails.swift */,
+				D70800000000000000000007 /* ModelSettingsView+GrokBot.swift */,
 				D70700000000000000000002 /* BeagleCockpitShellChrome.swift */,
 				D70700000000000000000003 /* VisualEvidenceCaptureView.swift */,
 				D70700000000000000000004 /* CaptureReviewSheet.swift */,
@@ -1116,6 +1119,7 @@
 				D70800000000000000000014 /* SpeechRecognizer+Engines.swift in Sources */,
 				D70800000000000000000015 /* WorkView+VisualStage.swift in Sources */,
 				D70800000000000000000016 /* WorkView+InspectorRails.swift in Sources */,
+				D70800000000000000000017 /* ModelSettingsView+GrokBot.swift in Sources */,
 				D70700000000000000000012 /* BeagleCockpitShellChrome.swift in Sources */,
 				D70700000000000000000013 /* VisualEvidenceCaptureView.swift in Sources */,
 				D70700000000000000000014 /* CaptureReviewSheet.swift in Sources */,

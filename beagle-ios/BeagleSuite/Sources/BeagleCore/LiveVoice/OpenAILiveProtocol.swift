@@ -29,10 +29,12 @@ public enum OpenAILiveProtocol {
         - Cérebro MoE Beagle + Exocórtex (GraphRAG++): busca memórias pessoais, conversas anteriores, projetos científicos (Sounio, KEC, neurociência, psiquiatria), jobs do cluster HPC e sínteses.
         - Bula & PCDT Clínico + Literatura Científica & Web: consulta posologia, interações medicamentosas, protocolos do Ministério da Saúde, artigos no PubMed/Crossref/arXiv e busca web atualizada.
         - Ferramentas Nativas do iPhone: agenda (EventKit), lembretes, sinais biométricos do Apple Watch/HealthKit (HRV, sono, FC) e notas do exocórtex.
+        - Grok Bot Bridge (`delegate_to_grok_bot`): envia tarefas, automações e pesquisas assíncronas para rotinas do Grok Bot na nuvem via Webhook autenticado.
 
         Delegate to the backend when:
         - O usuário pedir informações clínicas, doses, bulas, interações, protocolos médicos, papers científicos, notícias ou dados atuais da web.
         - O usuário perguntar sobre memórias pessoais, projetos, status do cluster, compromissos na agenda, lembretes ou métricas fisiológicas.
+        - O usuário pedir para enviar, delegar ou disparar uma tarefa, automação ou pesquisa no Grok Bot.
         - A pergunta exigir raciocínio científico, matemático ou técnico cuidadoso além de uma resposta conversacional simples.
         - Uma correção do usuário alterar uma tarefa delegada já solicitada.
 

@@ -29,6 +29,9 @@ struct DailySynthesisView: View {
     @State private var streamError: String?
     @State private var savedToExocortex = false
     @State private var loadedFromCache = false
+    @State private var sendingToGrokBot = false
+    @State private var sentToGrokBot = false
+    @State private var grokBotError: String?
     @State private var voz = CompanionVoice()
 
     var body: some View {
@@ -246,67 +249,111 @@ struct DailySynthesisView: View {
     }
 
     private var synthesisFooterActions: some View {
-        HStack(spacing: BeagleSpacing.sm) {
-            Button {
-                if voz.estaAtivo {
-                    voz.parar()
-                } else {
-                    Task { await voz.falar(streamedText, id: "daily-synthesis-footer") }
-                }
-            } label: {
-                HStack(spacing: BeagleSpacing.xxs + 1) {
-                    Image(systemName: voz.estaAtivo ? "stop.fill" : "speaker.wave.2.fill")
-                        .font(.system(size: 12))
-                    Text(voz.estaAtivo ? "Parar voz" : "Ouvir síntese")
-                        .font(BeagleFont.caption.font)
-                        .fontWeight(.medium)
-                }
-                .foregroundStyle(voz.estaAtivo ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
-                .padding(.horizontal, BeagleSpacing.sm + 2)
-                .padding(.vertical, BeagleSpacing.xs)
-                .background(
-                    Capsule()
-                        .fill((voz.estaAtivo ? BeagleTheme.postureWarm : BeagleTheme.truthObserved).opacity(0.10))
-                )
-            }
-            .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: BeagleSpacing.xs) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: BeagleSpacing.sm) {
+                    Button {
+                        if voz.estaAtivo {
+                            voz.parar()
+                        } else {
+                            Task { await voz.falar(streamedText, id: "daily-synthesis-footer") }
+                        }
+                    } label: {
+                        HStack(spacing: BeagleSpacing.xxs + 1) {
+                            Image(systemName: voz.estaAtivo ? "stop.fill" : "speaker.wave.2.fill")
+                                .font(.system(size: 12))
+                            Text(voz.estaAtivo ? "Parar voz" : "Ouvir síntese")
+                                .font(BeagleFont.caption.font)
+                                .fontWeight(.medium)
+                        }
+                        .foregroundStyle(voz.estaAtivo ? BeagleTheme.postureWarm : BeagleTheme.truthObserved)
+                        .padding(.horizontal, BeagleSpacing.sm + 2)
+                        .padding(.vertical, BeagleSpacing.xs)
+                        .background(
+                            Capsule()
+                                .fill((voz.estaAtivo ? BeagleTheme.postureWarm : BeagleTheme.truthObserved).opacity(0.10))
+                        )
+                    }
+                    .buttonStyle(.plain)
 
-            Button {
-                Task {
-                    savedToExocortex = true
-                    _ = await cognitive.captureThought(
-                        text: streamedText,
-                        source: "daily-synthesis-astra"
+                    saveMemoryButton
+
+                    if GrokBotCredentials.hasConfiguredRoutine {
+                        sendToGrokBotButton
+                    }
+
+                    GoDeepButton(
+                        prompt: "Aprofundar as hipóteses e prioridades desta Síntese Matinal:\n\n\(String(streamedText.prefix(1200)))",
+                        compact: true
                     )
                 }
-            } label: {
-                HStack(spacing: BeagleSpacing.xxs + 1) {
-                    Image(systemName: savedToExocortex ? "checkmark.circle.fill" : "brain")
-                        .font(.system(size: 12))
-                    Text(savedToExocortex ? "Salvo" : "Salvar na memória")
-                        .font(BeagleFont.caption.font)
-                        .fontWeight(.medium)
-                }
-                .foregroundStyle(savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered)
-                .padding(.horizontal, BeagleSpacing.sm + 2)
-                .padding(.vertical, BeagleSpacing.xs)
-                .background(
-                    Capsule()
-                        .fill((savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered).opacity(0.08))
+            }
+            .padding(.top, BeagleSpacing.xxs)
+
+            if let grokBotError {
+                Text(grokBotError)
+                    .font(BeagleFont.caption2.font)
+                    .foregroundStyle(BeagleTheme.stateError)
+            }
+        }
+    }
+
+    private var saveMemoryButton: some View {
+        Button {
+            Task {
+                savedToExocortex = true
+                _ = await cognitive.captureThought(
+                    text: streamedText,
+                    source: "daily-synthesis-astra"
                 )
             }
-            .buttonStyle(.plain)
-            .disabled(savedToExocortex)
-            .sensoryFeedback(.success, trigger: savedToExocortex)
-
-            Spacer(minLength: 4)
-
-            GoDeepButton(
-                prompt: "Aprofundar as hipóteses e prioridades desta Síntese Matinal:\n\n\(String(streamedText.prefix(1200)))",
-                compact: true
+        } label: {
+            HStack(spacing: BeagleSpacing.xxs + 1) {
+                Image(systemName: savedToExocortex ? "checkmark.circle.fill" : "brain")
+                    .font(.system(size: 12))
+                Text(savedToExocortex ? "Salvo" : "Salvar na memória")
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.medium)
+            }
+            .foregroundStyle(savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered)
+            .padding(.horizontal, BeagleSpacing.sm + 2)
+            .padding(.vertical, BeagleSpacing.xs)
+            .background(
+                Capsule()
+                    .fill((savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered).opacity(0.08))
             )
         }
-        .padding(.top, BeagleSpacing.xxs)
+        .buttonStyle(.plain)
+        .disabled(savedToExocortex)
+        .sensoryFeedback(.success, trigger: savedToExocortex)
+    }
+
+    private var sendToGrokBotButton: some View {
+        Button {
+            Task { await dispatchSynthesisToGrokBot() }
+        } label: {
+            HStack(spacing: BeagleSpacing.xxs + 1) {
+                if sendingToGrokBot {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: sentToGrokBot ? "checkmark.bolt.fill" : "bolt.horizontal.circle.fill")
+                        .font(.system(size: 12))
+                }
+                Text(sentToGrokBot ? "Enviado ao Grok Bot" : "Enviar ao Grok Bot")
+                    .font(BeagleFont.caption.font)
+                    .fontWeight(.medium)
+            }
+            .foregroundStyle(sentToGrokBot ? BeagleTheme.truthObserved : BeagleTheme.postureWarm)
+            .padding(.horizontal, BeagleSpacing.sm + 2)
+            .padding(.vertical, BeagleSpacing.xs)
+            .background(
+                Capsule()
+                    .fill((sentToGrokBot ? BeagleTheme.truthObserved : BeagleTheme.postureWarm).opacity(0.10))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(sendingToGrokBot || sentToGrokBot)
+        .sensoryFeedback(.success, trigger: sentToGrokBot)
     }
 
     // MARK: - Synthesis panel
@@ -364,43 +411,7 @@ struct DailySynthesisView: View {
                 }
 
                 if !isStreaming && !isGatheringContext && !streamedText.isEmpty {
-                    HStack(spacing: BeagleSpacing.sm) {
-                        Button {
-                            Task {
-                                savedToExocortex = true
-                                _ = await cognitive.captureThought(
-                                    text: streamedText,
-                                    source: "daily-synthesis-astra"
-                                )
-                            }
-                        } label: {
-                            HStack(spacing: BeagleSpacing.xxs + 1) {
-                                Image(systemName: savedToExocortex ? "checkmark.circle.fill" : "brain")
-                                    .font(.system(size: 12))
-                                Text(savedToExocortex ? "Salvo" : "Salvar na memória")
-                                    .font(BeagleFont.caption.font)
-                                    .fontWeight(.medium)
-                            }
-                            .foregroundStyle(savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered)
-                            .padding(.horizontal, BeagleSpacing.sm + 2)
-                            .padding(.vertical, BeagleSpacing.xs)
-                            .background(
-                                Capsule()
-                                    .fill((savedToExocortex ? BeagleTheme.truthObserved : BeagleTheme.truthRemembered).opacity(0.08))
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(savedToExocortex)
-                        .sensoryFeedback(.success, trigger: savedToExocortex)
-
-                        Spacer()
-
-                        GoDeepButton(
-                            prompt: "Aprofundar as hipóteses e prioridades desta Síntese Matinal:\n\n\(String(streamedText.prefix(1200)))",
-                            compact: true
-                        )
-                    }
-                    .padding(.top, BeagleSpacing.xs)
+                    synthesisFooterActions
                 }
             }
         }
@@ -409,10 +420,33 @@ struct DailySynthesisView: View {
 
     // MARK: - Orchestration
 
+    private func dispatchSynthesisToGrokBot() async {
+        guard !streamedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        sendingToGrokBot = true
+        grokBotError = nil
+        let slug = cognitive.activeProjectSlug ?? "sounio"
+        let result = await GrokBotBridgeClient.shared.dispatch(
+            task: "Organize as prioridades do dia, pendências e eventuais pesquisas de apoio a partir da Síntese Matinal do Beagle:\n\n\(String(streamedText.prefix(2_500)))",
+            priority: "normal",
+            contextSummary: "Enviado diretamente pela Síntese Matinal do Beagle Cockpit.",
+            projectSlug: slug,
+            physioSummary: physioSummary,
+            spaceWeather: sky
+        )
+        sendingToGrokBot = false
+        if result.ok {
+            sentToGrokBot = true
+        } else {
+            grokBotError = result.errorMessage ?? "Falha ao enviar para o Grok Bot."
+        }
+    }
+
     private func runSynthesis(forceRefresh: Bool) async {
         let slug = cognitive.activeProjectSlug ?? "sounio"
         streamError = nil
         savedToExocortex = false
+        sentToGrokBot = false
+        grokBotError = nil
 
         isGatheringContext = true
         let ctx = await DailyBriefingBuilder.gatherLiveContext(
@@ -461,4 +495,3 @@ struct DailySynthesisView: View {
         isStreaming = false
     }
 }
-

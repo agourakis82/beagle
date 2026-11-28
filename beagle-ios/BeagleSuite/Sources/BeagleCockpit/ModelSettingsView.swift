@@ -54,6 +54,7 @@ struct ModelSettingsView: View {
                 hfTokenCard
                 statusCard
                 diagnosticsLink
+                grokBotCard
                 catalogSection
             }
             .padding(.horizontal, BeagleSpacing.lg)
