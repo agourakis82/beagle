@@ -58,6 +58,7 @@ private struct ProvocationBatch {
     var items: [ThoughtProvocation]
 }
 
+#if compiler(>=6.4)
 @available(iOS 27.2, macOS 27.2, visionOS 27.2, *)
 private struct ExocortexDynamicProfile: LanguageModelSession.DynamicProfile {
     let instructionsText: String
@@ -83,6 +84,7 @@ private struct ExocortexDynamicProfile: LanguageModelSession.DynamicProfile {
         }
     }
 }
+#endif
 #endif
 
 /// Tier-0 local agent backed by Apple's on-device Foundation Models (and iOS 27 Private Cloud Compute).
@@ -124,7 +126,7 @@ public final class FoundationModelsAgent {
 
     /// Whether iOS 27+ Private Cloud Compute is available for larger-context Apple Intelligence turns.
     public var isCloudFallbackAvailable: Bool {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && compiler(>=6.4)
         if #available(iOS 27.2, macOS 27.2, visionOS 27.2, *) {
             return PrivateCloudComputeLanguageModel().isAvailable
         }
@@ -139,7 +141,7 @@ public final class FoundationModelsAgent {
 
     /// Display name of the active on-device AFM 3 variant on iOS 27+ (e.g. Core 3 / Core Advanced 3).
     public var onDeviceVariantName: String? {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && compiler(>=6.4)
         if #available(iOS 27.2, macOS 27.2, visionOS 27.2, *) {
             guard SystemLanguageModel.default.isAvailable else { return nil }
             let name = SystemLanguageModel.default.variant.displayName
@@ -175,6 +177,7 @@ public final class FoundationModelsAgent {
         Summarize technical state in 1-2 sentences with precise terminology.
         """
 
+        #if compiler(>=6.4)
         if #available(iOS 27.2, macOS 27.2, visionOS 27.2, *) {
             let preferCloud = allowCloudFallback && input.count > 6_000
             guard isAvailable || (allowCloudFallback && isCloudFallbackAvailable) else { return nil }
@@ -192,6 +195,7 @@ public final class FoundationModelsAgent {
                 return nil
             }
         }
+        #endif
 
         guard SystemLanguageModel.default.isAvailable else { return nil }
         do {
@@ -275,11 +279,17 @@ public final class FoundationModelsAgent {
             return response.content
         } catch {
             print("[FoundationModelsAgent] respond error: \(error)")
+            #if compiler(>=6.4)
             if #available(iOS 27.2, macOS 27.2, visionOS 27.2, *) {
                 // `.revertTranscript` already rolled back the failed turn on iOS 27+.
             } else if generation == sessionGeneration {
                 resetSession()
             }
+            #else
+            if generation == sessionGeneration {
+                resetSession()
+            }
+            #endif
             return nil
         }
         #else
@@ -300,6 +310,7 @@ public final class FoundationModelsAgent {
         (bula/PCDT, agenda, lembretes, Spotlight e memória) sempre que relevante.
         """
 
+        #if compiler(>=6.4)
         if #available(iOS 27.2, macOS 27.2, visionOS 27.2, *) {
             guard isAnyModelAvailable, !Task.isCancelled else { return nil }
             do {
@@ -318,6 +329,7 @@ public final class FoundationModelsAgent {
                 return nil
             }
         }
+        #endif
 
         guard isAvailable, !Task.isCancelled else { return nil }
         do {
@@ -348,7 +360,7 @@ public final class FoundationModelsAgent {
         localOnly: Bool = true,
         instructions: String? = nil
     ) async -> String? {
-        #if canImport(FoundationModels)
+        #if canImport(FoundationModels) && compiler(>=6.4)
         if localOnly {
             guard SystemLanguageModel.default.isAvailable, !Task.isCancelled else { return nil }
         } else {
@@ -441,7 +453,7 @@ public final class FoundationModelsAgent {
             SearchBySomaticStateTool(), SuggestExplorationTool(),
             AppleCalendarTool(), AppleRemindersTool(), ClinicalBulaTool()
         ]
-        #if canImport(CoreSpotlight) && !os(watchOS)
+        #if canImport(CoreSpotlight) && !os(watchOS) && compiler(>=6.4)
         if #available(iOS 27.2, macOS 27.2, visionOS 27.2, *) {
             tools.append(SpotlightSearchTool())
         }
@@ -453,6 +465,7 @@ public final class FoundationModelsAgent {
     private func chatSession() -> LanguageModelSession {
         if let session = _session { return session }
         let session: LanguageModelSession
+        #if compiler(>=6.4)
         if #available(iOS 27.2, macOS 27.2, visionOS 27.2, *) {
             let profile = ExocortexDynamicProfile(
                 instructionsText: Self.defaultExocortexInstructions,
@@ -467,6 +480,13 @@ public final class FoundationModelsAgent {
                 instructions: Self.defaultExocortexInstructions
             )
         }
+        #else
+        session = LanguageModelSession(
+            model: .default,
+            tools: exocortexTools(),
+            instructions: Self.defaultExocortexInstructions
+        )
+        #endif
         _session = session
         return session
     }
@@ -514,6 +534,7 @@ public final class FoundationModelsAgent {
         """
         do {
             let session: LanguageModelSession
+            #if compiler(>=6.4)
             if #available(iOS 27.2, macOS 27.2, visionOS 27.2, *) {
                 let profile = ExocortexDynamicProfile(
                     instructionsText: provocationInstructions,
@@ -524,6 +545,9 @@ public final class FoundationModelsAgent {
             } else {
                 session = LanguageModelSession(instructions: provocationInstructions)
             }
+            #else
+            session = LanguageModelSession(instructions: provocationInstructions)
+            #endif
             let response = try await session.respond(to: context, generating: ProvocationBatch.self)
             try Task.checkCancellation()
             let items = response.content.items
