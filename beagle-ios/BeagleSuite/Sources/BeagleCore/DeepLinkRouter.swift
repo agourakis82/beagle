@@ -46,9 +46,32 @@ public final class DeepLinkRouter {
     /// never presented twice (a re-presented sheet would fight the user's own navigation).
     public private(set) var pending: Destination?
 
+    /// Target for `beagle://project/{slug}` and `beagle://project/{slug}/agent/{kind}` deep links
+    /// as well as Handoff/Spotlight project activities.
+    public struct ProjectLaunchTarget: Hashable, Sendable, Identifiable {
+        public let slug: String
+        public let agentKind: String?
+
+        public var id: String {
+            if let agentKind, !agentKind.isEmpty {
+                return "\(slug)/\(agentKind)"
+            }
+            return slug
+        }
+
+        public init(slug: String, agentKind: String? = nil) {
+            self.slug = slug
+            self.agentKind = agentKind
+        }
+    }
+
     /// Optional fine-grained Companion action (open specific Spotlight conversation, arm hands-free
     /// voice from Action Button, or prefill/send a prompt).
     public private(set) var pendingCompanionAction: CompanionLaunchAction?
+
+    /// Pending project deep link parked until the active layout (iPhone sheet or iPad NavigationStack)
+    /// mounts and consumes it — safe across cold starts before catalog refresh completes.
+    public private(set) var pendingProject: ProjectLaunchTarget?
 
     public enum Destination: String, Sendable, CaseIterable {
         case chat       // Companion chat (e.g. from Share Sheet `beagle://chat`, Action Button, Spotlight)
@@ -172,11 +195,51 @@ public final class DeepLinkRouter {
         }
     }
 
+    /// Parse a project deep link:
+    /// - `beagle://project/{slug}` or `beagle:///project/{slug}`
+    /// - `beagle://project/{slug}/agent/{kind}` or `beagle:///project/{slug}/agent/{kind}`
+    public static func projectTarget(for url: URL) -> ProjectLaunchTarget? {
+        guard url.scheme?.lowercased() == "beagle" else { return nil }
+        let hostToken = (url.host ?? "").lowercased()
+        let pathParts = url.pathComponents
+            .filter { $0 != "/" }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let remainder: [String]
+        if hostToken == "project" {
+            remainder = pathParts
+        } else if hostToken.isEmpty, let first = pathParts.first, first.lowercased() == "project" {
+            remainder = Array(pathParts.dropFirst())
+        } else {
+            return nil
+        }
+
+        guard let slug = remainder.first, !slug.isEmpty else { return nil }
+        let agentKind: String?
+        if remainder.count >= 3, remainder[1].lowercased() == "agent", !remainder[2].isEmpty {
+            agentKind = remainder[2]
+        } else {
+            agentKind = nil
+        }
+        return ProjectLaunchTarget(slug: slug, agentKind: agentKind)
+    }
+
     public func request(_ destination: Destination) { pending = destination }
 
     public func requestCompanionAction(_ action: CompanionLaunchAction) {
         pendingCompanionAction = action
         pending = .chat
+    }
+
+    public func requestProject(_ target: ProjectLaunchTarget) {
+        let trimmedSlug = target.slug.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSlug.isEmpty else { return }
+        let trimmedAgent = target.agentKind?.trimmingCharacters(in: .whitespacesAndNewlines)
+        pendingProject = ProjectLaunchTarget(
+            slug: trimmedSlug,
+            agentKind: (trimmedAgent?.isEmpty == false) ? trimmedAgent : nil
+        )
     }
 
     /// DEBUG-only: honour a launch argument so a screen can be opened from a script, with no
@@ -203,11 +266,21 @@ public final class DeepLinkRouter {
         return pendingCompanionAction
     }
 
+    /// Take the pending project target, if any, and clear it in the same step.
+    public func consumeProject() -> ProjectLaunchTarget? {
+        defer { pendingProject = nil }
+        return pendingProject
+    }
+
     /// Handle a URL end-to-end. Returns true when it was ours.
     @discardableResult
     public func open(_ url: URL) -> Bool {
         if let companionAction = Self.companionAction(for: url) {
             requestCompanionAction(companionAction)
+            return true
+        }
+        if let projectTarget = Self.projectTarget(for: url) {
+            requestProject(projectTarget)
             return true
         }
         guard let d = Self.destination(for: url) else { return false }

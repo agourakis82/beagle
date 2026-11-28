@@ -169,112 +169,62 @@ public actor CockpitClient {
         return .staleError(lastError)
     }
 
-    // MARK: - POST helper
+    // MARK: - POST / DELETE helpers (idempotent request ID + pre-delivery-only failover)
 
     public func post<T: Decodable & Sendable>(
         _ type: T.Type,
         path: String,
         body: [String: any Sendable] = [:],
-        timeout: TimeInterval = 15
+        timeout: TimeInterval = 15,
+        idempotencyKey: String? = nil
     ) async -> Truthful<T> {
-        var lastError = "no base URL reachable"
-
-        for base in baseURLs {
-            guard let url = URL(string: path, relativeTo: base) else { continue }
-            do {
-                var request = URLRequest(url: url)
-                BeagleEndpoints.applyCockpitAuth(to: &request)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = timeout
-
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                let (data, response) = try await session.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200..<300).contains(httpResponse.statusCode) else {
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    lastError = formatError(
-                        statusCode: statusCode,
-                        data: data,
-                        fallback: "HTTP \(statusCode)"
-                    )
-                    continue
-                }
-
-                let decoded = try decoder.decode(T.self, from: data)
-                return .observed(decoded, source: url.host)
-            } catch {
-                lastError = error.localizedDescription
-                continue
-            }
+        let payload: Data
+        do {
+            payload = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            return .staleError("Failed to encode request: \(error.localizedDescription)")
         }
-        return .staleError(lastError)
+        return await executeMutation(
+            type,
+            method: "POST",
+            path: path,
+            payload: payload,
+            timeout: timeout,
+            envelopeMode: .plain,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     public func postMobile<T: Decodable & Sendable>(
         _ type: T.Type,
         path: String,
         body: [String: any Sendable] = [:],
-        timeout: TimeInterval = 15
+        timeout: TimeInterval = 15,
+        idempotencyKey: String? = nil
     ) async -> Truthful<T> {
-        var lastError = "no base URL reachable"
-
-        for base in baseURLs {
-            guard let url = URL(string: path, relativeTo: base) else { continue }
-            do {
-                var request = URLRequest(url: url)
-                BeagleEndpoints.applyCockpitAuth(to: &request)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = timeout
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                let (data, response) = try await session.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200..<300).contains(httpResponse.statusCode) else {
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    lastError = formatError(
-                        statusCode: statusCode,
-                        data: data,
-                        fallback: "HTTP \(statusCode)"
-                    )
-                    continue
-                }
-
-                let envelope = try decoder.decode(MobileEnvelope<T>.self, from: data)
-                guard envelope.ok != false else {
-                    lastError = envelope.error?.message ?? "mobile gateway returned ok=false"
-                    continue
-                }
-                guard let payload = envelope.data else {
-                    lastError = envelope.error?.message ?? "mobile gateway returned no data"
-                    continue
-                }
-
-                let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
-                return Truthful(
-                    value: payload,
-                    mode: mode,
-                    observedAt: .now,
-                    source: url.host,
-                    error: nil
-                )
-            } catch {
-                lastError = error.localizedDescription
-                continue
-            }
+        let payload: Data
+        do {
+            payload = try JSONSerialization.data(withJSONObject: body)
+        } catch {
+            return .staleError("Failed to encode request: \(error.localizedDescription)")
         }
-        return .staleError(lastError)
+        return await executeMutation(
+            type,
+            method: "POST",
+            path: path,
+            payload: payload,
+            timeout: timeout,
+            envelopeMode: .mobileRequired,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     public func postEncoded<T: Decodable & Sendable, Body: Encodable & Sendable>(
         _ type: T.Type,
         path: String,
         body: Body,
-        timeout: TimeInterval = 15
+        timeout: TimeInterval = 15,
+        idempotencyKey: String? = nil
     ) async -> Truthful<T> {
         let payload: Data
         do {
@@ -282,46 +232,23 @@ public actor CockpitClient {
         } catch {
             return .staleError("Failed to encode request: \(error.localizedDescription)")
         }
-
-        var lastError = "no base URL reachable"
-        for base in baseURLs {
-            guard let url = URL(string: path, relativeTo: base) else { continue }
-            do {
-                var request = URLRequest(url: url)
-                BeagleEndpoints.applyCockpitAuth(to: &request)
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = timeout
-                request.httpBody = payload
-
-                let (data, response) = try await session.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200..<300).contains(httpResponse.statusCode) else {
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    lastError = formatError(
-                        statusCode: statusCode,
-                        data: data,
-                        fallback: "HTTP \(statusCode)"
-                    )
-                    continue
-                }
-
-                let decoded = try decoder.decode(T.self, from: data)
-                return .observed(decoded, source: url.host)
-            } catch {
-                lastError = error.localizedDescription
-                continue
-            }
-        }
-        return .staleError(lastError)
+        return await executeMutation(
+            type,
+            method: "POST",
+            path: path,
+            payload: payload,
+            timeout: timeout,
+            envelopeMode: .plain,
+            idempotencyKey: idempotencyKey
+        )
     }
 
     public func postMobileEncoded<T: Decodable & Sendable, Body: Encodable & Sendable>(
         _ type: T.Type,
         path: String,
         body: Body,
-        timeout: TimeInterval = 15
+        timeout: TimeInterval = 15,
+        idempotencyKey: String? = nil
     ) async -> Truthful<T> {
         let payload: Data
         do {
@@ -329,19 +256,76 @@ public actor CockpitClient {
         } catch {
             return .staleError("Failed to encode request: \(error.localizedDescription)")
         }
+        return await executeMutation(
+            type,
+            method: "POST",
+            path: path,
+            payload: payload,
+            timeout: timeout,
+            envelopeMode: .mobileOrPlain,
+            idempotencyKey: idempotencyKey
+        )
+    }
 
+    public func deleteMobile<T: Decodable & Sendable>(
+        _ type: T.Type,
+        path: String,
+        body: [String: any Sendable] = [:],
+        idempotencyKey: String? = nil
+    ) async -> Truthful<T> {
+        let payload: Data?
+        if body.isEmpty {
+            payload = nil
+        } else {
+            do {
+                payload = try JSONSerialization.data(withJSONObject: body)
+            } catch {
+                return .staleError("Failed to encode request: \(error.localizedDescription)")
+            }
+        }
+        return await executeMutation(
+            type,
+            method: "DELETE",
+            path: path,
+            payload: payload,
+            timeout: 15,
+            envelopeMode: .mobileRequired,
+            idempotencyKey: idempotencyKey
+        )
+    }
+
+    private enum MutationEnvelopeMode {
+        case plain
+        case mobileRequired
+        case mobileOrPlain
+    }
+
+    private func executeMutation<T: Decodable & Sendable>(
+        _ type: T.Type,
+        method: String,
+        path: String,
+        payload: Data?,
+        timeout: TimeInterval,
+        envelopeMode: MutationEnvelopeMode,
+        idempotencyKey: String?
+    ) async -> Truthful<T> {
         var lastError = "no base URL reachable"
+        let requestID = HTTPFailoverPolicy.resolvedRequestID(idempotencyKey)
+
         for base in baseURLs {
             guard let url = URL(string: path, relativeTo: base) else { continue }
+            var receivedHTTPResponse = false
             do {
                 var request = URLRequest(url: url)
                 BeagleEndpoints.applyCockpitAuth(to: &request)
-                request.httpMethod = "POST"
+                request.httpMethod = method
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(requestID, forHTTPHeaderField: "X-Request-ID")
                 request.timeoutInterval = timeout
                 request.httpBody = payload
 
                 let (data, response) = try await session.data(for: request)
+                receivedHTTPResponse = true
 
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200..<300).contains(httpResponse.statusCode) else {
@@ -351,11 +335,24 @@ public actor CockpitClient {
                         data: data,
                         fallback: "HTTP \(statusCode)"
                     )
-                    continue
+                    return .staleError(lastError, source: url.host)
                 }
 
-                if let envelope = try? decoder.decode(MobileEnvelope<T>.self, from: data),
-                   envelope.ok != false, let unwrapped = envelope.data {
+                switch envelopeMode {
+                case .plain:
+                    let decoded = try decoder.decode(T.self, from: data)
+                    return .observed(decoded, source: url.host)
+
+                case .mobileRequired:
+                    let envelope = try decoder.decode(MobileEnvelope<T>.self, from: data)
+                    guard envelope.ok != false else {
+                        let msg = envelope.error?.message ?? "mobile gateway returned ok=false"
+                        return .staleError(msg, source: url.host)
+                    }
+                    guard let unwrapped = envelope.data else {
+                        let msg = envelope.error?.message ?? "mobile gateway returned no data"
+                        return .staleError(msg, source: url.host)
+                    }
                     let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
                     return Truthful(
                         value: unwrapped,
@@ -364,78 +361,38 @@ public actor CockpitClient {
                         source: url.host,
                         error: nil
                     )
-                }
 
-                let decoded = try decoder.decode(T.self, from: data)
-                return .observed(decoded, source: url.host)
+                case .mobileOrPlain:
+                    if let envelope = try? decoder.decode(MobileEnvelope<T>.self, from: data),
+                       envelope.ok != false, let unwrapped = envelope.data {
+                        let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
+                        return Truthful(
+                            value: unwrapped,
+                            mode: mode,
+                            observedAt: .now,
+                            source: url.host,
+                            error: nil
+                        )
+                    }
+                    let decoded = try decoder.decode(T.self, from: data)
+                    return .observed(decoded, source: url.host)
+                }
             } catch {
                 lastError = error.localizedDescription
-                continue
+                // Only fail over on pre-delivery connection errors. Never replay a mutation
+                // after an HTTP response, decoding failure, or ambiguous post-send error.
+                if !receivedHTTPResponse && HTTPFailoverPolicy.shouldFailoverMutation(after: error) {
+                    continue
+                }
+                return .staleError(lastError, source: url.host)
             }
         }
         return .staleError(lastError)
     }
 
-    public func deleteMobile<T: Decodable & Sendable>(
-        _ type: T.Type,
-        path: String,
-        body: [String: any Sendable] = [:]
-    ) async -> Truthful<T> {
-        var lastError = "no base URL reachable"
-
-        for base in baseURLs {
-            guard let url = URL(string: path, relativeTo: base) else { continue }
-            do {
-                var request = URLRequest(url: url)
-                BeagleEndpoints.applyCockpitAuth(to: &request)
-                request.httpMethod = "DELETE"
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.timeoutInterval = 15
-                if !body.isEmpty {
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                }
-
-                let (data, response) = try await session.data(for: request)
-
-                guard let httpResponse = response as? HTTPURLResponse,
-                      (200..<300).contains(httpResponse.statusCode) else {
-                    let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    lastError = formatError(
-                        statusCode: statusCode,
-                        data: data,
-                        fallback: "HTTP \(statusCode)"
-                    )
-                    continue
-                }
-
-                let envelope = try decoder.decode(MobileEnvelope<T>.self, from: data)
-                guard envelope.ok != false else {
-                    lastError = envelope.error?.message ?? "mobile gateway returned ok=false"
-                    continue
-                }
-                guard let payload = envelope.data else {
-                    lastError = envelope.error?.message ?? "mobile gateway returned no data"
-                    continue
-                }
-
-                let mode = TruthMode(rawValue: envelope.meta?.truthMode ?? "") ?? .observed
-                return Truthful(
-                    value: payload,
-                    mode: mode,
-                    observedAt: .now,
-                    source: url.host,
-                    error: nil
-                )
-            } catch {
-                lastError = error.localizedDescription
-                continue
-            }
-        }
-        return .staleError(lastError)
-    }
-
-    private func formatError(statusCode: Int, data: Data, fallback: String) -> String {
-        if let payload = try? decoder.decode(MobileEnvelope<EmptyMobilePayload>.self, from: data) {
+    internal func formatError(statusCode: Int, data: Data, fallback: String) -> String {
+        if let payload = try? decoder.decode(MobileEnvelope<EmptyMobilePayload>.self, from: data),
+           payload.ok != nil || payload.meta != nil || payload.error?.code != nil || payload.error?.reason != nil {
             var parts = ["HTTP \(statusCode)"]
             parts.append(payload.error?.message ?? fallback)
             if let reason = payload.error?.reason, !reason.isEmpty {
@@ -453,14 +410,9 @@ public actor CockpitClient {
             return parts.joined(separator: " · ")
         }
 
-        if let payload = try? decoder.decode(CockpitBackendErrorPayload.self, from: data) {
+        if let payload = try? decoder.decode(CockpitBackendErrorPayload.self, from: data),
+           payload.hasStructuredDetails {
             return payload.message(statusCode: statusCode, fallback: fallback)
-        }
-
-        let bodyText = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let bodyText, !bodyText.isEmpty {
-            return "HTTP \(statusCode) · \(bodyText)"
         }
 
         return fallback
@@ -478,6 +430,14 @@ struct CockpitBackendErrorPayload: Decodable {
         case reason
         case truthMode
         case requestId
+    }
+
+    var hasStructuredDetails: Bool {
+        [error, reason, truthMode, requestId]
+            .contains { value in
+                guard let value else { return false }
+                return !value.isEmpty
+            }
     }
 
     func message(statusCode: Int, fallback: String) -> String {
