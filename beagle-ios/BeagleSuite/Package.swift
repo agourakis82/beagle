@@ -33,7 +33,7 @@ let package = Package(
         // On-device Whisper speech-to-text
         .package(url: "https://github.com/argmaxinc/WhisperKit", from: "0.18.0"),
         // VT100/xterm terminal emulator for the native fleet terminal (iOS/macOS only)
-        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.0.0"),
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", "1.0.0"..<"1.90.0"),
     ],
     targets: [
         // The macOS Mission Control app — a workshop window for Sounio development.
