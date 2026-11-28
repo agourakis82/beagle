@@ -141,10 +141,9 @@ public final class LiveActivityManager {
             tasks.append(initialTask)
         }
 
-        nonisolated(unsafe) let unsafeAct = act
-
-        let tokenUpdatesTask = Task.detached {
-            for await tokenData in unsafeAct.pushTokenUpdates {
+        let tokenUpdates = act.pushTokenUpdates
+        let tokenUpdatesTask = Task { @MainActor in
+            for await tokenData in tokenUpdates {
                 if Task.isCancelled { break }
                 _ = await LiveActivityClusterCoordinator.shared.submitPushTokenData(
                     tokenData,
@@ -158,13 +157,13 @@ public final class LiveActivityManager {
         }
         tasks.append(tokenUpdatesTask)
 
-        let stateUpdatesTask = Task.detached { [weak self] in
-            for await state in unsafeAct.activityStateUpdates {
+        let stateUpdates = act.activityStateUpdates
+        let stateUpdatesTask = Task { @MainActor [weak self] in
+            for await state in stateUpdates {
                 if Task.isCancelled { break }
                 if state == .ended || state == .dismissed {
                     let reason = state == .dismissed ? "dismissed" : "ended"
-                    await MainActor.run {
-                        guard let self else { return }
+                    if let self {
                         if self.agentActivity?.id == activityId {
                             self.agentActivity = nil
                         }
@@ -201,8 +200,7 @@ public final class LiveActivityManager {
                 liveLine: CompanionLiveVoicePhase.ended.defaultLinePtBR
             )
             let content = ActivityContent(state: endedState, staleDate: nil)
-            nonisolated(unsafe) let unsafeOrphan = orphan
-            Task { await unsafeOrphan.end(content, dismissalPolicy: .immediate) }
+            orphan.endLocalContent(content, dismissalPolicy: .immediate)
         }
         voiceSessionActivity = nil
 
@@ -237,8 +235,7 @@ public final class LiveActivityManager {
             liveLine: state.liveLine
         )
         let content = ActivityContent(state: newState, staleDate: Date.now.addingTimeInterval(900))
-        nonisolated(unsafe) let unsafeAct = act
-        Task { await unsafeAct.update(content) }
+        act.updateLocalContent(content)
     }
 
     public func endVoiceSession(turnCount: Int = 0, voiceLabel: String = "MoE") {
@@ -251,8 +248,7 @@ public final class LiveActivityManager {
                 liveLine: CompanionLiveVoicePhase.ended.defaultLinePtBR
             )
             let content = ActivityContent(state: finalState, staleDate: nil)
-            nonisolated(unsafe) let unsafeAct = act
-            Task { await unsafeAct.end(content, dismissalPolicy: .immediate) }
+            act.endLocalContent(content, dismissalPolicy: .immediate)
             voiceSessionActivity = nil
         } else {
             for orphan in activeList {
@@ -263,8 +259,7 @@ public final class LiveActivityManager {
                     liveLine: CompanionLiveVoicePhase.ended.defaultLinePtBR
                 )
                 let content = ActivityContent(state: finalState, staleDate: nil)
-                nonisolated(unsafe) let unsafeOrphan = orphan
-                Task { await unsafeOrphan.end(content, dismissalPolicy: .immediate) }
+                orphan.endLocalContent(content, dismissalPolicy: .immediate)
             }
         }
     }
@@ -299,8 +294,7 @@ public final class LiveActivityManager {
             snippet: finalSnippet.map { String($0.prefix(120)) } ?? ""
         )
         let content = ActivityContent(state: finalState, staleDate: nil)
-        nonisolated(unsafe) let unsafeAct = act
-        Task { await unsafeAct.end(content, dismissalPolicy: .after(.now + 20)) }
+        act.endLocalContent(content, dismissalPolicy: .after(.now + 20))
         companionActivity = nil
     }
 
@@ -377,8 +371,7 @@ public final class LiveActivityManager {
             lastOutputSnippet: String(snippet.suffix(80))
         )
         let content = ActivityContent(state: newState, staleDate: Date.now.addingTimeInterval(300))
-        nonisolated(unsafe) let unsafeAct = act
-        Task { await unsafeAct.update(content) }
+        act.updateLocalContent(content)
     }
 
     public func endAgentActivity(finalStatus: String) {
@@ -391,9 +384,7 @@ public final class LiveActivityManager {
             lastOutputSnippet: ""
         )
         let content = ActivityContent(state: finalState, staleDate: nil)
-        nonisolated(unsafe) let unsafeAct = act
-        Task {
-            await unsafeAct.end(content, dismissalPolicy: .after(.now + 300))
+        act.endLocalContent(content, dismissalPolicy: .after(.now + 300)) {
             await LiveActivityClusterCoordinator.shared.revoke(activityId: activityId, reason: "ended")
         }
         agentActivity = nil
@@ -498,8 +489,7 @@ public final class LiveActivityManager {
             isCompleted: false
         )
         let content = ActivityContent(state: newState, staleDate: Date.now.addingTimeInterval(600))
-        nonisolated(unsafe) let unsafeAct = act
-        Task { await unsafeAct.update(content) }
+        act.updateLocalContent(content)
     }
 
     public func endResearchActivity(finalSummary: String? = nil) {
@@ -517,9 +507,7 @@ public final class LiveActivityManager {
             isCompleted: true
         )
         let content = ActivityContent(state: finalState, staleDate: nil)
-        nonisolated(unsafe) let unsafeAct = act
-        Task {
-            await unsafeAct.end(content, dismissalPolicy: .after(.now + 300))
+        act.endLocalContent(content, dismissalPolicy: .after(.now + 300)) {
             await LiveActivityClusterCoordinator.shared.revoke(activityId: activityId, reason: "ended")
         }
         researchActivity = nil
@@ -576,8 +564,7 @@ public final class LiveActivityManager {
             lastThoughtSnippet: lastThought.map { String($0.suffix(100)) }
         )
         let content = ActivityContent(state: newState, staleDate: Date.now.addingTimeInterval(600))
-        nonisolated(unsafe) let unsafeAct = act
-        Task { await unsafeAct.update(content) }
+        act.updateLocalContent(content)
     }
 
     public func endCognitiveActivity() {
@@ -591,8 +578,7 @@ public final class LiveActivityManager {
             lastThoughtSnippet: nil
         )
         let content = ActivityContent(state: finalState, staleDate: nil)
-        nonisolated(unsafe) let unsafeAct = act
-        Task { await unsafeAct.end(content, dismissalPolicy: .after(.now + 120)) }
+        act.endLocalContent(content, dismissalPolicy: .after(.now + 120))
         cognitiveActivity = nil
     }
 

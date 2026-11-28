@@ -1,0 +1,571 @@
+//
+//  SessionStore+Presentation.swift
+//  BeagleCore
+//
+//  Pure presentation & formatting rules for SessionView and FrotaView:
+//  capability guidance, pt-BR currency formatting, turn footers, cost chips,
+//  peripheral lane lines, approval cards, and session rail grouping.
+//
+
+import Foundation
+
+@MainActor
+extension SessionStore {
+    // MARK: - O que o servidor deixa fazer
+
+    /// O rótulo do gesto, derivado do que a lane aceita. `nil` = não oferecer botão nenhum.
+    public static func rotuloDeGuiar(_ aceita: Aceita?) -> String? {
+        switch aceita {
+        case .redireciona: return "GUIAR"
+        case .enfileira: return "ENFILEIRAR"
+        case .somenteLeitura, nil: return nil
+        }
+    }
+
+    /// A dica da caixa. `nil` = a caixa não existe (não desabilitada: AUSENTE).
+    public static func dicaDaCaixa(_ aceita: Aceita?) -> String? {
+        switch aceita {
+        case .redireciona: return "guiar o turno em curso…"
+        case .enfileira: return "enfileirar para depois deste…"
+        case .somenteLeitura, nil: return nil
+        }
+    }
+
+    /// A explicação que substitui a caixa, quando não há caixa. Distingue "o servidor DECLAROU
+    /// leitura" de "ainda não sei" — a tela não pode afirmar a primeira quando é a segunda.
+    ///
+    /// 🚨 `nil` de `Aceita?` não é `.somenteLeitura`. São estados diferentes: um é o servidor
+    /// dizendo "esta lane é tail, /prompt dá 404"; o outro é "o quadro ainda não chegou, o sid
+    /// não bateu, ou o socket caiu" — nada foi dito sobre a NATUREZA da lane. Desenhar a mesma
+    /// frase ("observada pelo transcript — fale com ela pelo terminal") para os dois é a mentira
+    /// que esta fatia existe para matar, invertida: antes prometia um gesto que não existia,
+    /// assim NEGA um gesto que existe (uma lane de codex plenamente dirigível, só sem quadro
+    /// ainda). `nil` de retorno aqui = há caixa; não chame isto sem checar `dicaDaCaixa` antes.
+    public enum SemCaixa: Equatable { case somenteObservada, capacidadeDesconhecida }
+
+    public static func semCaixa(_ aceita: Aceita?) -> SemCaixa? {
+        switch aceita {
+        case .somenteLeitura: return .somenteObservada
+        case nil: return .capacidadeDesconhecida
+        case .redireciona, .enfileira: return nil
+        }
+    }
+
+    /// Distingue as duas razões de `capacidadeDesconhecida` (o caso `aceita == nil` de
+    /// `semCaixa`): o link do `FleetStateClient` está de PÉ e o servidor só ainda não falou desta
+    /// lane (transitório — o texto atual "aguardando o servidor declarar…" está certo), OU o
+    /// link CAIU e é por isso que `aceita` nunca chegou (a fonte emudeceu; dizer "aguardando"
+    /// mentiria por omissão sobre QUEM está em silêncio).
+    ///
+    /// 🚨 Achado de review: `SessionView` não tinha referência nenhuma ao estado do link do
+    /// `FleetStateClient`. Se o transporte caísse, `aceita` congelava em `nil` para sempre, a
+    /// tela continuava dizendo "aguardando o servidor declarar…" como se fosse transitório, e o
+    /// operador perdia a ÚNICA caixa de texto que tinha sem nenhum aviso de que a culpa era da
+    /// rede, não do agente. `dicaDaCaixa`/`semCaixa` não bastam para consertar isto: os dois só
+    /// enxergam `aceita`, que é justamente o que fica mudo quando o link cai.
+    ///
+    /// Reaproveita `FleetStateClient.explicacaoDoLink` — a MESMA frase que a `FrotaView` já usa
+    /// para "o broker caiu" (inclusive `.insistindo`, que nunca pode implicar que o cliente
+    /// desistiu: ele está retentando sozinho, em segundo plano). Inventar uma segunda string
+    /// aqui para o mesmo fato seria a duplicação que esta fatia já pagou lição para não repetir.
+    public enum RazaoSemCapacidadeDeclarada: Equatable {
+        /// O link está de pé; o servidor só não declarou nada sobre esta lane ainda.
+        case transitorio
+        /// O link caiu. O texto é o de `FleetStateClient.explicacaoDoLink`, verbatim.
+        case linkCaido(String)
+    }
+
+    public static func razaoSemCapacidadeDeclarada(link: FleetStateStore.Link?) -> RazaoSemCapacidadeDeclarada {
+        guard let link else { return .transitorio }
+        switch link {
+        case .idle, .connecting, .live:
+            return .transitorio
+        case .reconnecting, .retrying, .failed:
+            return .linkCaido(FleetStateStore.linkDescription(link))
+        }
+    }
+
+    // MARK: - Dinheiro, num app escrito em português
+
+    /// O ÚNICO produtor de string de dinheiro do app — chip, rodapé e VoiceOver passam por aqui.
+    ///
+    /// 🚨 O defeito que esta função existe para fechar: `String(format: "US$ %.2f", …)` é
+    /// INSENSÍVEL A LOCALE. `%f` emite ponto sempre, então o chip imprimia "US$ 12.35" na mesma
+    /// coluna, logo abaixo do literal "< US$ 0,01" — dois separadores decimais diferentes lado a
+    /// lado na mesma tela. A interface inteira é em português ("guiar o turno em curso…"); a
+    /// vírgula é a forma certa e o ponto era o defeito, não o contrário.
+    ///
+    /// 🚨 Locale EXPLÍCITO `pt_BR`, NUNCA `Locale.current`. Com `.current` o mesmo teste passa
+    /// nesta máquina e falha noutra, e um teste que depende do ambiente não prova nada. Não é
+    /// preferência do sistema: o app não é multilíngue, o idioma dele é uma decisão do produto.
+    ///
+    /// Agrupamento de milhar LIGADO — `NumberFormatter` dá "US$ 1.234,56" de graça, que o `%.2f`
+    /// não dava, e o chip mede o acumulado da lane, que cresce o dia inteiro até chegar lá. Em
+    /// pt-BR o ponto é o separador de MILHAR legítimo; ele não reabre o defeito, que era o ponto
+    /// no lugar do separador DECIMAL. É por isso que o teste de consistência olha o ÚLTIMO
+    /// separador da string, não a ausência de todo ponto.
+    ///
+    /// `.decimal` com o prefixo literal "US$ ", e não `.currency`: o estilo de moeda depende do
+    /// código de moeda e da tabela do ICU para decidir entre "US$", "$" e "USD" — o prefixo
+    /// literal é o que já está na tela e não muda debaixo do app numa atualização do sistema.
+    ///
+    /// O formatador nasce a cada chamada de propósito: `NumberFormatter` é classe mutável e não
+    /// `Sendable`, e um `static let` compartilhado neste alvo (modo Swift 6, StrictConcurrency)
+    /// seria estado global não isolado. São poucas strings por quadro; o custo não aparece.
+    static func moeda(_ usd: Double, casas: Int) -> String {
+        let f = NumberFormatter()
+        f.locale = Locale(identifier: "pt_BR")
+        f.numberStyle = .decimal
+        f.minimumFractionDigits = casas
+        f.maximumFractionDigits = casas
+        f.usesGroupingSeparator = true
+        guard let numero = f.string(from: usd as NSNumber) else {
+            // Inalcançável para um `Double` finito. Se acontecesse, o caminho de recuo não pode
+            // trazer o ponto de volta — é exatamente o defeito que esta função conserta.
+            let cru = String(format: "%.\(casas)f", usd)
+            return "US$ " + cru.replacingOccurrences(of: ".", with: ",")
+        }
+        return "US$ " + numero
+    }
+
+    // MARK: - O rodapé do turno
+
+    /// O rodapé do turno, em texto. `nil` = sem rodapé (nem duração, nem uso).
+    /// 🚨 Custo zero NÃO entra: "US$ 0,0000" em todo turno treina o olho a ignorar a linha, e aí
+    /// o número que importa também deixa de ser lido.
+    ///
+    /// 🚨 Achado de review: a duração é OPCIONAL DENTRO da linha, não um portão para a linha
+    /// inteira. Antes, `guard let d = duracao else { return nil }` apagava contexto E custo
+    /// sempre que o turno ainda estava em curso (`duracao(concluido:)` é `nil` enquanto corre) —
+    /// exatamente o turno que o operador está olhando AGORA, e o único momento em que "quanto
+    /// isto está custando" decide se ele deixa correr ou aperta parar. O lado Rust já conta o
+    /// turno aberto sem esperar por um `TurnEnded` que pode não chegar antes do olho passar pela
+    /// tela; o rodapé não pode ser mais conservador que a fonte que ele lê.
+    /// De onde veio o texto da linha de evidência — e portanto em que VOZ ele deve ser lido.
+    ///
+    /// 🚨 Falta aqui um caso `titulo`, e a ausência é MEDIDA, não esquecimento. O único kind que
+    /// poderia carregá-lo é `session_started`, e ele é ambíguo hoje: numa lane de transcrição o
+    /// `detail` é o título que o agente escolheu (`ai-title`), mas numa lane ACP é o anúncio da
+    /// sessão — `"sessao ACP 979fc90f-8a56-…"`, um IDENTIFICADOR, para o qual monoespaçada é a
+    /// face certa. Distinguir os dois exige o loomd dar ao título um kind próprio, no lugar de
+    /// sobrecarregar `SessionStarted`. Até lá, `titulo` existe só no Figma, como especificação.
+    public enum RegistroDaEvidencia: String, Sendable, Equatable, CaseIterable {
+        /// Algo DITO ao operador — a prosa do agente, ou a pergunta que ele está fazendo.
+        case fala
+        /// Leitura de máquina: cromo de terminal, identificador, ou texto raspado da tela.
+        case leitura
+    }
+
+    /// A voz da evidência segue a ORIGEM do texto, nunca o estado da lane.
+    ///
+    /// O código anterior decidia por `lane.state == .waiting`, e o comentário logo acima dele já
+    /// declarava a intenção certa — *"serif, because it is something being SAID to the operator,
+    /// not a machine reading"*. O estado é o eixo errado: um agente falando enquanto trabalha
+    /// dizia a mesma espécie de coisa que um agente falando enquanto espera, e saía em
+    /// monoespaçada — que neste sistema é reservada a DADO (número, medida, identificador).
+    ///
+    /// O ESTADO continua governando prominência (poço, opacidade, número de linhas). Só a FACE
+    /// passou para a origem.
+    public nonisolated static func registroDaEvidencia(
+        loomdKind: String?, confidence: Confidence
+    ) -> RegistroDaEvidencia {
+        // Procedência primeiro: `inferred` é `capture-pane` + regex. Nenhum kind de protocolo
+        // acompanha um texto que veio da tela — e o cockpit manda `loomdKind: null` justamente
+        // nesse ramo, então confiar no kind aqui seria confiar num campo que não existe.
+        guard confidence == .exact else { return .leitura }
+        switch loomdKind {
+        // `awaiting_approval` / `awaiting_input`: a pergunta É dirigida ao operador. Sem estes
+        // dois a mudança seria uma REGRESSÃO — hoje a lane que espera já sai em serifada.
+        case "agent_message", "awaiting_approval", "awaiting_input": return .fala
+        default: return .leitura
+        }
+    }
+
+    public static func turnFooter(duration: TimeInterval?, usage: TurnUsage?) -> String? {
+        var parts: [String] = []
+        if let d = duration { parts.append(rodapeDur(d)) }
+        if let u = usage {
+            parts.append(contextoDoRodape(u.ratio))
+            // Quatro casas: o rodapé mede UM turno, e a quarta casa É o dado. Ver `moeda`.
+            if u.usd > 0 { parts.append(moeda(u.usd, casas: 4)) }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// A porcentagem de contexto usado, para o rodapé. O 5º "arredonda para zero" desta fatia:
+    /// trocar truncamento por `.rounded()` só moveu o limiar de <1% para <0,5% — com um teto de
+    /// 1.000.000 de tokens, qualquer uso abaixo de 5.000 ainda imprimia "contexto 0%". Mesma
+    /// disciplina de `custoDoChip`: um limiar explícito diz a verdade ("gastou contexto, menos
+    /// de 1%") em vez de deixar o arredondamento afirmar zero.
+    ///
+    /// Contexto EXATAMENTE zero (`proporcao == 0`, ou seja `contextoUsado == 0`) é praticamente
+    /// impossível na prática — o próprio pedido do operador já consome tokens antes de qualquer
+    /// resposta — mas quando acontece mesmo assim, mostra "contexto 0%" sem o limiar: aí zero é
+    /// a verdade honesta, não um valor pequeno escondido pelo arredondamento.
+    private static func contextoDoRodape(_ proporcao: Double) -> String {
+        guard proporcao > 0 else { return "contexto 0%" }
+        let arredondado = Int((proporcao * 100).rounded())
+        return arredondado < 1 ? "contexto < 1%" : "contexto \(arredondado)%"
+    }
+
+    private static func rodapeDur(_ s: TimeInterval) -> String {
+        let t = Int(s.rounded())
+        if t < 60 { return "\(t)s" }
+        if t < 3600 { return "\(t / 60)m \(t % 60)s" }
+        return "\(t / 3600)h \((t % 3600) / 60)m"
+    }
+
+    /// O custo da lane para o chip. `nil` = não mostrar nada.
+    /// 🚨 Zero NÃO se mostra: "US$ 0,00" em todo chip treina o olho a ignorar a linha, e aí o
+    /// número que importa também deixa de ser lido. O servidor omite a chave quando é zero.
+    ///
+    /// 🚨 NÃO usa o `%.4f` do rodapé do turno — de propósito. O rodapé mede UM TURNO (centavos
+    /// de centavo: a quarta casa É o dado). O chip mede o ACUMULADO da lane, que cresce o dia
+    /// inteiro — com `%.4f` ele vira "US$ 12,3456" num card estreito, quatro casas que ninguém
+    /// lê empurrando o dígito que importa para fora do campo visual. A coerência entre os dois
+    /// números é de PRINCÍPIO (custo zero não aparece; nada arredonda para zero), não de string
+    /// de formato — copiar o `%.4f` aqui seria coerência de forma às custas da de fundo.
+    ///
+    /// `>= 0,01`: duas casas, como dinheiro se lê. `> 0` e `< 0,01`: NÃO arredonda para zero —
+    /// duas casas sozinhas trariam de volta o "US$ 0,0000"/"contexto 0%" que esta fatia já
+    /// consertou duas vezes; um limiar explícito diz a verdade ("gastou algo, menos de um
+    /// centavo") sem gastar quatro dígitos no card.
+    public static func custoDoChip(_ usd: Double) -> String? {
+        guard usd > 0 else { return nil }
+        // 🚨 O limiar é DERIVADO do mesmo formatador, não digitado. Como literal ele era a
+        // única string certa por acidente de digitação — e se o formato mudasse, ficaria
+        // para trás em silêncio, que é como o ponto e a vírgula foram parar na mesma tela.
+        if usd < 0.01 { return "< " + moeda(0.01, casas: 2) }
+        return moeda(usd, casas: 2)
+    }
+
+    /// O trecho ", custo US$ 0,42" a ANEXAR num `accessibilityLabel` que já fala presença e
+    /// procedência — string vazia quando não há custo a anunciar. Reaproveita `custoDoChip`
+    /// (mesma regra: zero não aparece, nada arredonda para zero) em vez de reimplementar.
+    ///
+    /// 🚨 Achado de review: `FrotaView` tinha `.accessibilityElement(children: .combine)`
+    /// SEGUIDO de `.accessibilityLabel(...)` — o label explícito SUBSTITUI o texto combinado dos
+    /// filhos, não o soma a ele. O chip de custo é um desses filhos, então VoiceOver nunca ouvia
+    /// o número que esta fatia inteira existe para tornar visível. Extraído aqui (em vez de
+    /// montado inline na view) para ser testável sem SwiftUI, no mesmo padrão do resto do
+    /// arquivo.
+    ///
+    /// 🚨 O parâmetro `velho` é a extensão DESTE caminho, não um segundo caminho: se o número
+    /// pode estar velho (ver `chipDeCusto`), quem OUVE tem de ouvir isso também — senão o
+    /// conserto visual deixaria VoiceOver com a versão confiante do mesmo número, que é
+    /// exatamente o defeito que esta função foi criada para não repetir.
+    public static func custoParaAcessibilidade(_ usd: Double, velho: Bool = false) -> String {
+        guard let custo = custoDoChip(usd) else { return "" }
+        // A frase é a MESMA que o selo de procedência do card já usa para uma observação
+        // vencida ("leitura antiga"): um significado, um vocabulário.
+        return velho ? ", custo \(custo) (leitura antiga)" : ", custo \(custo)"
+    }
+
+    /// O caminho que as views usam: a MESMA decisão de `chipDeCusto` alimenta a fala, para o
+    /// desenho e o rótulo nunca discordarem sobre o frescor do mesmo número.
+    public static func custoParaAcessibilidade(_ lane: LaneSnapshot, agora: Date = Date()) -> String {
+        guard let chip = chipDeCusto(lane, agora: agora) else { return "" }
+        return custoParaAcessibilidade(lane.usd, velho: chip.velho)
+    }
+
+    // MARK: - O frescor do número, não só o número
+
+    /// O chip de custo JÁ MARCADO quando o número pode estar velho — a decisão, pura, fora da
+    /// view. A `LaneCard` só escolhe COMO desenhar o que esta função decidiu.
+    ///
+    /// 🚨 Por que isto existe: o chip mostrava o acumulado da lane sem herdar `isStale` da lane,
+    /// ao contrário do `observationAge` logo abaixo dele no MESMO card. Pior: o servidor CONGELA
+    /// o último custo conhecido quando perde a fonte exata (antes mandava zero, o que apagava o
+    /// gasto), e o cliente faz o mesmo com `?? old.usd` — então o número pode estar velho POR
+    /// CONSTRUÇÃO, sem prazo visível, e não apenas atrasado por polling. É o número mais
+    /// perigoso de estar errado sem aviso: o operador decide continuar ou PARAR uma lane cara
+    /// com base nele.
+    ///
+    /// 🚨 A marca é TEXTO, não opacidade. Num chip que já é `.caption2` a 60% de branco, baixar
+    /// a opacidade não é sinal — é o mesmo ruído, mais fraco: o dado velho ficaria menos
+    /// LEGÍVEL em vez de mais suspeito, e opacidade não tem nome que um leitor de tela possa
+    /// dizer. Por isso a marca é um sufixo (mais a cor, escolhida na view), e o `valor`
+    /// continua inteiro na string: marcar não é esconder, porque o gasto ACONTECEU e o operador
+    /// precisa da ordem de grandeza mesmo quando a leitura envelheceu.
+    public struct ChipDeCusto: Equatable, Sendable {
+        /// O valor sozinho — exatamente o que `custoDoChip` já dizia, sem a marca.
+        public let valor: String
+        /// O que desenhar: `valor`, mais a marca quando velho.
+        public let texto: String
+        /// A observação por trás deste número está vencida (`LaneSnapshot.isStale`).
+        public let velho: Bool
+    }
+
+    /// O sufixo que marca um custo velho. Curto de propósito: cabe num card estreito ao lado de
+    /// "US$ 1.234,57" sem empurrar o dígito que importa para fora do campo visual.
+    public static let marcaDeCustoVelho = "· antigo"
+
+    /// `nil` = não desenhar chip nenhum.
+    ///
+    /// 🚨 A regra de zero NÃO muda com o frescor: custo zero segue sem chip, velho ou não — uma
+    /// leitura envelhecer não faz aparecer um gasto que nunca houve.
+    public static func chipDeCusto(_ lane: LaneSnapshot, agora: Date = Date()) -> ChipDeCusto? {
+        guard let valor = custoDoChip(lane.usd) else { return nil }
+        // Herda o MESMO predicado de frescor que `observationAge` desenha logo abaixo, em vez
+        // de inventar um limiar próprio para o dinheiro. Um card, um relógio.
+        let velho = lane.isStale(now: agora)
+        return ChipDeCusto(valor: valor,
+                           texto: velho ? "\(valor) \(marcaDeCustoVelho)" : valor,
+                           velho: velho)
+    }
+
+    // MARK: - A periferia: o que a faixa TRABALHANDO mostra de cada lane
+
+    /// O que UMA linha da faixa periférica exibe.
+    ///
+    /// 🚨 Periferia não se lê, se CONFERE. A parte de cima da Frota pede decisão; esta existe
+    /// para o olho confirmar que nada mais precisa dele — e visão periférica registra movimento,
+    /// cor e posição, não texto. Medido no retrato de 10-ago-2026: nove linhas quase idênticas,
+    /// nove prévias cortadas no meio da palavra (`(13m…`, `for 2m 1…`, `nao cons…`) e nove
+    /// idades repetindo "9 seg". Nenhum daqueles nove números era notícia, e cada um custava
+    /// uma sacada de olho.
+    ///
+    /// Por isso todo campo aqui é opcional e o valor comum é `nil`: o padrão desta faixa é
+    /// CALAR. Quem sobrevive tem de pagar o próprio custo.
+    public struct LinhaPeriferica: Equatable, Sendable {
+        /// A lane está TRABALHANDO — tem presença, e o desenho lhe dá corpo (fundo, prévia,
+        /// nome inteiro). `false` = está em repouso e RECUA para uma ficha muda.
+        ///
+        /// É este bit que separa os dois tratamentos, e é de propósito que ele mora aqui e não
+        /// dentro da `View`: a distinção que mais importa na faixa fica assertável sem SwiftUI.
+        public let ativa: Bool
+        /// A última linha do agente, já cortada em FRONTEIRA DE PALAVRA. `nil` = não mostrar
+        /// prévia nenhuma — e `nil` é o caso comum, porque só lane ativa ganha prévia.
+        public let previa: String?
+        /// A idade a desenhar. `nil` = leitura fresca, e leitura fresca não é notícia.
+        public let idade: Date?
+        /// A palavra de estado. `nil` = o estado é um dos dois normais desta faixa
+        /// (`trabalhando`/`ocioso`), que o desenho já separa sem gastar texto.
+        public let presenca: String?
+    }
+
+    /// Quantos caracteres a prévia pode ocupar.
+    ///
+    /// Medido, não escolhido por gosto: na coluna mais estreita da grade sobram ~220pt depois da
+    /// lâmpada, do nome e das folgas, e a prévia é monoespaçada de 11pt (~6,6pt por caractere) —
+    /// ou seja ~33 caracteres antes de o SwiftUI truncar por conta própria. E o truncamento do
+    /// SwiftUI é justamente o corte no meio da palavra que esta fatia veio consertar: ele conta
+    /// pixels, não palavras.
+    public nonisolated static let orcamentoDaPrevia = 33
+
+    /// A largura mínima de UMA coluna da faixa, em pontos.
+    ///
+    /// 🚨 Este número é o PISO, não uma preferência: é dele que `orcamentoDaPrevia` tira os 33
+    /// caracteres (~220pt sobrando depois da lâmpada e do nome, ~6,6pt por caractere na
+    /// monoespaçada de 11pt). Espremer a coluna abaixo disto traz de volta o corte no meio da
+    /// palavra — agora por PIXEL, onde nenhum teste de string chega. Por isso a contagem de
+    /// colunas se curva ao piso, e nunca o contrário.
+    public nonisolated static let larguraMinimaDaColuna: Double = 340
+
+    /// A folga horizontal entre colunas da faixa. Vive aqui, e não só na `View`, porque entra na
+    /// conta de quantas colunas cabem.
+    public nonisolated static let espacoEntreColunas: Double = 6
+
+    /// A largura que `c` colunas EXIGEM. Abaixo dela, `c` colunas não são honestas.
+    public nonisolated static func larguraExigida(colunas c: Int) -> Double {
+        guard c > 0 else { return 0 }
+        return Double(c) * larguraMinimaDaColuna + Double(c - 1) * espacoEntreColunas
+    }
+
+    /// Quantas colunas para `n` itens, de modo que a última fileira fique o mais cheia possível.
+    ///
+    /// 🚨 Um ÓRFÃO — fileira final com um item só e um vão largo à direita — chama atenção numa
+    /// faixa cujo trabalho é justamente não chamar atenção. Medido no retrato de 11-ago-2026:
+    /// com quatro lanes trabalhando e três colunas fixas, `kimi-cli2` sobrava sozinha numa
+    /// fileira própria. Três colunas nunca foram uma decisão de design; eram o que a largura
+    /// dava. Aqui a contagem passa a ser DECIDIDA.
+    ///
+    /// A regra: entre as candidatas, escolhe a que minimiza o vazio da última fileira
+    /// (`(c - n % c) % c`); no empate, prefere MAIS colunas — mais denso, faixa mais baixa.
+    ///
+    /// 🚨 `teto` não é enfeite: é quantas colunas a LARGURA disponível comporta sem furar
+    /// `larguraMinimaDaColuna`. É ele que reconcilia os dois casos que parecem brigar —
+    /// com espaço para quatro, `n = 4` vira uma fileira cheia de quatro (vazio zero, sem
+    /// órfão); com espaço para três, a mesma `n = 4` vira 2 + 2, porque 3 deixaria o órfão.
+    /// A fronteira de palavra ganha da coluna extra, sempre: quem escolhe o `teto` é o piso.
+    public nonisolated static func colunasParaPeriferia(_ n: Int, teto: Int = 4) -> Int {
+        // Zero itens não quebra (a faixa nem desenha) e um item nunca merece duas colunas.
+        guard n > 1 else { return 1 }
+        let alto = min(max(teto, 1), 4)
+        guard alto >= 2 else { return 1 }
+        var melhor = 2
+        var menorVazio = Int.max
+        for c in 2...alto {
+            let vazio = (c - n % c) % c
+            // `<=` e não `<`: varrendo em ordem crescente, o empate fica com a MAIOR contagem.
+            if vazio <= menorVazio {
+                menorVazio = vazio
+                melhor = c
+            }
+        }
+        return melhor
+    }
+
+    /// A prévia curta, ou NADA. Nunca um fragmento cortado no meio da palavra.
+    ///
+    /// 🚨 O caso que decide o desenho desta função: quando a PRIMEIRA palavra já estoura o
+    /// orçamento, não existe prévia honesta. Mostrar metade dela é o defeito, não a solução —
+    /// então devolve `nil` e a linha fica sem prévia. "Ou a prévia termina em fronteira de
+    /// palavra, ou não existe."
+    public nonisolated static func previaCurta(_ texto: String,
+                                               limite: Int = orcamentoDaPrevia) -> String? {
+        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return nil }
+        guard t.count > limite else { return t }
+        // A janela reserva um caractere para a reticência, que também ocupa coluna.
+        let janela = t.prefix(limite - 1)
+        guard let fim = janela.lastIndex(where: { $0.isWhitespace }) else { return nil }
+        let cortado = String(janela[..<fim]).trimmingCharacters(in: .whitespaces)
+        return cortado.isEmpty ? nil : cortado + "…"
+    }
+
+    /// A decisão da faixa periférica para UMA lane. PURA, e é esse o ponto: as três regras abaixo
+    /// são de SUBTRAÇÃO, e subtração é exatamente o que um retrato em PNG não consegue afirmar
+    /// (um pixel ausente e um pixel esquecido são o mesmo pixel). Mesma disciplina de
+    /// `custoDoChip`, `rotuloDeGuiar`, `semCaixa` e `rodapeDoTurno` — a view só escolhe COMO
+    /// desenhar o que aqui se decidiu.
+    ///
+    /// 1. **Prévia só para quem trabalha.** O que uma lane OCIOSA "estava dizendo" é a coisa
+    ///    menos acionável da tela: ninguém age sobre a última frase de quem parou. Seis prévias
+    ///    de lanes paradas transformavam a faixa inteira em textura cinza.
+    /// 2. **Idade só quando é notícia.** Nove "9 seg" dizem "está tudo bem" e competem com o
+    ///    conteúdo para não informar nada; a informação é a leitura VELHA. O limiar disso JÁ
+    ///    EXISTE (`LaneSnapshot.isStale`) e é reaproveitado, não reinventado — um painel, um
+    ///    relógio, pela mesma razão de `chipDeCusto`.
+    /// 3. **A palavra de estado só quando não é `trabalhando`/`ocioso`.** Esses dois são os
+    ///    estados normais desta faixa, e o desenho os separa (presença × recuo). Escrever a
+    ///    palavra seria pedir LEITURA justamente para a distinção que tem de sobreviver ao olho
+    ///    de canto. `ausente`, `encerrado` e `não observado` continuam escritos: aí a palavra É
+    ///    a notícia.
+    /// 4. **Prévia e idade nunca aparecem juntas.** Não é economia de espaço (embora tenha
+    ///    saído de uma: com as duas na mesma linha o SwiftUI espremia a prévia e a cortava no
+    ///    meio da palavra outra vez, agora por pixel em vez de por caractere). É a mesma
+    ///    doutrina de verdade do resto do painel: a prévia de uma leitura VENCIDA é uma
+    ///    afirmação sobre o presente que o painel não pode sustentar — "está fazendo X" com
+    ///    cinco minutos de atraso. Quando a leitura envelheceu, a NOTÍCIA é o silêncio da lane,
+    ///    não a última frase dela.
+    public nonisolated static func linhaPeriferica(_ lane: LaneSnapshot,
+                                                   agora: Date = Date()) -> LinhaPeriferica {
+        let ativa = lane.state == .running
+        let velho = lane.isStale(now: agora)
+        // Os dois estados NORMAIS desta faixa. Qualquer outro (ausente, encerrado, nunca
+        // observado) é anomalia, e anomalia se escreve.
+        let normal = lane.state == .running || lane.state == .idle
+        return LinhaPeriferica(
+            ativa: ativa,
+            previa: ativa && !velho ? previaCurta(lane.detail) : nil,
+            idade: velho ? lane.observedAt : nil,
+            presenca: normal ? nil : lane.presenceLabel
+        )
+    }
+
+    // MARK: - O que o card de aprovação DIZ que está sendo aprovado
+
+    /// A prova que o card mostra para quem tem de decidir. Três casos, e o terceiro é o que
+    /// separa esta função de um `??` encadeado: quando não há NADA, ela não afirma nada.
+    public enum ProvaDoPedido: Equatable, Sendable {
+        /// A mudança proposta, em unified diff. O melhor que existe: o operador vê o que aprova.
+        case diff(String)
+        /// A evidência em texto — a frase do agente. É o que se tem quando não há patch (aprovar
+        /// um COMANDO não gera diff nenhum), e é honesta: veio do agente, não foi inventada aqui.
+        case texto(String)
+        /// Não há prova. O card cala em vez de encher a área com cromo do agente.
+        case nenhuma
+    }
+
+    /// O que o card de aprovação da Frota mostra. PURA, e é esse o ponto: a decisão de "o que se
+    /// vê antes de aprovar" é a coisa mais importante desta tela, e enquanto morasse dentro de
+    /// uma `View` não haveria como afirmá-la sem SwiftUI. Mesma disciplina de `custoDoChip`,
+    /// `rotuloDeGuiar` e `semCaixa` — a view só escolhe COMO desenhar o que aqui se decidiu.
+    ///
+    /// 🚨 O defeito que isto fecha: o card mostrava `lane.detail` cru, que na frota real é
+    /// "Press enter to confirm or esc to cancel" — cromo do agente, em inglês, numa interface em
+    /// português, e IDÊNTICO entre duas lanes pedindo coisas opostas. Para decidir, o operador
+    /// tinha de sair da tela. O dado para dizer o que era já existia no loomd (`pending_kind`,
+    /// `last_diff`) e no cockpit (`approvalKind`, `diff`); só não existia no modelo Swift.
+    public struct PedidoDoCard: Equatable, Sendable {
+        /// O QUE está sendo aprovado, em uma frase. `nil` quando o servidor não declarou o tipo —
+        /// e aí o card não afirma natureza nenhuma (não é "seguir": é silêncio).
+        public let rotulo: String?
+        /// A reversibilidade, que decide se ele lê o detalhe ou só aprova. `nil` pelo mesmo
+        /// motivo de `rotulo`: sem tipo declarado não há promessa a fazer sobre desfazer.
+        public let reversivel: Bool?
+        public let prova: ProvaDoPedido
+
+        /// Não há uma palavra a dizer sobre este pedido. A view usa isto para não abrir um bloco
+        /// vazio (um `VStack` com `spacing` fixo abre buraco mesmo sem conteúdo dentro).
+        public var vazio: Bool { rotulo == nil && prova == .nenhuma }
+    }
+
+    /// 🚨 O DIFF GANHA DO DETALHE quando os dois existem. Não é preferência estética: o `detail`
+    /// de uma lane que traz patch é justamente a linha de cromo ("Press enter…"), e o patch é a
+    /// única coisa que responde à pergunta que o card faz. Preferir o texto aí seria manter o
+    /// defeito de sempre, agora com um campo novo por baixo, sem uso.
+    /// `nonisolated` porque é PURA — mesma disciplina de `FleetStateClient.approveTransport`:
+    /// uma decisão que só pode ser consultada de dentro do main actor não é testável como
+    /// decisão, e é justamente para ser assertável sem SwiftUI que ela mora aqui.
+    public nonisolated static func pedidoDoCard(_ lane: LaneSnapshot) -> PedidoDoCard {
+        let prova: ProvaDoPedido
+        if let d = lane.diff, !d.isEmpty {
+            prova = .diff(d)
+        } else if !lane.detail.isEmpty {
+            prova = .texto(lane.detail)
+        } else {
+            prova = .nenhuma
+        }
+        // O rótulo vem do tipo que o SERVIDOR declarou, e do `label` que `ApprovalKind` já expõe
+        // (o mesmo que a `PedidoView` da Sessão usa) — nenhuma string nova inventada aqui.
+        return PedidoDoCard(
+            rotulo: lane.approvalKind.map { "O agente quer \($0.label)" },
+            reversivel: lane.approvalKind?.reversible,
+            prova: prova
+        )
+    }
+
+    // MARK: - Um pedido, uma resposta
+
+    /// Quantos LUGARES na trilha ofereceriam Aplicar/Recusar para o pedido pendente deste turno.
+    ///
+    /// 🚨 Achado de review: quando o agente propõe um patch (`.diff`) e depois pede para
+    /// aplicá-lo (`.approval`), os dois passos coexistem no mesmo turno. Se AMBOS os widgets
+    /// desenhassem botão — `DiffView` do `.diff` avulso E o card de `.approval` —, o operador
+    /// veria dois pares de Aplicar/Recusar chamando o MESMO `onAprovar` para o MESMO pedido.
+    /// A decisão: o card de aprovação (`PedidoView`) é o ÚNICO lugar — é ele que carrega o
+    /// pedido (e agora o diff, embutido ou referenciado), e `DiffView` nunca desenha botão, em
+    /// nenhum contexto. Este predicado é o invariante executável dessa decisão: um turno com
+    /// pedido pendente tem de dar EXATAMENTE 1, não importa quantos passos `.diff` existam ao
+    /// lado. Sem isto extraído puro, só um teste de UI (que este projeto não tem) pegaria a
+    /// regressão — os snapshots existentes (`SessionSnapshotTests`) renderizam PNG e não
+    /// afirmam nada sobre quantos botões apareceram.
+    public static func lugaresDeResposta(_ passos: [SessionStep]) -> Int {
+        passos.filter { if case .approval = $0 { return true }; return false }.count
+    }
+
+}
+
+// MARK: - O trilho de lanes da Sessão
+
+public extension SessionStore {
+    /// Agrupa o roster desta tela (lanes de PROTOCOLO) em duas prateleiras, para o trilho da
+    /// coluna esquerda da Sessão. Pura: sem view, sem rede, sem relógio — mesma disciplina de
+    /// `SessaoLane.exibida`, ao lado.
+    ///
+    /// 🚨 Reaproveita `FrotaBoard.shelf`/`FrotaBoard.rest`, a MESMA regra que a Frota já usa para
+    /// "precisa de você" — uma segunda definição de urgência aqui divergiria da Frota no dia em
+    /// que alguém mudasse só uma das duas. Uma lane do roster que ainda não tem `LaneSnapshot`
+    /// (o servidor não falou dela ainda) cai nas "demais": a tela não afirma urgência sobre o
+    /// que não observou.
+    static func railGroups(roster: [String], lanes: [LaneSnapshot]) -> (precisa: [String], demais: [String]) {
+        let porSid = Dictionary(uniqueKeysWithValues: lanes.map { ($0.sid, $0) })
+        let comSnapshot = roster.compactMap { porSid[$0] }
+        let semSnapshot = roster.filter { porSid[$0] == nil }
+        let precisa = FrotaBoard.shelf(comSnapshot).map(\.sid)
+        let demais = FrotaBoard.rest(comSnapshot).map(\.sid) + semSnapshot
+        return (precisa, demais)
+    }
+}

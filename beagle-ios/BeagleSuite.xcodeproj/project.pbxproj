@@ -98,6 +98,10 @@
 		AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */; };
 		B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */; };
 		B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */; };
+		D70700000000000000000011 /* BeagleCockpitRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70700000000000000000001 /* BeagleCockpitRootView.swift */; };
+		D70700000000000000000012 /* BeagleCockpitShellChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70700000000000000000002 /* BeagleCockpitShellChrome.swift */; };
+		D70700000000000000000013 /* VisualEvidenceCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70700000000000000000003 /* VisualEvidenceCaptureView.swift */; };
+		D70700000000000000000014 /* CaptureReviewSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = D70700000000000000000004 /* CaptureReviewSheet.swift */; };
 		B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FADF6A9C3533B785FE38619 /* GoDeepView.swift */; };
 		BEAF00050000000000000007 /* GoDeepView+Sections.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000107 /* GoDeepView+Sections.swift */; };
 		BEAF00050000000000000008 /* GoDeepView+ModalityDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000108 /* GoDeepView+ModalityDetail.swift */; };
@@ -279,6 +283,10 @@
 		6E25761501AE3C48683C921A /* BeagleSuite */ = {isa = PBXFileReference; lastKnownFileType = folder; path = BeagleSuite; sourceTree = SOURCE_ROOT; };
 		77EBB6E9F932B4C6400037BD /* ScienceJobsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScienceJobsView.swift; sourceTree = "<group>"; };
 		818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleCockpitApp.swift; sourceTree = "<group>"; };
+		D70700000000000000000001 /* BeagleCockpitRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleCockpitRootView.swift; sourceTree = "<group>"; };
+		D70700000000000000000002 /* BeagleCockpitShellChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleCockpitShellChrome.swift; sourceTree = "<group>"; };
+		D70700000000000000000003 /* VisualEvidenceCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisualEvidenceCaptureView.swift; sourceTree = "<group>"; };
+		D70700000000000000000004 /* CaptureReviewSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureReviewSheet.swift; sourceTree = "<group>"; };
 		8818FC1E3DC8B03233F14F29 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		88F68F6456B64893491C1B93 /* BeagleSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleSurface.swift; sourceTree = "<group>"; };
 		BEAF00040000000000000101 /* BeagleSurface+ExocortexHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BeagleSurface+ExocortexHome.swift"; sourceTree = "<group>"; };
@@ -475,6 +483,10 @@
 				CE98C9276CD162B3C8A73ACB /* AgoraDetailView.swift */,
 				579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */,
 				818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */,
+				D70700000000000000000001 /* BeagleCockpitRootView.swift */,
+				D70700000000000000000002 /* BeagleCockpitShellChrome.swift */,
+				D70700000000000000000003 /* VisualEvidenceCaptureView.swift */,
+				D70700000000000000000004 /* CaptureReviewSheet.swift */,
 				F96E1A662D877979794235C0 /* BeagleInputBar.swift */,
 				88F68F6456B64893491C1B93 /* BeagleSurface.swift */,
 				BEAF00040000000000000101 /* BeagleSurface+ExocortexHome.swift */,
@@ -1079,6 +1091,10 @@
 				BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */,
 				2506AE1D807F002678049438 /* BeagleAppIntents.swift in Sources */,
 				B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */,
+				D70700000000000000000011 /* BeagleCockpitRootView.swift in Sources */,
+				D70700000000000000000012 /* BeagleCockpitShellChrome.swift in Sources */,
+				D70700000000000000000013 /* VisualEvidenceCaptureView.swift in Sources */,
+				D70700000000000000000014 /* CaptureReviewSheet.swift in Sources */,
 				E69EEC2DD2B3683A6CAFFC83 /* BeagleFigure.swift in Sources */,
 				6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */,
 				812A510B2CB1DD41E687C600 /* BeagleSplatView.swift in Sources */,
