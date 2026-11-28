@@ -1,0 +1,58 @@
+name: BEAGLE Apple CI (BeagleSuite)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'beagle-ios/**'
+      - '.github/workflows/apple-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'beagle-ios/**'
+      - '.github/workflows/apple-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  beaglesuite-macos:
+    name: BeagleSuite Build & Tests (macOS)
+    runs-on: macos-26
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: beagle-ios/BeagleSuite
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Show Apple toolchain
+        id: toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+          echo "swift=$(swift --version | head -n 1 | shasum -a 256 | cut -c1-12)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache SwiftPM dependencies and build
+        uses: actions/cache@v6
+        with:
+          path: |
+            beagle-ios/BeagleSuite/.build
+            ~/Library/Caches/org.swift.swiftpm
+          key: ${{ runner.os }}-${{ steps.toolchain.outputs.swift }}-beaglesuite-spm-${{ hashFiles('beagle-ios/BeagleSuite/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ steps.toolchain.outputs.swift }}-beaglesuite-spm-
+
+      - name: Build SounioMissionControl
+        run: swift build --target SounioMissionControl
+
+      - name: Test BeagleCoreTests & BeagleWorkbenchKitTests
+        run: swift test --parallel

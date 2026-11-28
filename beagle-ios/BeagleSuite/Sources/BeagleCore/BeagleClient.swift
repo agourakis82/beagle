@@ -89,7 +89,14 @@ public actor BeagleClient {
     public func configure(baseURLs: [URL], consumerId: String? = nil, token: String? = nil) {
         self.baseURLs = baseURLs
         if let consumerId { self.consumerId = consumerId }
-        if let token { self.consumerToken = token }
+        if let token {
+            self.consumerToken = token
+            self.tokenFetched = !token.isEmpty
+            self.tokenFetchedAt = token.isEmpty ? nil : Date()
+            if !token.isEmpty {
+                self.authBootstrapError = nil
+            }
+        }
     }
 
     internal static func pathComponent(_ value: String) -> String {
