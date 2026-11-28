@@ -16,6 +16,7 @@
 //
 
 import Foundation
+import Synchronization
 
 public enum LiveActivityClusterKind: String, Codable, Sendable {
     case agent
@@ -336,7 +337,7 @@ public final class LiveActivityClusterCoordinator {
     /// Transient in-memory hex tokens keyed by activityId for reconnect resubmission; never persisted.
     private var transientHexTokens: [String: String] = [:]
     private var lastSubmittedTokenByActivity: [String: String] = [:]
-    nonisolated(unsafe) private var reconnectTask: Task<Void, Never>? = nil
+    private let reconnectTask = Mutex<Task<Void, Never>?>(nil)
 
     public init(
         defaults: UserDefaults = .standard,
@@ -371,17 +372,19 @@ public final class LiveActivityClusterCoordinator {
         self.associations = Self.loadAssociations(from: defaults)
 
         if observeNetworkReconnect {
-            self.reconnectTask = Task { @MainActor [weak self] in
+            let task = Task { @MainActor [weak self] in
                 for await _ in NotificationCenter.default.notifications(named: .beagleNetworkDidReconnect) {
                     if Task.isCancelled { break }
                     await self?.resubmitAllActive()
                 }
             }
+            reconnectTask.withLock { $0 = task }
         }
     }
 
     deinit {
-        reconnectTask?.cancel()
+        let task = reconnectTask.withLock { $0 }
+        task?.cancel()
     }
 
     /// Returns `true` when foreground local ActivityKit updates should remain active.
