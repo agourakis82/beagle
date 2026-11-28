@@ -42,10 +42,16 @@
 		558DF95BA7821C7D9511DA64 /* DiagnosticsRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4BA72803405548EE389C05 /* DiagnosticsRunner.swift */; };
 		55D8D184BB16F4D3937C7CA9 /* SplatIO in Frameworks */ = {isa = PBXBuildFile; productRef = C83F01D48E457542E2504B42 /* SplatIO */; };
 		5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 287C64605E5D53C799744EFA /* AgentSessionView.swift */; };
+		BEAF00050000000000000001 /* AgentSessionView+Chrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000101 /* AgentSessionView+Chrome.swift */; };
+		BEAF00050000000000000002 /* AgentSessionView+Lifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000102 /* AgentSessionView+Lifecycle.swift */; };
+		BEAF00050000000000000003 /* AgentSessionView+Presentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000103 /* AgentSessionView+Presentation.swift */; };
 		5F331BD1E2ED5220BA6CD405 /* SpatialControlRoomView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3FB27D4E37CE6A23B06B09 /* SpatialControlRoomView.swift */; };
 		6793B25D5614DB8D752B4AA7 /* MetalKitSceneRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C43E52CFE080A1A53483E0 /* MetalKitSceneRenderer.swift */; };
 		6DDB4BC3B8EB67E8090EE6BF /* BeagleInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = F96E1A662D877979794235C0 /* BeagleInputBar.swift */; };
 		70A9B7E7B7390D0AC93EA953 /* ChatScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5733F7DF5C9A723D82336A5C /* ChatScreen.swift */; };
+		BEAF00050000000000000004 /* ChatScreen+Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000104 /* ChatScreen+Conversation.swift */; };
+		BEAF00050000000000000005 /* ChatScreen+LiveVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000105 /* ChatScreen+LiveVoice.swift */; };
+		BEAF00050000000000000006 /* ChatScreen+Sheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000106 /* ChatScreen+Sheets.swift */; };
 		742ABE528AA4B9ED1469FF13 /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED8D2C606B61A2AE04D24FCA /* Constants.swift */; };
 		8003CBD314227378F652535A /* BeagleSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88F68F6456B64893491C1B93 /* BeagleSurface.swift */; };
 		BEAF00040000000000000001 /* BeagleSurface+ExocortexHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00040000000000000101 /* BeagleSurface+ExocortexHome.swift */; };
@@ -93,6 +99,9 @@
 		B153B877BF3BB76F401EF7EF /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0622F6A8D0A1D391932E2D39 /* ModelSettingsView.swift */; };
 		B29E7F8F8148C1AF28D130D0 /* BeagleCockpitApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */; };
 		B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FADF6A9C3533B785FE38619 /* GoDeepView.swift */; };
+		BEAF00050000000000000007 /* GoDeepView+Sections.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000107 /* GoDeepView+Sections.swift */; };
+		BEAF00050000000000000008 /* GoDeepView+ModalityDetail.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000108 /* GoDeepView+ModalityDetail.swift */; };
+		BEAF00050000000000000009 /* GoDeepView+Export.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEAF00050000000000000109 /* GoDeepView+Export.swift */; };
 		BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA11A0000000000000000001 /* PrimordialPresence.swift */; };
 		BA11A000000000000000000B /* st-adormecido.mp4 in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000A /* st-adormecido.mp4 */; };
 		BA11A000000000000000000D /* st-adormecido.png in Resources */ = {isa = PBXBuildFile; fileRef = BA11A000000000000000000C /* st-adormecido.png */; };
@@ -210,12 +219,18 @@
 		235FEA192D29E895FB53AC4D /* MessageBubble.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubble.swift; sourceTree = "<group>"; };
 		277E436B81E53CF23CE43DA1 /* HyperbolicGraphView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HyperbolicGraphView.swift; sourceTree = "<group>"; };
 		287C64605E5D53C799744EFA /* AgentSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSessionView.swift; sourceTree = "<group>"; };
+		BEAF00050000000000000101 /* AgentSessionView+Chrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionView+Chrome.swift"; sourceTree = "<group>"; };
+		BEAF00050000000000000102 /* AgentSessionView+Lifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionView+Lifecycle.swift"; sourceTree = "<group>"; };
+		BEAF00050000000000000103 /* AgentSessionView+Presentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentSessionView+Presentation.swift"; sourceTree = "<group>"; };
 		2C4128C7822635F0B4D0B966 /* PresencePill.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresencePill.swift; sourceTree = "<group>"; };
 		3133A19FD4CA197756C9D57A /* WorkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkView.swift; sourceTree = "<group>"; };
 		33C43E52CFE080A1A53483E0 /* MetalKitSceneRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalKitSceneRenderer.swift; sourceTree = "<group>"; };
 		365A4A4180DF64759923830A /* LiveActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityManager.swift; sourceTree = "<group>"; };
 		381B14E054CDB5B337BC4A52 /* trellis_doodle.ply */ = {isa = PBXFileReference; lastKnownFileType = file; path = trellis_doodle.ply; sourceTree = "<group>"; };
 		3FADF6A9C3533B785FE38619 /* GoDeepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoDeepView.swift; sourceTree = "<group>"; };
+		BEAF00050000000000000107 /* GoDeepView+Sections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GoDeepView+Sections.swift"; sourceTree = "<group>"; };
+		BEAF00050000000000000108 /* GoDeepView+ModalityDetail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GoDeepView+ModalityDetail.swift"; sourceTree = "<group>"; };
+		BEAF00050000000000000109 /* GoDeepView+Export.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GoDeepView+Export.swift"; sourceTree = "<group>"; };
 		4023CB24CCDF9382D2F91CD3 /* ProviderSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSetupView.swift; sourceTree = "<group>"; };
 		4391CB65FB2D130CC3568338 /* BeagleCockpit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BeagleCockpit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4401C1953E5FC67C66F29E96 /* BeagleWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleWidgets.swift; sourceTree = "<group>"; };
@@ -231,6 +246,9 @@
 		5507A9B6D8CF4760BAA8E82F /* DreamInsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DreamInsightsView.swift; sourceTree = "<group>"; };
 		56A345F350FAA7CFA5AC048D /* ModelRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelRenderer.swift; sourceTree = "<group>"; };
 		5733F7DF5C9A723D82336A5C /* ChatScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatScreen.swift; sourceTree = "<group>"; };
+		BEAF00050000000000000104 /* ChatScreen+Conversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatScreen+Conversation.swift"; sourceTree = "<group>"; };
+		BEAF00050000000000000105 /* ChatScreen+LiveVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatScreen+LiveVoice.swift"; sourceTree = "<group>"; };
+		BEAF00050000000000000106 /* ChatScreen+Sheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ChatScreen+Sheets.swift"; sourceTree = "<group>"; };
 		579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeagleAppIntents.swift; sourceTree = "<group>"; };
 		57D78532AAF7E60561B12BCC /* DeepExplorationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepExplorationView.swift; sourceTree = "<group>"; };
 		57FC810225D657C2B5E128EC /* SplatReactor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplatReactor.swift; sourceTree = "<group>"; };
@@ -428,6 +446,9 @@
 				2BA5F99901AB683C69032C1D /* Splat */,
 				BF024B3743049659F7073E6C /* AgentActivityView.swift */,
 				287C64605E5D53C799744EFA /* AgentSessionView.swift */,
+				BEAF00050000000000000101 /* AgentSessionView+Chrome.swift */,
+				BEAF00050000000000000102 /* AgentSessionView+Lifecycle.swift */,
+				BEAF00050000000000000103 /* AgentSessionView+Presentation.swift */,
 				CE98C9276CD162B3C8A73ACB /* AgoraDetailView.swift */,
 				579CF46941BC31C11ADABDA0 /* BeagleAppIntents.swift */,
 				818230BD313FC8BA33052465 /* BeagleCockpitApp.swift */,
@@ -458,6 +479,9 @@
 				1160A4CA5DCDC7BF7C91604C /* FoundationModelsAgent.swift */,
 				F3FFB051F77F091966ACCC82 /* GoDeepButton.swift */,
 				3FADF6A9C3533B785FE38619 /* GoDeepView.swift */,
+				BEAF00050000000000000107 /* GoDeepView+Sections.swift */,
+				BEAF00050000000000000108 /* GoDeepView+ModalityDetail.swift */,
+				BEAF00050000000000000109 /* GoDeepView+Export.swift */,
 				EECE76875D595132E400D65E /* HeatmapView.swift */,
 				5ECF1AC75B06BC72D2CE2B88 /* HPCDashboardView.swift */,
 				A08540D355E6437F5F11ED49 /* JournalingSuggestionsView.swift */,
@@ -503,6 +527,9 @@
 				CAEDA7BA713E365355EC3D94 /* ChatComposer.swift */,
 				B9C7E1A03D5648F2A1730C95 /* VoiceTurnController.swift */,
 				5733F7DF5C9A723D82336A5C /* ChatScreen.swift */,
+				BEAF00050000000000000104 /* ChatScreen+Conversation.swift */,
+				BEAF00050000000000000105 /* ChatScreen+LiveVoice.swift */,
+				BEAF00050000000000000106 /* ChatScreen+Sheets.swift */,
 				441B0B8029610015FF9F9B56 /* CompanionPresence.swift */,
 				235FEA192D29E895FB53AC4D /* MessageBubble.swift */,
 			);
@@ -1011,6 +1038,9 @@
 			files = (
 				951D9C072CAFC68FA6BAE300 /* AgentActivityView.swift in Sources */,
 				5C9E692155B7BB186AD319CD /* AgentSessionView.swift in Sources */,
+				BEAF00050000000000000001 /* AgentSessionView+Chrome.swift in Sources */,
+				BEAF00050000000000000002 /* AgentSessionView+Lifecycle.swift in Sources */,
+				BEAF00050000000000000003 /* AgentSessionView+Presentation.swift in Sources */,
 				029E94DF2B6FD3EFABFAF744 /* AgoraDetailView.swift in Sources */,
 				9E87B243B252D1D9E4FF3478 /* AuroraPresence.swift in Sources */,
 				BA11A0000000000000000002 /* PrimordialPresence.swift in Sources */,
@@ -1037,6 +1067,9 @@
 				E380C5A65B4379A937CB79DE /* ChatComposer.swift in Sources */,
 				D1F0A2C4E7B95310A4C6D821 /* VoiceTurnController.swift in Sources */,
 				70A9B7E7B7390D0AC93EA953 /* ChatScreen.swift in Sources */,
+				BEAF00050000000000000004 /* ChatScreen+Conversation.swift in Sources */,
+				BEAF00050000000000000005 /* ChatScreen+LiveVoice.swift in Sources */,
+				BEAF00050000000000000006 /* ChatScreen+Sheets.swift in Sources */,
 				A461CBFD30B88A9A00297321 /* MemorySearchEntity.swift in Sources */,
 				459A916447C162277C0E2299 /* CognitiveBridgeField.swift in Sources */,
 				940357316D6ABA1C8BB85DF3 /* CognitiveRecall.swift in Sources */,
@@ -1053,6 +1086,9 @@
 				0DD04528F8D0BA08681233BE /* FoundationModelsAgent.swift in Sources */,
 				955AF5DFA3C5E28DE9E71AAF /* GoDeepButton.swift in Sources */,
 				B4C18225A382E1164A752BEC /* GoDeepView.swift in Sources */,
+				BEAF00050000000000000007 /* GoDeepView+Sections.swift in Sources */,
+				BEAF00050000000000000008 /* GoDeepView+ModalityDetail.swift in Sources */,
+				BEAF00050000000000000009 /* GoDeepView+Export.swift in Sources */,
 				AFF447F376A1DA08356C28E0 /* HPCDashboardView.swift in Sources */,
 				BF0742CD0ABD9D8AD53DE9D6 /* HeatmapView.swift in Sources */,
 				06BB7ABD02B36D11C5057D62 /* JournalingSuggestionsView.swift in Sources */,

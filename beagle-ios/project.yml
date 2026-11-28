@@ -31,7 +31,7 @@ packages:
 
 targets:
 
-  # ── BeagleCockpit (iOS + iPadOS + macOS) ──────────────────────
+  # ── BeagleCockpit (iOS + iPadOS + macOS) ────────────────────────
   BeagleCockpit:
     type: application
     supportedDestinations: [iOS, macOS]
@@ -103,6 +103,8 @@ targets:
             tail21cbc4.ts.net:
               NSExceptionAllowsInsecureHTTPLoads: true
               NSIncludesSubdomains: true
+            100.107.208.198:
+              NSExceptionAllowsInsecureHTTPLoads: true
             100.111.39.149:
               NSExceptionAllowsInsecureHTTPLoads: true
     settings:

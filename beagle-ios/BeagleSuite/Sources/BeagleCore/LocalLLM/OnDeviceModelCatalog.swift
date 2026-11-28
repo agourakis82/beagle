@@ -1,0 +1,579 @@
+//
+//  OnDeviceModelCatalog.swift
+//  BeagleCore
+//
+//  Catalog of on-device models, categories, personalities, RAM requirements,
+//  and MLX model configurations for LocalLLMEngine.
+//
+
+import Foundation
+
+#if canImport(MLXLLM) && canImport(MLXLMCommon)
+import MLXLLM
+import MLXLMCommon
+#endif
+
+// MARK: - Model catalog
+
+/// Model category for grouping in the UI.
+public enum ModelCategory: String, CaseIterable, Sendable {
+    case reasoning    = "Reasoning"
+    case code         = "Code"
+    case medical      = "Medical & Bio"
+    case exotic       = "Exotic & Frontier"
+    case ssm          = "SSM (State Space)"
+    case rnn          = "RNN (Recurrent)"
+    case diffusion    = "Diffusion"
+    case moe          = "MoE (Sparse)"
+    case multilingual = "Multilingual"
+    case fast         = "Fast & Light"
+}
+
+/// Model personality — used by the exocortex to choose the right model for the right cognitive task.
+public enum ModelPersonality: String, CaseIterable, Sendable {
+    case analytical   // Traditional reasoning
+    case creative     // High temperature, diverse outputs
+    case medical      // Domain-specific precision
+    case stream       // Infinite context, consciousness stream (RWKV, Mamba)
+    case memory       // Long-term memory specialist (xLSTM)
+    case hybrid       // Best of multiple architectures
+    case exotic       // Fundamentally different approach
+}
+
+/// Available on-device models — grouped by what they're genuinely best at.
+public enum OnDeviceModel: String, CaseIterable, Identifiable, Sendable {
+
+    // Reasoning
+    case qwen3_8B_Uncensored = "qwen3-8b-abliterated-4bit"
+    case llama3_1_8B_Uncensored = "llama3.1-8b-abliterated-4bit"
+    case qwen2_5_7B_Uncensored = "qwen2.5-7b-abliterated-4bit"
+    case qwen3_8B        = "qwen3-8b-4bit"
+    case qwen3_14B       = "qwen3-14b-4bit"
+    case deepseekR1      = "deepseek-r1-7b-4bit"
+    case aceReason7B     = "acereason-nemotron-7b-4bit"
+    case gemma2_9B       = "gemma2-9b-4bit"
+    case gemma4_4B       = "gemma4-e4b-4bit"
+    case qwen3_4B        = "qwen3-4b-4bit"
+
+    // Code
+    case mimo7B          = "mimo-7b-sft-4bit"
+    case phi35Mini       = "phi-3.5-mini-4bit"
+    case qwen2_5_7B      = "qwen2.5-7b"
+    case codeQwen7B      = "codeqwen-7b-4bit"
+
+    // Medical & Bio (PBPK, pharmacokinetics, biomedical literature)
+    case bioMistral7B    = "biomistral-7b-4bit"
+    case openBioLLM7B    = "openbiollm-7b-4bit"
+    case meditron7B      = "meditron-7b-4bit"
+
+    // SSM / Mamba (Tier -1 draft models — O(1) memory, 86+ tok/s)
+    case mamba130m       = "mamba-130m"
+    case mamba370m       = "mamba-370m"
+    case mamba790m       = "mamba-790m"
+
+    // SSM / Hybrid (linear complexity, long context)
+    case falconH1_7B     = "falcon-h1r-7b-4bit"
+    case lfm2MoE         = "lfm2-8b-a1b-3bit"
+    case lfm2_1B         = "lfm2-1.2b-4bit"
+    case jamba3B         = "jamba-reasoning-3b-4bit"
+    case graniteHybrid   = "granite-4.0-h-tiny-4bit"
+
+    // Exotic & Frontier (different thinking, different architectures)
+    case olmo2_7B        = "olmo2-7b-4bit"
+    case smolLM2_1_7B    = "smollm2-1.7b-4bit"
+    case danube3_4B      = "danube3-4b-4bit"
+    case exaone3_8B      = "exaone3-7.8b-4bit"
+    case internLM3_8B    = "internlm3-8b-4bit"
+    case yi1_5_9B        = "yi-1.5-9b-4bit"
+
+    // RNN (Recurrent) — linear time, infinite context
+    case rwkv7_1_5B      = "rwkv7-1.5b-4bit"       // RWKV-7 Goose 1.5B
+    case rwkv7_3B        = "rwkv7-3b-4bit"          // RWKV-7 Goose 3B
+    case xlstm7B         = "xlstm-7b-4bit"          // xLSTM 7B — 3.5x faster than Transformer
+
+    // Diffusion Language (generates text via denoising — non-autoregressive)
+    case plaid1B         = "plaid-1b-4bit"           // PLAID-1B diffusion LM — experimental — MLX conversion pending
+
+    // Mixture of Experts (sparse activation, huge knowledge, small compute)
+    case olmoe1B         = "olmoe-1b-7b-4bit"        // OLMoE 1B active / 7B total
+
+    // Recurrence + Attention hybrid (Google Griffin architecture)
+    case recurrentGemma  = "recurrentgemma-9b-4bit"  // RecurrentGemma 9B (Griffin arch)
+
+    // Metacognitive / Self-reflective (cloud reference — too large for on-device)
+    case reflectionLlama = "reflection-llama-3.1-70b-4bit"  // 70B — cloud reference only
+
+    // Multilingual (strong Portuguese)
+    case mistral7B       = "mistral-7b-v0.3-4bit"
+    case qwen3_1_7B      = "qwen3-1.7b-4bit"
+
+    // Fast & Light
+    case llama3_1_8B     = "llama3.1-8b-4bit"
+    case llama3_2_3B     = "llama3.2-3b-4bit"
+    case smolLM3_3B      = "smollm3-3b-4bit"
+    case gemma4_2B       = "gemma4-e2b-4bit"
+    case gemma2_2B       = "gemma2-2b-4bit"
+    case bitnet2B        = "bitnet-b1.58-2b-4bit"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .mamba130m:      return "Mamba 130M"
+        case .mamba370m:      return "Mamba 370M"
+        case .mamba790m:      return "Mamba 790M"
+        case .qwen3_8B_Uncensored: return "Qwen 3 8B Uncensored (Abliterated)"
+        case .llama3_1_8B_Uncensored: return "Llama 3.1 8B Uncensored (Abliterated)"
+        case .qwen2_5_7B_Uncensored: return "Qwen 2.5 7B Uncensored (Abliterated)"
+        case .qwen3_8B:      return "Qwen 3 8B"
+        case .qwen3_14B:     return "Qwen 3 14B"
+        case .deepseekR1:    return "DeepSeek-R1 7B"
+        case .aceReason7B:   return "AceReason 7B"
+        case .gemma2_9B:     return "Gemma 2 9B"
+        case .gemma4_4B:     return "Gemma 4 4B"
+        case .qwen3_4B:      return "Qwen 3 4B"
+        case .mimo7B:        return "MiMo 7B"
+        case .phi35Mini:     return "Phi 3.5 Mini"
+        case .qwen2_5_7B:    return "Qwen 2.5 7B"
+        case .codeQwen7B:    return "CodeQwen 7B"
+        case .bioMistral7B:  return "BioMistral 7B"
+        case .openBioLLM7B:  return "OpenBioLLM 7B"
+        case .meditron7B:    return "Meditron 7B"
+        case .falconH1_7B:   return "Falcon H1R 7B"
+        case .lfm2MoE:       return "LFM2 8B-A1B"
+        case .lfm2_1B:       return "LFM2 1.2B"
+        case .jamba3B:       return "Jamba 3B"
+        case .graniteHybrid: return "Granite Hybrid"
+        case .olmo2_7B:      return "OLMo 2 7B"
+        case .smolLM2_1_7B:  return "SmolLM2 1.7B"
+        case .danube3_4B:    return "Danube 3 4B"
+        case .exaone3_8B:    return "EXAONE 3 7.8B"
+        case .internLM3_8B:  return "InternLM 3 8B"
+        case .yi1_5_9B:      return "Yi 1.5 9B"
+        case .rwkv7_1_5B:    return "RWKV-7 1.5B"
+        case .rwkv7_3B:      return "RWKV-7 3B"
+        case .xlstm7B:       return "xLSTM 7B"
+        case .plaid1B:       return "PLAID 1B"
+        case .olmoe1B:       return "OLMoE 1B/7B"
+        case .recurrentGemma: return "RecurrentGemma 9B"
+        case .reflectionLlama: return "Reflection Llama 70B"
+        case .mistral7B:     return "Mistral 7B v0.3"
+        case .qwen3_1_7B:    return "Qwen 3 1.7B"
+        case .llama3_1_8B:   return "Llama 3.1 8B"
+        case .llama3_2_3B:   return "Llama 3.2 3B"
+        case .smolLM3_3B:    return "SmolLM3 3B"
+        case .gemma4_2B:     return "Gemma 4 2B"
+        case .gemma2_2B:     return "Gemma 2 2B"
+        case .bitnet2B:      return "BitNet 2B"
+        }
+    }
+
+    public var category: ModelCategory {
+        switch self {
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored: return .reasoning
+        case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B: return .reasoning
+        case .qwen3_14B: return .reasoning
+        case .mimo7B, .phi35Mini, .qwen2_5_7B, .codeQwen7B: return .code
+        case .bioMistral7B, .openBioLLM7B, .meditron7B: return .medical
+        case .mamba130m, .mamba370m, .mamba790m: return .ssm
+        case .falconH1_7B, .lfm2MoE, .lfm2_1B, .jamba3B, .graniteHybrid: return .ssm
+        case .olmo2_7B, .smolLM2_1_7B, .danube3_4B, .exaone3_8B, .internLM3_8B, .yi1_5_9B: return .exotic
+        case .rwkv7_1_5B, .rwkv7_3B, .xlstm7B: return .rnn
+        case .plaid1B: return .diffusion
+        case .olmoe1B: return .moe
+        case .recurrentGemma: return .exotic
+        case .reflectionLlama: return .exotic
+        case .mistral7B, .qwen3_1_7B: return .multilingual
+        case .llama3_1_8B, .llama3_2_3B, .smolLM3_3B, .gemma4_2B, .gemma2_2B, .bitnet2B: return .fast
+        }
+    }
+
+    public var sizeDescription: String {
+        switch self {
+        case .mamba130m:      return "~100 MB"
+        case .mamba370m:      return "~280 MB"
+        case .mamba790m:      return "~500 MB"
+        case .qwen3_8B_Uncensored: return "~4.8 GB"
+        case .llama3_1_8B_Uncensored: return "~4.8 GB"
+        case .qwen2_5_7B_Uncensored: return "~4.5 GB"
+        case .qwen3_8B:      return "~5 GB"
+        case .qwen3_14B:     return "~8,3 GB"
+        case .deepseekR1:    return "~5 GB"
+        case .aceReason7B:   return "~4.5 GB"
+        case .gemma2_9B:     return "~5.5 GB"
+        case .gemma4_4B:     return "~2.8 GB"
+        case .qwen3_4B:      return "~2.5 GB"
+        case .mimo7B:        return "~4.5 GB"
+        case .phi35Mini:     return "~2.3 GB"
+        case .qwen2_5_7B:    return "~4.5 GB"
+        case .codeQwen7B:    return "~4.5 GB"
+        case .bioMistral7B:  return "~4.5 GB"
+        case .openBioLLM7B:  return "~4.5 GB"
+        case .meditron7B:    return "~4.5 GB"
+        case .falconH1_7B:   return "~4.5 GB"
+        case .lfm2MoE:       return "~3 GB"
+        case .lfm2_1B:       return "~0.8 GB"
+        case .jamba3B:       return "~2 GB"
+        case .graniteHybrid: return "~1.5 GB"
+        case .olmo2_7B:      return "~4.5 GB"
+        case .smolLM2_1_7B:  return "~1.2 GB"
+        case .danube3_4B:    return "~2.5 GB"
+        case .exaone3_8B:    return "~5 GB"
+        case .internLM3_8B:  return "~5 GB"
+        case .yi1_5_9B:      return "~5.5 GB"
+        case .rwkv7_1_5B:    return "~1 GB"
+        case .rwkv7_3B:      return "~2 GB"
+        case .xlstm7B:       return "~4.5 GB"
+        case .plaid1B:       return "~0.8 GB"
+        case .olmoe1B:       return "~4.5 GB"
+        case .recurrentGemma: return "~5.5 GB"
+        case .reflectionLlama: return "~40 GB"
+        case .mistral7B:     return "~4.5 GB"
+        case .qwen3_1_7B:    return "~1.2 GB"
+        case .llama3_1_8B:   return "~4.8 GB"
+        case .llama3_2_3B:   return "~2 GB"
+        case .smolLM3_3B:    return "~2 GB"
+        case .gemma4_2B:     return "~1.5 GB"
+        case .gemma2_2B:     return "~1.5 GB"
+        case .bitnet2B:      return "~1 GB"
+        }
+    }
+
+    public var parameterCount: String {
+        switch self {
+        case .mamba130m: return "130M"
+        case .mamba370m: return "370M"
+        case .mamba790m: return "790M"
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen3_8B, .llama3_1_8B: return "8B"
+        case .qwen2_5_7B_Uncensored: return "7B"
+        case .qwen3_14B: return "14B"
+        case .deepseekR1, .aceReason7B, .falconH1_7B, .mimo7B, .qwen2_5_7B, .mistral7B, .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B, .olmo2_7B, .xlstm7B: return "7B"
+        case .gemma2_9B, .yi1_5_9B, .recurrentGemma: return "9B"
+        case .exaone3_8B, .internLM3_8B: return "7.8B"
+        case .danube3_4B: return "4B"
+        case .lfm2MoE: return "8B (1B active)"
+        case .gemma4_4B, .qwen3_4B: return "4B"
+        case .phi35Mini: return "3.8B"
+        case .jamba3B, .llama3_2_3B, .smolLM3_3B, .rwkv7_3B: return "3B"
+        case .gemma4_2B, .gemma2_2B, .bitnet2B: return "2B"
+        case .qwen3_1_7B, .smolLM2_1_7B: return "1.7B"
+        case .rwkv7_1_5B: return "1.5B"
+        case .lfm2_1B, .plaid1B: return "1.2B"
+        case .olmoe1B: return "7B (1B active)"
+        case .reflectionLlama: return "70B"
+        case .graniteHybrid: return "~1B"
+        }
+    }
+
+    public var bestFor: String {
+        switch self {
+        case .mamba130m:      return "Tier -1 draft model. O(1) memory, 86+ tok/s. Pre-screening, speculative decoding drafts, stream-of-consciousness capture. Fits on any device."
+        case .mamba370m:      return "Mid-size Mamba draft. Better triage accuracy than 130M while still extremely fast. Good speculative acceptance rate."
+        case .mamba790m:      return "Largest Mamba draft. Highest standalone quality for SSM-only generation. Best triage accuracy for prompt complexity routing."
+        case .qwen3_8B_Uncensored: return "Sem censura (abliterated). Escuta crua, debate médico/psiquiátrico, farmacologia, neurociência e ideias sem filtro moralista. Forte em PT-BR e raciocínio."
+        case .llama3_1_8B_Uncensored: return "Llama 3.1 8B abliterated (sem recusas). Excelente para brainstorming direto, hipóteses científicas radicais e escuta sem filtros."
+        case .qwen2_5_7B_Uncensored: return "Qwen 2.5 7B abliterated. Raciocínio técnico, código e clínica sem bloqueios de segurança artificiais."
+        case .qwen3_8B:      return "Top-tier reasoning: math proofs, scientific analysis, multi-step logic. Best overall quality on-device."
+        case .qwen3_14B:     return "O maior que cabe no aparelho. Raciocínio clínico e técnico mais longo, português mais firme. Custa RAM e o primeiro carregamento é lento."
+        case .deepseekR1:    return "Chain-of-thought specialist. Shows its work step-by-step. Strongest at formal derivations."
+        case .aceReason7B:   return "NVIDIA’s math champion. Outperforms larger models on MATH/GSM8K benchmarks."
+        case .gemma2_9B:     return "Google’s most careful model. Strong instruction following with safety guardrails."
+        case .gemma4_4B:     return "Latest Google architecture. Balanced reasoning + multimodal-ready. Great quality-to-size."
+        case .qwen3_4B:      return "Fast reasoning with thinking mode. Sweet spot: quality close to 7B at half the memory."
+        case .mimo7B:        return "Xiaomi’s code specialist. Trained on code + math. Better functions than general models."
+        case .phi35Mini:     return "Microsoft’s STEM optimizer. Excels at code generation and scientific text."
+        case .qwen2_5_7B:    return "Strong coder and technical writer. Good at structured output (JSON, YAML)."
+        case .codeQwen7B:    return "Alibaba’s dedicated code model. Trained on 3T code tokens. Superior at completion, refactoring, and explanation."
+        case .bioMistral7B:  return "Fine-tuned on PubMed + medical literature. Understands pharmacokinetics, drug interactions, clinical terminology."
+        case .openBioLLM7B:  return "Biomedical knowledge extraction specialist. Strong on PBPK modeling terminology and research paper analysis."
+        case .meditron7B:    return "Adapted from Llama on medical guidelines + PubMed. Clinical reasoning and evidence-based answers."
+        case .falconH1_7B:   return "Mamba2 SSM hybrid — O(n) complexity. Long context without degrading. Future architecture."
+        case .lfm2MoE:       return "Liquid SSM + MoE: only 1B params active but 8B total knowledge. Extremely fast."
+        case .lfm2_1B:       return "Pure SSM from Liquid AI. Tiny but supports native tool-calling. Fastest in catalog."
+        case .jamba3B:       return "AI21’s SSM+Transformer hybrid. Linear complexity for long exocortex conversations."
+        case .graniteHybrid: return "IBM’s triple hybrid: SSM + Transformer + MoE. Experimental frontier architecture."
+        case .olmo2_7B:      return "Allen AI’s fully open model — weights, data, training logs public. Think different: trained with radical transparency."
+        case .smolLM2_1_7B:  return "HuggingFace’s tiny philosopher. Surprisingly coherent for 1.7B. Try it for distilled, crystallized reasoning."
+        case .danube3_4B:    return "H2O.ai’s water-themed model. Trained differently — mix of synthetic + real data. Fresh perspective on familiar problems."
+        case .exaone3_8B:    return "LG AI Research (Korean). Bilingual mind: trained on Korean+English corpus. East Asian scientific tradition + Western logic."
+        case .internLM3_8B:  return "Shanghai AI Lab. Chinese research ecosystem. Different citation base, different assumptions, different conclusions."
+        case .yi1_5_9B:      return "01.AI (Yi). Trained on massive Chinese internet. Different cultural priors — valuable for lateral thinking."
+        case .rwkv7_1_5B:    return "RWKV-7 Goose 1.5B. Pure RNN — O(n) time, O(1) memory per token. Infinite context without KV cache. Free embedding extraction. Stream-of-consciousness capture."
+        case .rwkv7_3B:      return "RWKV-7 Goose 3B. Larger RNN with richer language modeling. Linear time complexity. Ideal for always-on exocortex streams and continuous thought journaling."
+        case .xlstm7B:       return "Extended LSTM — 3.5x faster than Transformer at inference. Biological memory gating with exponential gates. Long-term memory specialist for episodic recall."
+        case .plaid1B:       return "PLAID-1B diffusion language model. Generates text via iterative denoising — fundamentally non-autoregressive. Parallel token generation. Experimental frontier architecture."
+        case .olmoe1B:       return "OLMoE: Mixture of Experts with only 1B params active out of 7B total. Sparse activation means huge knowledge with tiny compute. Allen AI, fully open."
+        case .recurrentGemma: return "Google’s Griffin architecture — recurrence + local attention hybrid. Linear scaling with sequence length. Bridge between RNN efficiency and Transformer quality."
+        case .reflectionLlama: return "70B self-reflective model. Too large for on-device — cloud reference only. Metacognitive: reasons about its own reasoning. For beagle-consciousness crate integration."
+        case .mistral7B:     return "Mistral’s multilingual flagship. Strong Portuguese, French, Spanish. 128k context."
+        case .qwen3_1_7B:    return "Alibaba’s fast multilingual. Good Portuguese from massive training. Quick draft model."
+        case .llama3_1_8B:   return "Meta’s reliable generalist. Broad biomedical knowledge. Predictable behavior."
+        case .llama3_2_3B:   return "Fast general purpose. Good enough for most tasks, small enough for quick loading."
+        case .smolLM3_3B:    return "HuggingFace’s efficiency champion. Optimized for mobile. Good all-rounder."
+        case .gemma4_2B:     return "Smallest Google model with latest architecture. Ultra-fast for quick questions."
+        case .gemma2_2B:     return "Mature small model. Well-tested, predictable. Good emergency fallback."
+        case .bitnet2B:      return "Microsoft’s 1.58-bit architecture. Radically efficient — future of inference."
+        }
+    }
+
+    public var tagline: String {
+        switch self {
+        case .mamba130m:      return "Draft lightning"
+        case .mamba370m:      return "Fast triage"
+        case .mamba790m:      return "Best draft"
+        case .qwen3_8B_Uncensored: return "Sem censura · PT-BR"
+        case .llama3_1_8B_Uncensored: return "Sem censura · Direto"
+        case .qwen2_5_7B_Uncensored: return "Sem censura · Técnico"
+        case .qwen3_8B:      return "Best overall"
+        case .qwen3_14B:     return "O mais forte offline"
+        case .deepseekR1:    return "Shows its work"
+        case .aceReason7B:   return "Math champion"
+        case .gemma2_9B:     return "Most careful"
+        case .gemma4_4B:     return "Balanced"
+        case .qwen3_4B:      return "Fast thinker"
+        case .mimo7B:        return "Code specialist"
+        case .phi35Mini:     return "STEM focused"
+        case .qwen2_5_7B:    return "Structured output"
+        case .codeQwen7B:    return "3T code tokens"
+        case .bioMistral7B:  return "PubMed trained"
+        case .openBioLLM7B:  return "Bio extraction"
+        case .meditron7B:    return "Clinical reasoning"
+        case .falconH1_7B:   return "Long context SSM"
+        case .lfm2MoE:       return "Fastest 8B"
+        case .lfm2_1B:       return "Tiny + tools"
+        case .jamba3B:       return "Reasoning SSM"
+        case .graniteHybrid: return "Triple hybrid"
+        case .olmo2_7B:      return "Radically open"
+        case .smolLM2_1_7B:  return "Tiny philosopher"
+        case .danube3_4B:    return "Fresh perspective"
+        case .exaone3_8B:    return "Korean+English"
+        case .internLM3_8B:  return "Chinese research"
+        case .yi1_5_9B:      return "Different priors"
+        case .rwkv7_1_5B:    return "Infinite context RNN"
+        case .rwkv7_3B:      return "Consciousness stream"
+        case .xlstm7B:       return "Biological memory"
+        case .plaid1B:       return "Diffusion pioneer"
+        case .olmoe1B:       return "Sparse giant"
+        case .recurrentGemma: return "Hybrid recurrence"
+        case .reflectionLlama: return "Self-reflective"
+        case .mistral7B:     return "Multilingual"
+        case .qwen3_1_7B:    return "Quick draft"
+        case .llama3_1_8B:   return "Reliable generalist"
+        case .llama3_2_3B:   return "Quick & capable"
+        case .smolLM3_3B:    return "Efficiency king"
+        case .gemma4_2B:     return "Ultra-fast"
+        case .gemma2_2B:     return "Proven fallback"
+        case .bitnet2B:      return "1-bit pioneer"
+        }
+    }
+
+    public var minimumRAMGB: UInt64 {
+        switch self {
+        case .qwen3_14B:
+            return 11
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored:
+            return 8
+        case .qwen3_8B, .deepseekR1, .aceReason7B, .llama3_1_8B, .gemma2_9B,
+             .qwen2_5_7B, .falconH1_7B, .mimo7B, .mistral7B,
+             .codeQwen7B, .bioMistral7B, .openBioLLM7B, .meditron7B,
+             .olmo2_7B, .exaone3_8B, .internLM3_8B, .yi1_5_9B,
+             .xlstm7B, .recurrentGemma:
+            return 8
+        case .gemma4_4B, .qwen3_4B, .phi35Mini, .lfm2MoE, .danube3_4B, .olmoe1B:
+            return 6
+        case .reflectionLlama:
+            return 48  // 70B model — cloud reference only, won't fit on any iOS device
+        case .mamba130m, .mamba370m:
+            return 2
+        case .mamba790m, .jamba3B, .llama3_2_3B, .smolLM3_3B, .gemma4_2B, .gemma2_2B,
+             .bitnet2B, .qwen3_1_7B, .lfm2_1B, .graniteHybrid, .smolLM2_1_7B,
+             .rwkv7_1_5B, .rwkv7_3B, .plaid1B:
+            return 4
+        }
+    }
+
+    public var fitsOnThisDevice: Bool {
+        let ramGB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)
+        return ramGB >= minimumRAMGB
+    }
+
+    /// Whether this model requires a HuggingFace token (gated model).
+    public var requiresHFToken: Bool {
+        switch self {
+        case .bioMistral7B, .openBioLLM7B, .meditron7B: return true
+        case .llama3_1_8B, .llama3_2_3B: return true  // Meta Llama requires agreement
+        case .mistral7B: return true                    // Mistral gated
+        default: return false
+        }
+    }
+
+    /// Whether the HF token is configured.
+    public static var hasHFToken: Bool {
+        UserDefaults.standard.string(forKey: "hfToken")?.isEmpty == false
+    }
+
+    /// Whether this model is a Mamba SSM (Tier -1 draft model).
+    public var isMamba: Bool {
+        switch self {
+        case .mamba130m, .mamba370m, .mamba790m: return true
+        default: return false
+        }
+    }
+
+    /// Whether this model is experimental (MLX conversion may not exist yet).
+    public var isExperimental: Bool {
+        switch self {
+        case .rwkv7_1_5B, .rwkv7_3B, .xlstm7B, .plaid1B, .recurrentGemma, .reflectionLlama:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Cognitive personality — used by the exocortex to match models to cognitive tasks.
+    public var personality: ModelPersonality {
+        switch self {
+        // Reasoning — analytical by nature
+        case .qwen3_8B_Uncensored, .llama3_1_8B_Uncensored, .qwen2_5_7B_Uncensored:
+            return .analytical
+        case .qwen3_14B: fallthrough
+        case .qwen3_8B, .deepseekR1, .aceReason7B, .gemma2_9B, .gemma4_4B, .qwen3_4B:
+            return .analytical
+
+        // Code — analytical with structured output
+        case .mimo7B, .phi35Mini, .qwen2_5_7B, .codeQwen7B:
+            return .analytical
+
+        // Medical — domain-specific precision
+        case .bioMistral7B, .openBioLLM7B, .meditron7B:
+            return .medical
+
+        // SSM / Mamba — stream-of-consciousness, infinite context
+        case .mamba130m, .mamba370m, .mamba790m:
+            return .stream
+
+        // SSM / Hybrid — best of multiple architectures
+        case .falconH1_7B, .lfm2MoE, .lfm2_1B, .jamba3B, .graniteHybrid:
+            return .hybrid
+
+        // RNN — infinite context, consciousness stream
+        case .rwkv7_1_5B, .rwkv7_3B:
+            return .stream
+
+        // xLSTM — long-term biological memory
+        case .xlstm7B:
+            return .memory
+
+        // Diffusion — fundamentally different approach
+        case .plaid1B:
+            return .exotic
+
+        // MoE — sparse activation hybrid
+        case .olmoe1B:
+            return .hybrid
+
+        // Recurrent hybrid
+        case .recurrentGemma:
+            return .hybrid
+
+        // Self-reflective metacognition
+        case .reflectionLlama:
+            return .exotic
+
+        // Exotic & Frontier — different thinking
+        case .olmo2_7B, .smolLM2_1_7B, .danube3_4B:
+            return .creative
+        case .exaone3_8B, .internLM3_8B, .yi1_5_9B:
+            return .creative
+
+        // Multilingual — creative multilingual generation
+        case .mistral7B, .qwen3_1_7B:
+            return .creative
+
+        // Fast & Light — general analytical
+        case .llama3_1_8B, .llama3_2_3B, .smolLM3_3B, .gemma4_2B, .gemma2_2B, .bitnet2B:
+            return .analytical
+        }
+    }
+
+    /// HuggingFace model ID for models loaded directly (non-MLX path).
+    public var huggingFaceId: String? {
+        switch self {
+        case .mamba130m: return "state-spaces/mamba-130m-hf"
+        case .mamba370m: return "state-spaces/mamba-370m-hf"
+        case .mamba790m: return "state-spaces/mamba-790m-hf"
+        case .rwkv7_1_5B: return "RWKV/v7-Goose-1.6B-World"
+        case .rwkv7_3B: return "RWKV/v7-Goose-3B-World"
+        case .xlstm7B: return "NX-AI/xLSTM-7b"
+        case .plaid1B: return "igorbrigadir/PLAID-1B"
+        case .olmoe1B: return "allenai/OLMoE-1B-7B-0924"
+        case .recurrentGemma: return "google/recurrentgemma-9b-it"
+        case .reflectionLlama: return "mattshumer/Reflection-Llama-3.1-70B"
+        default: return nil
+        }
+    }
+
+    #if canImport(MLXLLM)
+    var mlxConfiguration: ModelConfiguration {
+        switch self {
+        case .mamba130m:      return ModelConfiguration(id: "state-spaces/mamba-130m-hf")
+        case .mamba370m:      return ModelConfiguration(id: "state-spaces/mamba-370m-hf")
+        case .mamba790m:      return ModelConfiguration(id: "state-spaces/mamba-790m-hf")
+        case .qwen3_8B_Uncensored: return ModelConfiguration(id: "mlx-community/Josiefied-Qwen3-8B-abliterated-v1-4bit")
+        case .llama3_1_8B_Uncensored: return ModelConfiguration(id: "mlx-community/Meta-Llama-3.1-8B-Instruct-abliterated-4bit")
+        case .qwen2_5_7B_Uncensored: return ModelConfiguration(id: "mlx-community/Qwen2.5-7B-Instruct-abliterated-v2-4bit")
+        case .qwen3_8B:      return LLMRegistry.qwen3_8b_4bit
+        case .qwen3_14B:     return ModelConfiguration(id: "mlx-community/Qwen3-14B-4bit")
+        case .deepseekR1:    return LLMRegistry.deepSeekR1_7B_4bit
+        case .aceReason7B:   return ModelConfiguration(id: "mlx-community/AceReason-Nemotron-7B-4bit")
+        case .gemma2_9B:     return LLMRegistry.gemma_2_9b_it_4bit
+        case .gemma4_4B:     return LLMRegistry.gemma4_e4b_it_4bit
+        case .qwen3_4B:      return LLMRegistry.qwen3_4b_4bit
+        case .mimo7B:        return ModelConfiguration(id: "mlx-community/MiMo-7B-SFT-4bit")
+        case .phi35Mini:     return ModelConfiguration(id: "mlx-community/Phi-3.5-mini-instruct-4bit")
+        case .qwen2_5_7B:    return LLMRegistry.qwen2_5_7b
+        case .codeQwen7B:    return ModelConfiguration(id: "mlx-community/CodeQwen1.5-7B-Chat-4bit")
+        case .bioMistral7B:  return ModelConfiguration(id: "mlx-community/BioMistral-7B-DARE-4bit")
+        case .openBioLLM7B:  return ModelConfiguration(id: "mlx-community/OpenBioLLM-Llama3-8B-4bit")
+        case .meditron7B:    return ModelConfiguration(id: "mlx-community/meditron-7b-chat-4bit")
+        case .falconH1_7B:   return ModelConfiguration(id: "mlx-community/Falcon-H1R-7B-4bit")
+        case .lfm2MoE:       return ModelConfiguration(id: "mlx-community/LFM2-8B-A1B-3bit-MLX")
+        case .lfm2_1B:       return ModelConfiguration(id: "mlx-community/LFM2-1.2B-4bit")
+        case .jamba3B:       return ModelConfiguration(id: "mlx-community/AI21-Jamba-Reasoning-3B-4bit")
+        case .graniteHybrid: return ModelConfiguration(id: "mlx-community/Granite-4.0-H-Tiny-4bit-DWQ")
+        case .olmo2_7B:      return ModelConfiguration(id: "mlx-community/OLMo-2-1124-7B-Instruct-4bit")
+        case .smolLM2_1_7B:  return ModelConfiguration(id: "mlx-community/SmolLM2-1.7B-Instruct-4bit")
+        case .danube3_4B:    return ModelConfiguration(id: "mlx-community/h2o-danube3-4b-chat-4bit")
+        case .exaone3_8B:    return ModelConfiguration(id: "mlx-community/EXAONE-3.5-7.8B-Instruct-4bit")
+        case .internLM3_8B:  return ModelConfiguration(id: "mlx-community/internlm3-8b-instruct-4bit")
+        case .yi1_5_9B:      return ModelConfiguration(id: "mlx-community/Yi-1.5-9B-Chat-4bit")
+        case .rwkv7_1_5B:    return ModelConfiguration(id: "mlx-community/RWKV-7-World-1.5B-4bit")     // experimental — MLX conversion pending
+        case .rwkv7_3B:      return ModelConfiguration(id: "mlx-community/RWKV-7-World-3B-4bit")       // experimental — MLX conversion pending
+        case .xlstm7B:       return ModelConfiguration(id: "mlx-community/xLSTM-7B-4bit")              // experimental — MLX conversion pending
+        case .plaid1B:       return ModelConfiguration(id: "mlx-community/PLAID-1B-4bit")              // experimental — MLX conversion pending
+        case .olmoe1B:       return ModelConfiguration(id: "mlx-community/OLMoE-1B-7B-0924-4bit")
+        case .recurrentGemma: return ModelConfiguration(id: "mlx-community/recurrentgemma-9b-it-4bit")  // experimental — MLX conversion pending
+        case .reflectionLlama: return ModelConfiguration(id: "mlx-community/Reflection-Llama-3.1-70B-4bit")  // cloud reference — too large for device
+        case .mistral7B:     return ModelConfiguration(id: "mlx-community/Mistral-7B-Instruct-v0.3-4bit")
+        case .qwen3_1_7B:    return ModelConfiguration(id: "mlx-community/Qwen3-1.7B-4bit")
+        case .llama3_1_8B:   return LLMRegistry.llama3_1_8B_4bit
+        case .llama3_2_3B:   return LLMRegistry.llama3_2_3B_4bit
+        case .smolLM3_3B:    return ModelConfiguration(id: "mlx-community/SmolLM3-3B-4bit")
+        case .gemma4_2B:     return LLMRegistry.gemma4_e2b_it_4bit
+        case .gemma2_2B:     return LLMRegistry.gemma_2_2b_it_4bit
+        case .bitnet2B:      return ModelConfiguration(id: "mlx-community/bitnet-b1.58-2B-4T-4bit")
+        }
+    }
+    #endif
+
+    public static var recommended: OnDeviceModel {
+        let ramGB = ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)
+        if ramGB >= 12 { return .qwen3_8B }
+        if ramGB >= 8  { return .qwen3_4B }
+        return .gemma4_2B
+    }
+
+    public static func models(in category: ModelCategory) -> [OnDeviceModel] {
+        allCases.filter { $0.category == category }
+    }
+}
