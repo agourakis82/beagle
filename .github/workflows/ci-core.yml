@@ -3,21 +3,39 @@ name: BEAGLE Core CI
 on:
   push:
     branches: [main, develop]
+    paths-ignore:
+      - 'beagle-ios/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/workflows/apple-ci.yml'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'beagle-ios/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/workflows/apple-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   core-build-test:
     name: Core Crates Build & Test
     runs-on: ubuntu-latest
-    
+
     env:
       SQLX_OFFLINE: true
       RUST_BACKTRACE: 1
       PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -25,15 +43,15 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-ci-core-release-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-ci-core-release-
 
       - name: Check formatting
         run: cargo fmt --all -- --check || echo "Format check skipped"
@@ -57,4 +75,3 @@ jobs:
       - name: Test with mocks
         run: |
           cargo test --package beagle-monorepo --test pipeline_demo --release --no-fail-fast || echo "Integration tests skipped"
-

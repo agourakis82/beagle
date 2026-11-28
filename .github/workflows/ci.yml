@@ -1,21 +1,40 @@
 name: BEAGLE CI — 100% LIMPO
 
-on: 
+on:
   push:
     branches: [main, develop]
+    paths-ignore:
+      - 'beagle-ios/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/workflows/apple-ci.yml'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'beagle-ios/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/workflows/apple-ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       SQLX_OFFLINE: true
       RUST_BACKTRACE: 1
       PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -28,13 +47,15 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-ci-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-ci-release-
 
       - name: Format
         run: cargo fmt -- --check
@@ -42,7 +63,6 @@ jobs:
       - name: Clippy (core crates)
         run: |
           cargo clippy --package beagle-config --package beagle-core --package beagle-health --package beagle-observability --package beagle-darwin --package beagle-monorepo --all-targets -- -D warnings || true
-          cargo clippy --workspace --all-targets -- -D warnings || true
 
       - name: Build (core crates)
         env:
@@ -51,7 +71,6 @@ jobs:
           BEAGLE_SAFE_MODE: true
         run: |
           cargo build --package beagle-config --package beagle-core --package beagle-health --package beagle-observability --package beagle-darwin --package beagle-monorepo --release
-          cargo build --workspace --release || true
 
       - name: Test (core crates)
         env:
@@ -60,10 +79,9 @@ jobs:
           BEAGLE_SAFE_MODE: true
         run: |
           cargo test --package beagle-config --package beagle-core --package beagle-health --package beagle-observability --package beagle-darwin --package beagle-monorepo --release --no-fail-fast
-          cargo test --workspace --release --no-fail-fast || true
 
       # Enforce the retrieval regression gate (plan #4). The full beagle-hypergraph
-      # test target needs a live DB (sqlx::query! macros), hence the `|| true` above —
+      # test target needs a live DB (sqlx::query! macros) —
       # but the nDCG@10/Recall@10 gate is a self-contained --lib unit test with a frozen
       # synthetic golden set, so it can (and must) block CI deterministically without a DB.
       - name: Retrieval regression gate (nDCG@10 / Recall@10)
@@ -71,4 +89,3 @@ jobs:
           SQLX_OFFLINE: "true"
         run: |
           cargo test --package beagle-hypergraph --lib eval_gate_ndcg10_recall10 --release
-

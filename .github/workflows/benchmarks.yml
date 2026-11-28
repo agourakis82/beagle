@@ -2,9 +2,23 @@ name: Benchmarks
 
 on:
   pull_request:
+    paths-ignore:
+      - 'beagle-ios/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/workflows/apple-ci.yml'
   push:
     branches: [main]
+    paths-ignore:
+      - 'beagle-ios/**'
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/workflows/apple-ci.yml'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   benchmark:
@@ -12,13 +26,13 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
@@ -26,7 +40,7 @@ jobs:
             ${{ runner.os }}-cargo-registry-
 
       - name: Cache target directory
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: target
           key: ${{ runner.os }}-target-${{ hashFiles('**/Cargo.lock') }}
@@ -44,7 +58,7 @@ jobs:
 
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: crates/beagle-hypergraph/target/criterion/
